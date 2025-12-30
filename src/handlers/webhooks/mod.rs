@@ -1,13 +1,15 @@
-// Payment provider webhook handlers
-// These will be implemented in Phase 8
+mod stripe;
+mod lemonsqueezy;
 
-use axum::Router;
+pub use stripe::*;
+pub use lemonsqueezy::*;
+
+use axum::{routing::post, Router};
 
 use crate::db::DbPool;
 
 pub fn router() -> Router<DbPool> {
     Router::new()
-    // Future endpoints:
-    // .route("/webhook/stripe", post(stripe_webhook))
-    // .route("/webhook/lemonsqueezy", post(lemonsqueezy_webhook))
+        .route("/webhook/stripe", post(handle_stripe_webhook))
+        .route("/webhook/lemonsqueezy", post(handle_lemonsqueezy_webhook))
 }
