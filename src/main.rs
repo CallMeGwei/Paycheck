@@ -1,12 +1,3 @@
-mod config;
-mod db;
-mod error;
-mod handlers;
-mod jwt;
-mod middleware;
-mod models;
-mod payments;
-
 use axum::Router;
 use clap::Parser;
 use tower_http::trace::TraceLayer;
@@ -14,10 +5,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use std::time::Duration;
 
-use crate::config::Config;
-use crate::db::{create_pool, init_audit_db, init_db, queries, AppState};
-use crate::models::{
-    ActorType, CreateOperator, CreateOrgMember, CreateProduct, CreateProject, OrgMemberRole,
+use paycheck::config::{self, Config};
+use paycheck::db::{create_pool, init_audit_db, init_db, queries, AppState};
+use paycheck::handlers;
+use paycheck::jwt;
+use paycheck::models::{
+    self, ActorType, CreateOperator, CreateOrgMember, CreateProduct, CreateProject, OrgMemberRole,
     OperatorRole,
 };
 
