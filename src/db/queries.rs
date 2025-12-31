@@ -531,6 +531,7 @@ pub fn create_project(
         public_key: public_key.to_string(),
         stripe_config: None,
         ls_config: None,
+        default_provider: None,
         created_at: now,
         updated_at: now,
     })
@@ -538,7 +539,7 @@ pub fn create_project(
 
 pub fn get_project_by_id(conn: &Connection, id: &str) -> Result<Option<Project>> {
     conn.query_row(
-        "SELECT id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, created_at, updated_at
+        "SELECT id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, default_provider, created_at, updated_at
          FROM projects WHERE id = ?1",
         params![id],
         |row| {
@@ -554,8 +555,9 @@ pub fn get_project_by_id(conn: &Connection, id: &str) -> Result<Option<Project>>
                 public_key: row.get(6)?,
                 stripe_config: stripe_str.and_then(|s| serde_json::from_str(&s).ok()),
                 ls_config: ls_str.and_then(|s| serde_json::from_str(&s).ok()),
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
+                default_provider: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )
@@ -565,7 +567,7 @@ pub fn get_project_by_id(conn: &Connection, id: &str) -> Result<Option<Project>>
 
 pub fn list_projects_for_org(conn: &Connection, org_id: &str) -> Result<Vec<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, created_at, updated_at
+        "SELECT id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, default_provider, created_at, updated_at
          FROM projects WHERE org_id = ?1 ORDER BY created_at DESC",
     )?;
 
@@ -583,8 +585,9 @@ pub fn list_projects_for_org(conn: &Connection, org_id: &str) -> Result<Vec<Proj
                 public_key: row.get(6)?,
                 stripe_config: stripe_str.and_then(|s| serde_json::from_str(&s).ok()),
                 ls_config: ls_str.and_then(|s| serde_json::from_str(&s).ok()),
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
+                default_provider: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -625,6 +628,13 @@ pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Res
         conn.execute(
             "UPDATE projects SET ls_config = ?1, updated_at = ?2 WHERE id = ?3",
             params![json, now, id],
+        )?;
+    }
+    if let Some(ref default_provider) = input.default_provider {
+        // Some(None) clears the value, Some(Some(value)) sets it
+        conn.execute(
+            "UPDATE projects SET default_provider = ?1, updated_at = ?2 WHERE id = ?3",
+            params![default_provider, now, id],
         )?;
     }
     Ok(())

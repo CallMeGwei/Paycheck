@@ -54,16 +54,28 @@ pub async fn initiate_buy(
 
     // Determine payment provider
     let provider = if let Some(ref p) = query.provider {
+        // Explicit provider specified in query
         PaymentProvider::from_str(p)
             .ok_or_else(|| AppError::BadRequest("Invalid provider".into()))?
+    } else if let Some(ref default) = project.default_provider {
+        // Use project's default provider
+        PaymentProvider::from_str(default)
+            .ok_or_else(|| AppError::BadRequest("Invalid default_provider in project".into()))?
     } else {
-        // Default: prefer Stripe, fallback to LemonSqueezy
-        if project.stripe_config.is_some() {
-            PaymentProvider::Stripe
-        } else if project.ls_config.is_some() {
-            PaymentProvider::LemonSqueezy
-        } else {
-            return Err(AppError::BadRequest("No payment provider configured".into()));
+        // Auto-detect: use the only configured provider, or error if both/neither
+        let has_stripe = project.stripe_config.is_some();
+        let has_ls = project.ls_config.is_some();
+        match (has_stripe, has_ls) {
+            (true, false) => PaymentProvider::Stripe,
+            (false, true) => PaymentProvider::LemonSqueezy,
+            (true, true) => {
+                return Err(AppError::BadRequest(
+                    "Multiple payment providers configured. Specify 'provider' query parameter (stripe or lemonsqueezy).".into()
+                ));
+            }
+            (false, false) => {
+                return Err(AppError::BadRequest("No payment provider configured".into()));
+            }
         }
     };
 

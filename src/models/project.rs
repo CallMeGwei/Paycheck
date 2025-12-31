@@ -26,6 +26,7 @@ pub struct Project {
     pub public_key: String,
     pub stripe_config: Option<StripeConfig>,
     pub ls_config: Option<LemonSqueezyConfig>,
+    pub default_provider: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -40,6 +41,7 @@ pub struct ProjectPublic {
     pub public_key: String,
     pub has_stripe: bool,
     pub has_lemonsqueezy: bool,
+    pub default_provider: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -55,6 +57,7 @@ impl From<Project> for ProjectPublic {
             public_key: p.public_key,
             has_stripe: p.stripe_config.is_some(),
             has_lemonsqueezy: p.ls_config.is_some(),
+            default_provider: p.default_provider,
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -80,4 +83,19 @@ pub struct UpdateProject {
     pub license_key_prefix: Option<String>,
     pub stripe_config: Option<StripeConfig>,
     pub ls_config: Option<LemonSqueezyConfig>,
+    /// Default payment provider ("stripe" or "lemonsqueezy")
+    /// Use Some(None) to clear, None to leave unchanged
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub default_provider: Option<Option<String>>,
+}
+
+/// Deserialize a field that can be:
+/// - absent (None) - leave unchanged
+/// - null (Some(None)) - clear the value
+/// - present (Some(Some(value))) - set to value
+fn deserialize_optional_field<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::deserialize(deserializer)?))
 }

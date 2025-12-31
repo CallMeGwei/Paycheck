@@ -48,6 +48,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             public_key TEXT NOT NULL,
             stripe_config TEXT,
             ls_config TEXT,
+            default_provider TEXT CHECK (default_provider IS NULL OR default_provider IN ('stripe', 'lemonsqueezy')),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
