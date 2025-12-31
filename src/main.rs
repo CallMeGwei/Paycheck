@@ -5,7 +5,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use std::time::Duration;
 
-use paycheck::config::{self, Config};
+use paycheck::config::Config;
 use paycheck::db::{create_pool, init_audit_db, init_db, queries, AppState};
 use paycheck::handlers;
 use paycheck::jwt;
@@ -50,6 +50,7 @@ fn bootstrap_first_operator(state: &AppState, email: &str) {
 
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::System,
         None,
         "bootstrap_operator",
@@ -105,6 +106,7 @@ fn seed_dev_data(state: &AppState) {
 
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::System,
         None,
         "seed_operator",
@@ -135,6 +137,7 @@ fn seed_dev_data(state: &AppState) {
 
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::System,
         None,
         "seed_organization",
@@ -163,6 +166,7 @@ fn seed_dev_data(state: &AppState) {
 
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::System,
         None,
         "seed_org_member",
@@ -192,6 +196,7 @@ fn seed_dev_data(state: &AppState) {
 
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::System,
         None,
         "seed_project",
@@ -229,6 +234,7 @@ fn seed_dev_data(state: &AppState) {
 
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::System,
         None,
         "seed_product",
@@ -335,14 +341,15 @@ async fn main() {
         db: db_pool,
         audit: audit_pool,
         base_url: config.base_url.clone(),
+        audit_log_enabled: config.audit_log_enabled,
     };
 
     // Purge old audit logs on startup (0 = never purge)
-    if config::AUDIT_LOG_RETENTION_DAYS > 0 {
+    if config.audit_log_retention_days > 0 {
         let conn = state.audit.get().expect("Failed to get audit connection for purge");
-        match queries::purge_old_audit_logs(&conn, config::AUDIT_LOG_RETENTION_DAYS) {
+        match queries::purge_old_audit_logs(&conn, config.audit_log_retention_days) {
             Ok(count) if count > 0 => {
-                tracing::info!("Purged {} audit log entries older than {} days", count, config::AUDIT_LOG_RETENTION_DAYS);
+                tracing::info!("Purged {} audit log entries older than {} days", count, config.audit_log_retention_days);
             }
             Ok(_) => {}
             Err(e) => {

@@ -9,26 +9,12 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateOrgMember, OrgMember, UpdateOrgMember};
+use crate::util::extract_request_info;
 
 #[derive(Serialize)]
 pub struct OrgMemberCreated {
     pub member: OrgMember,
     pub api_key: String,
-}
-
-fn extract_request_info(headers: &HeaderMap) -> (Option<String>, Option<String>) {
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    (ip, user_agent)
 }
 
 pub async fn create_org_member(
@@ -48,6 +34,7 @@ pub async fn create_org_member(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "create_org_member",
@@ -125,6 +112,7 @@ pub async fn update_org_member(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "update_org_member",
@@ -174,6 +162,7 @@ pub async fn delete_org_member(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "delete_org_member",

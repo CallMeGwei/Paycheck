@@ -1,11 +1,5 @@
 use std::env;
 
-// ============ Audit Log Settings ============
-// Set to false to disable audit logging entirely
-pub const AUDIT_LOG_ENABLED: bool = true;
-// Days to retain audit logs before purging (0 = never purge)
-pub const AUDIT_LOG_RETENTION_DAYS: i64 = 90;
-
 #[derive(Debug, Clone)]
 pub struct Config {
     pub host: String,
@@ -15,6 +9,10 @@ pub struct Config {
     pub base_url: String,
     pub bootstrap_operator_email: Option<String>,
     pub dev_mode: bool,
+    /// Enable/disable audit logging entirely
+    pub audit_log_enabled: bool,
+    /// Days to retain audit logs before purging (0 = never purge)
+    pub audit_log_retention_days: i64,
 }
 
 impl Config {
@@ -34,6 +32,15 @@ impl Config {
         let base_url = env::var("BASE_URL")
             .unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
+        let audit_log_enabled = env::var("AUDIT_LOG_ENABLED")
+            .map(|v| v != "false" && v != "0")
+            .unwrap_or(true);
+
+        let audit_log_retention_days: i64 = env::var("AUDIT_LOG_RETENTION_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(90);
+
         Self {
             host,
             port,
@@ -44,6 +51,8 @@ impl Config {
             base_url,
             bootstrap_operator_email: env::var("BOOTSTRAP_OPERATOR_EMAIL").ok(),
             dev_mode,
+            audit_log_enabled,
+            audit_log_retention_days,
         }
     }
 

@@ -11,16 +11,7 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::jwt::{self, LicenseClaims};
 use crate::models::DeviceType;
-
-/// Extract license key from Authorization header (Bearer token)
-fn extract_key_from_header(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+use crate::util::{extract_bearer_token, LicenseExpirations};
 
 /// Query parameters for GET /redeem (using short-lived redemption code)
 #[derive(Debug, Deserialize)]
@@ -69,8 +60,8 @@ pub async fn redeem_with_code(
     let conn = state.db.get()?;
 
     // Validate device type
-    let device_type = DeviceType::from_str(&query.device_type)
-        .ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
+    let device_type = query.device_type.parse::<DeviceType>()
+        .ok().ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
 
     // Look up the redemption code
     let redemption_code = queries::get_redemption_code_by_code(&conn, &query.code)?
@@ -119,15 +110,16 @@ pub async fn redeem_with_key(
     let conn = state.db.get()?;
 
     // Extract key from header first, fall back to body
-    let key = extract_key_from_header(&headers)
+    let key = extract_bearer_token(&headers)
+        .map(String::from)
         .or(body.key)
         .ok_or_else(|| AppError::BadRequest(
             "License key required. Provide via Authorization header (Bearer {key}) or request body.".into()
         ))?;
 
     // Validate device type
-    let device_type = DeviceType::from_str(&body.device_type)
-        .ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
+    let device_type = body.device_type.parse::<DeviceType>()
+        .ok().ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
 
     // Get the license key
     let license = queries::get_license_key_by_key(&conn, &key)?
@@ -202,13 +194,12 @@ fn redeem_license_internal(
     let now = Utc::now().timestamp();
 
     // Calculate expirations
-    let license_exp = product.license_exp_days.map(|days| now + (days as i64 * 86400));
-    let updates_exp = product.updates_exp_days.map(|days| now + (days as i64 * 86400));
+    let exps = LicenseExpirations::from_product(&product, now);
 
     // Build claims
     let claims = LicenseClaims {
-        license_exp,
-        updates_exp,
+        license_exp: exps.license_exp,
+        updates_exp: exps.updates_exp,
         tier: product.tier.clone(),
         features: product.features.clone(),
         device_id: device_id.to_string(),
@@ -253,8 +244,8 @@ fn redeem_license_internal(
 
     Ok(Json(RedeemResponse {
         token,
-        license_exp,
-        updates_exp,
+        license_exp: exps.license_exp,
+        updates_exp: exps.updates_exp,
         tier: product.tier,
         features: product.features,
         redemption_code: new_redemption_code.code,
@@ -287,7 +278,8 @@ pub async fn generate_redemption_code(
     let conn = state.db.get()?;
 
     // Extract key from header first, fall back to body
-    let key = extract_key_from_header(&headers)
+    let key = extract_bearer_token(&headers)
+        .map(String::from)
         .or(body.key)
         .ok_or_else(|| AppError::BadRequest(
             "License key required. Provide via Authorization header (Bearer {key}) or request body.".into()

@@ -4,18 +4,13 @@ mod lemonsqueezy;
 pub use stripe::*;
 pub use lemonsqueezy::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaymentProvider {
-    Stripe,
-    LemonSqueezy,
-}
+use strum::{AsRefStr, EnumString};
 
-impl PaymentProvider {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "stripe" => Some(PaymentProvider::Stripe),
-            "lemonsqueezy" | "ls" => Some(PaymentProvider::LemonSqueezy),
-            _ => None,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr, EnumString)]
+#[strum(ascii_case_insensitive)]
+pub enum PaymentProvider {
+    #[strum(serialize = "stripe")]
+    Stripe,
+    #[strum(serialize = "lemonsqueezy", serialize = "ls")]
+    LemonSqueezy,
 }

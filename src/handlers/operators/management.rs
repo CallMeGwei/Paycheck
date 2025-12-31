@@ -9,26 +9,12 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::middleware::OperatorContext;
 use crate::models::{ActorType, CreateOperator, Operator, UpdateOperator};
+use crate::util::extract_request_info;
 
 #[derive(Serialize)]
 pub struct OperatorCreated {
     pub operator: Operator,
     pub api_key: String,
-}
-
-fn extract_request_info(headers: &HeaderMap) -> (Option<String>, Option<String>) {
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    (ip, user_agent)
 }
 
 pub async fn create_operator(
@@ -45,6 +31,7 @@ pub async fn create_operator(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::Operator,
         Some(&ctx.operator.id),
         "create_operator",
@@ -104,6 +91,7 @@ pub async fn update_operator(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::Operator,
         Some(&ctx.operator.id),
         "update_operator",
@@ -147,6 +135,7 @@ pub async fn delete_operator(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::Operator,
         Some(&ctx.operator.id),
         "delete_operator",

@@ -7,6 +7,7 @@ use axum::{
 
 use crate::db::{queries, AppState};
 use crate::models::{Operator, OperatorRole};
+use crate::util::extract_bearer_token;
 
 #[derive(Clone)]
 pub struct OperatorContext {
@@ -19,14 +20,7 @@ pub async fn operator_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = request
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let api_key = auth_header
-        .strip_prefix("Bearer ")
+    let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -45,14 +39,7 @@ pub async fn require_owner_role(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = request
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let api_key = auth_header
-        .strip_prefix("Bearer ")
+    let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -75,14 +62,7 @@ pub async fn require_admin_role(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = request
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let api_key = auth_header
-        .strip_prefix("Bearer ")
+    let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

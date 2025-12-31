@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::util::LicenseExpirations;
 
 #[derive(Debug, Deserialize)]
 pub struct ValidateQuery {
@@ -106,25 +107,24 @@ pub async fn validate_license(
     queries::update_device_last_seen(&conn, &device.id)?;
 
     // Calculate current expirations based on activation time
-    let license_exp = product.license_exp_days.map(|days| device.activated_at + (days as i64 * 86400));
-    let updates_exp = product.updates_exp_days.map(|days| device.activated_at + (days as i64 * 86400));
+    let exps = LicenseExpirations::from_product(&product, device.activated_at);
 
     // Check if license_exp has passed
-    if let Some(exp) = license_exp
+    if let Some(exp) = exps.license_exp
         && Utc::now().timestamp() > exp
     {
         return Ok(Json(ValidateResponse {
             valid: false,
             reason: Some("License access has expired".into()),
             license_exp: Some(exp),
-            updates_exp,
+            updates_exp: exps.updates_exp,
         }));
     }
 
     Ok(Json(ValidateResponse {
         valid: true,
         reason: None,
-        license_exp,
-        updates_exp,
+        license_exp: exps.license_exp,
+        updates_exp: exps.updates_exp,
     }))
 }

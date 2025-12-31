@@ -7,6 +7,7 @@ use axum::{
 
 use crate::db::{queries, AppState};
 use crate::models::{OrgMember, OrgMemberRole, ProjectMemberRole};
+use crate::util::extract_bearer_token;
 
 #[derive(Clone)]
 pub struct OrgMemberContext {
@@ -43,14 +44,7 @@ pub async fn org_member_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = request
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let api_key = auth_header
-        .strip_prefix("Bearer ")
+    let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -83,14 +77,7 @@ pub async fn org_member_project_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = request
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let api_key = auth_header
-        .strip_prefix("Bearer ")
+    let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

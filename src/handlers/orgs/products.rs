@@ -8,21 +8,7 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateProduct, Product, UpdateProduct};
-
-fn extract_request_info(headers: &HeaderMap) -> (Option<String>, Option<String>) {
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    (ip, user_agent)
-}
+use crate::util::extract_request_info;
 
 #[derive(serde::Deserialize)]
 pub struct ProductPath {
@@ -49,6 +35,7 @@ pub async fn create_product(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "create_product",
@@ -117,6 +104,7 @@ pub async fn update_product(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "update_product",
@@ -163,6 +151,7 @@ pub async fn delete_product(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "delete_product",

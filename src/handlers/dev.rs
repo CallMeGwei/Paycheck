@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::models::CreateLicenseKey;
+use crate::util::LicenseExpirations;
 
 #[derive(Debug, Deserialize)]
 pub struct DevCreateLicense {
@@ -38,12 +39,10 @@ pub async fn create_dev_license(
     let project = queries::get_project_by_id(&conn, &product.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
-    // Compute expirations from product settings
+    // Compute expirations from product settings (input.expires_at can override)
     let now = chrono::Utc::now().timestamp();
-    let expires_at = input.expires_at.or_else(|| {
-        product.license_exp_days.map(|days| now + (days as i64) * 86400)
-    });
-    let updates_expires_at = product.updates_exp_days.map(|days| now + (days as i64) * 86400);
+    let exps = LicenseExpirations::from_product(&product, now);
+    let expires_at = input.expires_at.or(exps.license_exp);
 
     // Create the license with project's prefix (no payment info for dev licenses)
     let license = queries::create_license_key(
@@ -53,7 +52,7 @@ pub async fn create_dev_license(
         &CreateLicenseKey {
             customer_id: input.customer_id.clone(),
             expires_at,
-            updates_expires_at,
+            updates_expires_at: exps.updates_exp,
             payment_provider: None,
             payment_provider_customer_id: None,
             payment_provider_subscription_id: None,

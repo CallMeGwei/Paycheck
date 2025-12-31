@@ -36,8 +36,8 @@ pub async fn initiate_buy(
     let conn = state.db.get()?;
 
     // Validate device type
-    let device_type = DeviceType::from_str(&query.device_type)
-        .ok_or_else(|| AppError::BadRequest("Invalid device_type".into()))?;
+    let device_type = query.device_type.parse::<DeviceType>()
+        .ok().ok_or_else(|| AppError::BadRequest("Invalid device_type".into()))?;
 
     // Get project
     let project = queries::get_project_by_id(&conn, &query.project_id)?
@@ -55,12 +55,12 @@ pub async fn initiate_buy(
     // Determine payment provider
     let provider = if let Some(ref p) = query.provider {
         // Explicit provider specified in query
-        PaymentProvider::from_str(p)
-            .ok_or_else(|| AppError::BadRequest("Invalid provider".into()))?
+        p.parse::<PaymentProvider>()
+            .ok().ok_or_else(|| AppError::BadRequest("Invalid provider".into()))?
     } else if let Some(ref default) = project.default_provider {
         // Use project's default provider
-        PaymentProvider::from_str(default)
-            .ok_or_else(|| AppError::BadRequest("Invalid default_provider in project".into()))?
+        default.parse::<PaymentProvider>()
+            .ok().ok_or_else(|| AppError::BadRequest("Invalid default_provider in project".into()))?
     } else {
         // Auto-detect: use the only configured provider, or error if both/neither
         let has_stripe = project.stripe_config.is_some();

@@ -1,10 +1,17 @@
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::{AppError, Result};
 use crate::models::*;
+
+use super::from_row::{
+    query_all, query_one,
+    DEVICE_COLS, LICENSE_KEY_COLS, OPERATOR_COLS, ORG_MEMBER_COLS,
+    ORGANIZATION_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS,
+    PROJECT_MEMBER_COLS, REDEMPTION_CODE_COLS,
+};
 
 fn now() -> i64 {
     Utc::now().timestamp()
@@ -43,7 +50,7 @@ pub fn create_operator(
             &id,
             &input.email,
             &input.name,
-            input.role.as_str(),
+            input.role.as_ref(),
             &api_key_hash,
             now,
             created_by
@@ -62,69 +69,28 @@ pub fn create_operator(
 }
 
 pub fn get_operator_by_id(conn: &Connection, id: &str) -> Result<Option<Operator>> {
-    conn.query_row(
-        "SELECT id, email, name, role, api_key_hash, created_at, created_by
-         FROM operators WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(Operator {
-                id: row.get(0)?,
-                email: row.get(1)?,
-                name: row.get(2)?,
-                role: OperatorRole::from_str(&row.get::<_, String>(3)?).unwrap(),
-                api_key_hash: row.get(4)?,
-                created_at: row.get(5)?,
-                created_by: row.get(6)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM operators WHERE id = ?1", OPERATOR_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn get_operator_by_api_key(conn: &Connection, api_key: &str) -> Result<Option<Operator>> {
     let hash = hash_api_key(api_key);
-    conn.query_row(
-        "SELECT id, email, name, role, api_key_hash, created_at, created_by
-         FROM operators WHERE api_key_hash = ?1",
-        params![hash],
-        |row| {
-            Ok(Operator {
-                id: row.get(0)?,
-                email: row.get(1)?,
-                name: row.get(2)?,
-                role: OperatorRole::from_str(&row.get::<_, String>(3)?).unwrap(),
-                api_key_hash: row.get(4)?,
-                created_at: row.get(5)?,
-                created_by: row.get(6)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM operators WHERE api_key_hash = ?1", OPERATOR_COLS),
+        &[&hash],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_operators(conn: &Connection) -> Result<Vec<Operator>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, email, name, role, api_key_hash, created_at, created_by
-         FROM operators ORDER BY created_at DESC",
-    )?;
-
-    let ops = stmt
-        .query_map([], |row| {
-            Ok(Operator {
-                id: row.get(0)?,
-                email: row.get(1)?,
-                name: row.get(2)?,
-                role: OperatorRole::from_str(&row.get::<_, String>(3)?).unwrap(),
-                api_key_hash: row.get(4)?,
-                created_at: row.get(5)?,
-                created_by: row.get(6)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(ops)
+    query_all(
+        conn,
+        &format!("SELECT {} FROM operators ORDER BY created_at DESC", OPERATOR_COLS),
+        &[],
+    )
 }
 
 pub fn update_operator(conn: &Connection, id: &str, input: &UpdateOperator) -> Result<()> {
@@ -137,7 +103,7 @@ pub fn update_operator(conn: &Connection, id: &str, input: &UpdateOperator) -> R
     if let Some(role) = input.role {
         conn.execute(
             "UPDATE operators SET role = ?1 WHERE id = ?2",
-            params![role.as_str(), id],
+            params![role.as_ref(), id],
         )?;
     }
     Ok(())
@@ -158,6 +124,7 @@ pub fn count_operators(conn: &Connection) -> Result<i64> {
 #[allow(clippy::too_many_arguments)]
 pub fn create_audit_log(
     conn: &Connection,
+    enabled: bool,
     actor_type: ActorType,
     actor_id: Option<&str>,
     action: &str,
@@ -173,7 +140,7 @@ pub fn create_audit_log(
     let timestamp = now();
 
     // Skip database insert if audit logging is disabled
-    if !crate::config::AUDIT_LOG_ENABLED {
+    if !enabled {
         return Ok(AuditLog {
             id,
             timestamp,
@@ -198,7 +165,7 @@ pub fn create_audit_log(
         params![
             &id,
             timestamp,
-            actor_type.as_str(),
+            actor_type.as_ref(),
             actor_id,
             action,
             resource_type,
@@ -236,7 +203,7 @@ pub fn query_audit_logs(conn: &Connection, query: &AuditLogQuery) -> Result<Vec<
 
     if let Some(ref actor_type) = query.actor_type {
         sql.push_str(" AND actor_type = ?");
-        params_vec.push(Box::new(actor_type.as_str().to_string()));
+        params_vec.push(Box::new(actor_type.as_ref().to_string()));
     }
     if let Some(ref actor_id) = query.actor_id {
         sql.push_str(" AND actor_id = ?");
@@ -291,7 +258,7 @@ pub fn query_audit_logs(conn: &Connection, query: &AuditLogQuery) -> Result<Vec<
             Ok(AuditLog {
                 id: row.get(0)?,
                 timestamp: row.get(1)?,
-                actor_type: ActorType::from_str(&row.get::<_, String>(2)?).unwrap(),
+                actor_type: row.get::<_, String>(2)?.parse::<ActorType>().unwrap(),
                 actor_id: row.get(3)?,
                 action: row.get(4)?,
                 resource_type: row.get(5)?,
@@ -329,39 +296,19 @@ pub fn create_organization(conn: &Connection, input: &CreateOrganization) -> Res
 }
 
 pub fn get_organization_by_id(conn: &Connection, id: &str) -> Result<Option<Organization>> {
-    conn.query_row(
-        "SELECT id, name, created_at, updated_at FROM organizations WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(Organization {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                updated_at: row.get(3)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM organizations WHERE id = ?1", ORGANIZATION_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_organizations(conn: &Connection) -> Result<Vec<Organization>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, created_at, updated_at FROM organizations ORDER BY created_at DESC",
-    )?;
-
-    let orgs = stmt
-        .query_map([], |row| {
-            Ok(Organization {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                updated_at: row.get(3)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(orgs)
+    query_all(
+        conn,
+        &format!("SELECT {} FROM organizations ORDER BY created_at DESC", ORGANIZATION_COLS),
+        &[],
+    )
 }
 
 pub fn update_organization(conn: &Connection, id: &str, input: &UpdateOrganization) -> Result<bool> {
@@ -401,7 +348,7 @@ pub fn create_org_member(
             org_id,
             &input.email,
             &input.name,
-            input.role.as_str(),
+            input.role.as_ref(),
             &api_key_hash,
             now
         ],
@@ -419,69 +366,28 @@ pub fn create_org_member(
 }
 
 pub fn get_org_member_by_id(conn: &Connection, id: &str) -> Result<Option<OrgMember>> {
-    conn.query_row(
-        "SELECT id, org_id, email, name, role, api_key_hash, created_at
-         FROM org_members WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(OrgMember {
-                id: row.get(0)?,
-                org_id: row.get(1)?,
-                email: row.get(2)?,
-                name: row.get(3)?,
-                role: OrgMemberRole::from_str(&row.get::<_, String>(4)?).unwrap(),
-                api_key_hash: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM org_members WHERE id = ?1", ORG_MEMBER_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn get_org_member_by_api_key(conn: &Connection, api_key: &str) -> Result<Option<OrgMember>> {
     let hash = hash_api_key(api_key);
-    conn.query_row(
-        "SELECT id, org_id, email, name, role, api_key_hash, created_at
-         FROM org_members WHERE api_key_hash = ?1",
-        params![hash],
-        |row| {
-            Ok(OrgMember {
-                id: row.get(0)?,
-                org_id: row.get(1)?,
-                email: row.get(2)?,
-                name: row.get(3)?,
-                role: OrgMemberRole::from_str(&row.get::<_, String>(4)?).unwrap(),
-                api_key_hash: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM org_members WHERE api_key_hash = ?1", ORG_MEMBER_COLS),
+        &[&hash],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_org_members(conn: &Connection, org_id: &str) -> Result<Vec<OrgMember>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, org_id, email, name, role, api_key_hash, created_at
-         FROM org_members WHERE org_id = ?1 ORDER BY created_at DESC",
-    )?;
-
-    let members = stmt
-        .query_map(params![org_id], |row| {
-            Ok(OrgMember {
-                id: row.get(0)?,
-                org_id: row.get(1)?,
-                email: row.get(2)?,
-                name: row.get(3)?,
-                role: OrgMemberRole::from_str(&row.get::<_, String>(4)?).unwrap(),
-                api_key_hash: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(members)
+    query_all(
+        conn,
+        &format!("SELECT {} FROM org_members WHERE org_id = ?1 ORDER BY created_at DESC", ORG_MEMBER_COLS),
+        &[&org_id],
+    )
 }
 
 pub fn update_org_member(conn: &Connection, id: &str, input: &UpdateOrgMember) -> Result<()> {
@@ -494,7 +400,7 @@ pub fn update_org_member(conn: &Connection, id: &str, input: &UpdateOrgMember) -
     if let Some(role) = input.role {
         conn.execute(
             "UPDATE org_members SET role = ?1 WHERE id = ?2",
-            params![role.as_str(), id],
+            params![role.as_ref(), id],
         )?;
     }
     Ok(())
@@ -540,61 +446,19 @@ pub fn create_project(
 }
 
 pub fn get_project_by_id(conn: &Connection, id: &str) -> Result<Option<Project>> {
-    conn.query_row(
-        "SELECT id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, default_provider, created_at, updated_at
-         FROM projects WHERE id = ?1",
-        params![id],
-        |row| {
-            let stripe_str: Option<String> = row.get(7)?;
-            let ls_str: Option<String> = row.get(8)?;
-            Ok(Project {
-                id: row.get(0)?,
-                org_id: row.get(1)?,
-                name: row.get(2)?,
-                domain: row.get(3)?,
-                license_key_prefix: row.get(4)?,
-                private_key: row.get(5)?,
-                public_key: row.get(6)?,
-                stripe_config: stripe_str.and_then(|s| serde_json::from_str(&s).ok()),
-                ls_config: ls_str.and_then(|s| serde_json::from_str(&s).ok()),
-                default_provider: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM projects WHERE id = ?1", PROJECT_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_projects_for_org(conn: &Connection, org_id: &str) -> Result<Vec<Project>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, default_provider, created_at, updated_at
-         FROM projects WHERE org_id = ?1 ORDER BY created_at DESC",
-    )?;
-
-    let projects = stmt
-        .query_map(params![org_id], |row| {
-            let stripe_str: Option<String> = row.get(7)?;
-            let ls_str: Option<String> = row.get(8)?;
-            Ok(Project {
-                id: row.get(0)?,
-                org_id: row.get(1)?,
-                name: row.get(2)?,
-                domain: row.get(3)?,
-                license_key_prefix: row.get(4)?,
-                private_key: row.get(5)?,
-                public_key: row.get(6)?,
-                stripe_config: stripe_str.and_then(|s| serde_json::from_str(&s).ok()),
-                ls_config: ls_str.and_then(|s| serde_json::from_str(&s).ok()),
-                default_provider: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(projects)
+    query_all(
+        conn,
+        &format!("SELECT {} FROM projects WHERE org_id = ?1 ORDER BY created_at DESC", PROJECT_COLS),
+        &[&org_id],
+    )
 }
 
 pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Result<()> {
@@ -660,7 +524,7 @@ pub fn create_project_member(
     conn.execute(
         "INSERT INTO project_members (id, org_member_id, project_id, role, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![&id, &input.org_member_id, project_id, input.role.as_str(), now],
+        params![&id, &input.org_member_id, project_id, input.role.as_ref(), now],
     )?;
 
     Ok(ProjectMember {
@@ -677,54 +541,29 @@ pub fn get_project_member(
     org_member_id: &str,
     project_id: &str,
 ) -> Result<Option<ProjectMember>> {
-    conn.query_row(
-        "SELECT id, org_member_id, project_id, role, created_at
-         FROM project_members WHERE org_member_id = ?1 AND project_id = ?2",
-        params![org_member_id, project_id],
-        |row| {
-            Ok(ProjectMember {
-                id: row.get(0)?,
-                org_member_id: row.get(1)?,
-                project_id: row.get(2)?,
-                role: ProjectMemberRole::from_str(&row.get::<_, String>(3)?).unwrap(),
-                created_at: row.get(4)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM project_members WHERE org_member_id = ?1 AND project_id = ?2", PROJECT_MEMBER_COLS),
+        &[&org_member_id, &project_id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_project_members(conn: &Connection, project_id: &str) -> Result<Vec<ProjectMemberWithDetails>> {
-    let mut stmt = conn.prepare(
+    query_all(
+        conn,
         "SELECT pm.id, pm.org_member_id, pm.project_id, pm.role, pm.created_at, om.email, om.name
          FROM project_members pm
          JOIN org_members om ON pm.org_member_id = om.id
          WHERE pm.project_id = ?1
          ORDER BY pm.created_at DESC",
-    )?;
-
-    let members = stmt
-        .query_map(params![project_id], |row| {
-            Ok(ProjectMemberWithDetails {
-                id: row.get(0)?,
-                org_member_id: row.get(1)?,
-                project_id: row.get(2)?,
-                role: ProjectMemberRole::from_str(&row.get::<_, String>(3)?).unwrap(),
-                created_at: row.get(4)?,
-                email: row.get(5)?,
-                name: row.get(6)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(members)
+        &[&project_id],
+    )
 }
 
 pub fn update_project_member(conn: &Connection, id: &str, input: &UpdateProjectMember) -> Result<()> {
     conn.execute(
         "UPDATE project_members SET role = ?1 WHERE id = ?2",
-        params![input.role.as_str(), id],
+        params![input.role.as_ref(), id],
     )?;
     Ok(())
 }
@@ -773,55 +612,19 @@ pub fn create_product(conn: &Connection, project_id: &str, input: &CreateProduct
 }
 
 pub fn get_product_by_id(conn: &Connection, id: &str) -> Result<Option<Product>> {
-    conn.query_row(
-        "SELECT id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at
-         FROM products WHERE id = ?1",
-        params![id],
-        |row| {
-            let features_str: String = row.get(8)?;
-            Ok(Product {
-                id: row.get(0)?,
-                project_id: row.get(1)?,
-                name: row.get(2)?,
-                tier: row.get(3)?,
-                license_exp_days: row.get(4)?,
-                updates_exp_days: row.get(5)?,
-                activation_limit: row.get(6)?,
-                device_limit: row.get(7)?,
-                features: serde_json::from_str(&features_str).unwrap_or_default(),
-                created_at: row.get(9)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM products WHERE id = ?1", PRODUCT_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_products_for_project(conn: &Connection, project_id: &str) -> Result<Vec<Product>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at
-         FROM products WHERE project_id = ?1 ORDER BY created_at DESC",
-    )?;
-
-    let products = stmt
-        .query_map(params![project_id], |row| {
-            let features_str: String = row.get(8)?;
-            Ok(Product {
-                id: row.get(0)?,
-                project_id: row.get(1)?,
-                name: row.get(2)?,
-                tier: row.get(3)?,
-                license_exp_days: row.get(4)?,
-                updates_exp_days: row.get(5)?,
-                activation_limit: row.get(6)?,
-                device_limit: row.get(7)?,
-                features: serde_json::from_str(&features_str).unwrap_or_default(),
-                created_at: row.get(9)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(products)
+    query_all(
+        conn,
+        &format!("SELECT {} FROM products WHERE project_id = ?1 ORDER BY created_at DESC", PRODUCT_COLS),
+        &[&project_id],
+    )
 }
 
 pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Result<()> {
@@ -903,59 +706,19 @@ pub fn create_license_key(
 }
 
 pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<LicenseKey>> {
-    conn.query_row(
-        "SELECT id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
-         FROM license_keys WHERE id = ?1",
-        params![id],
-        |row| {
-            let jtis_str: String = row.get(6)?;
-            Ok(LicenseKey {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                product_id: row.get(2)?,
-                customer_id: row.get(3)?,
-                activation_count: row.get(4)?,
-                revoked: row.get::<_, i32>(5)? != 0,
-                revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-                created_at: row.get(7)?,
-                expires_at: row.get(8)?,
-                updates_expires_at: row.get(9)?,
-                payment_provider: row.get(10)?,
-                payment_provider_customer_id: row.get(11)?,
-                payment_provider_subscription_id: row.get(12)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM license_keys WHERE id = ?1", LICENSE_KEY_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<LicenseKey>> {
-    conn.query_row(
-        "SELECT id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
-         FROM license_keys WHERE key = ?1",
-        params![key],
-        |row| {
-            let jtis_str: String = row.get(6)?;
-            Ok(LicenseKey {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                product_id: row.get(2)?,
-                customer_id: row.get(3)?,
-                activation_count: row.get(4)?,
-                revoked: row.get::<_, i32>(5)? != 0,
-                revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-                created_at: row.get(7)?,
-                expires_at: row.get(8)?,
-                updates_expires_at: row.get(9)?,
-                payment_provider: row.get(10)?,
-                payment_provider_customer_id: row.get(11)?,
-                payment_provider_subscription_id: row.get(12)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM license_keys WHERE key = ?1", LICENSE_KEY_COLS),
+        &[&key],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Result<Vec<LicenseKeyWithProduct>> {
@@ -1029,31 +792,14 @@ pub fn get_license_key_by_subscription(
     provider: &str,
     subscription_id: &str,
 ) -> Result<Option<LicenseKey>> {
-    conn.query_row(
-        "SELECT id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
-         FROM license_keys WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
-        params![provider, subscription_id],
-        |row| {
-            let jtis_str: String = row.get(6)?;
-            Ok(LicenseKey {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                product_id: row.get(2)?,
-                customer_id: row.get(3)?,
-                activation_count: row.get(4)?,
-                revoked: row.get::<_, i32>(5)? != 0,
-                revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-                created_at: row.get(7)?,
-                expires_at: row.get(8)?,
-                updates_expires_at: row.get(9)?,
-                payment_provider: row.get(10)?,
-                payment_provider_customer_id: row.get(11)?,
-                payment_provider_subscription_id: row.get(12)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!(
+            "SELECT {} FROM license_keys WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
+            LICENSE_KEY_COLS
+        ),
+        &[&provider, &subscription_id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 /// Extend license expiration dates (for subscription renewals)
@@ -1113,23 +859,11 @@ pub fn create_redemption_code(
 }
 
 pub fn get_redemption_code_by_code(conn: &Connection, code: &str) -> Result<Option<RedemptionCode>> {
-    conn.query_row(
-        "SELECT id, code, license_key_id, expires_at, used, created_at
-         FROM redemption_codes WHERE code = ?1",
-        params![code],
-        |row| {
-            Ok(RedemptionCode {
-                id: row.get(0)?,
-                code: row.get(1)?,
-                license_key_id: row.get(2)?,
-                expires_at: row.get(3)?,
-                used: row.get::<_, i32>(4)? != 0,
-                created_at: row.get(5)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM redemption_codes WHERE code = ?1", REDEMPTION_CODE_COLS),
+        &[&code],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn mark_redemption_code_used(conn: &Connection, id: &str) -> Result<()> {
@@ -1165,7 +899,7 @@ pub fn create_device(
     conn.execute(
         "INSERT INTO devices (id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![&id, license_key_id, device_id, device_type.as_str(), name, jti, now, now],
+        params![&id, license_key_id, device_id, device_type.as_ref(), name, jti, now, now],
     )?;
 
     Ok(Device {
@@ -1181,25 +915,11 @@ pub fn create_device(
 }
 
 pub fn get_device_by_jti(conn: &Connection, jti: &str) -> Result<Option<Device>> {
-    conn.query_row(
-        "SELECT id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at
-         FROM devices WHERE jti = ?1",
-        params![jti],
-        |row| {
-            Ok(Device {
-                id: row.get(0)?,
-                license_key_id: row.get(1)?,
-                device_id: row.get(2)?,
-                device_type: DeviceType::from_str(&row.get::<_, String>(3)?).unwrap(),
-                name: row.get(4)?,
-                jti: row.get(5)?,
-                activated_at: row.get(6)?,
-                last_seen_at: row.get(7)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM devices WHERE jti = ?1", DEVICE_COLS),
+        &[&jti],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn get_device_for_license(
@@ -1207,49 +927,25 @@ pub fn get_device_for_license(
     license_key_id: &str,
     device_id: &str,
 ) -> Result<Option<Device>> {
-    conn.query_row(
-        "SELECT id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at
-         FROM devices WHERE license_key_id = ?1 AND device_id = ?2",
-        params![license_key_id, device_id],
-        |row| {
-            Ok(Device {
-                id: row.get(0)?,
-                license_key_id: row.get(1)?,
-                device_id: row.get(2)?,
-                device_type: DeviceType::from_str(&row.get::<_, String>(3)?).unwrap(),
-                name: row.get(4)?,
-                jti: row.get(5)?,
-                activated_at: row.get(6)?,
-                last_seen_at: row.get(7)?,
-            })
-        },
+    query_one(
+        conn,
+        &format!(
+            "SELECT {} FROM devices WHERE license_key_id = ?1 AND device_id = ?2",
+            DEVICE_COLS
+        ),
+        &[&license_key_id, &device_id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn list_devices_for_license(conn: &Connection, license_key_id: &str) -> Result<Vec<Device>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at
-         FROM devices WHERE license_key_id = ?1 ORDER BY activated_at DESC",
-    )?;
-
-    let devices = stmt
-        .query_map(params![license_key_id], |row| {
-            Ok(Device {
-                id: row.get(0)?,
-                license_key_id: row.get(1)?,
-                device_id: row.get(2)?,
-                device_type: DeviceType::from_str(&row.get::<_, String>(3)?).unwrap(),
-                name: row.get(4)?,
-                jti: row.get(5)?,
-                activated_at: row.get(6)?,
-                last_seen_at: row.get(7)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-
-    Ok(devices)
+    query_all(
+        conn,
+        &format!(
+            "SELECT {} FROM devices WHERE license_key_id = ?1 ORDER BY activated_at DESC",
+            DEVICE_COLS
+        ),
+        &[&license_key_id],
+    )
 }
 
 pub fn count_devices_for_license(conn: &Connection, license_key_id: &str) -> Result<i32> {
@@ -1293,7 +989,7 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
     conn.execute(
         "INSERT INTO payment_sessions (id, product_id, device_id, device_type, customer_id, created_at, completed)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
-        params![&id, &input.product_id, &input.device_id, input.device_type.as_str(), &input.customer_id, now],
+        params![&id, &input.product_id, &input.device_id, input.device_type.as_ref(), &input.customer_id, now],
     )?;
 
     Ok(PaymentSession {
@@ -1308,24 +1004,11 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
 }
 
 pub fn get_payment_session(conn: &Connection, id: &str) -> Result<Option<PaymentSession>> {
-    conn.query_row(
-        "SELECT id, product_id, device_id, device_type, customer_id, created_at, completed
-         FROM payment_sessions WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(PaymentSession {
-                id: row.get(0)?,
-                product_id: row.get(1)?,
-                device_id: row.get(2)?,
-                device_type: DeviceType::from_str(&row.get::<_, String>(3)?).unwrap(),
-                customer_id: row.get(4)?,
-                created_at: row.get(5)?,
-                completed: row.get::<_, i32>(6)? != 0,
-            })
-        },
+    query_one(
+        conn,
+        &format!("SELECT {} FROM payment_sessions WHERE id = ?1", PAYMENT_SESSION_COLS),
+        &[&id],
     )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn mark_payment_session_completed(conn: &Connection, id: &str) -> Result<()> {

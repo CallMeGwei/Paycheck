@@ -1,33 +1,14 @@
 use serde::{Deserialize, Serialize};
+use strum::{AsRefStr, EnumString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, AsRefStr, EnumString)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum ActorType {
     Operator,
     OrgMember,
     Public,
     System,
-}
-
-impl ActorType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ActorType::Operator => "operator",
-            ActorType::OrgMember => "org_member",
-            ActorType::Public => "public",
-            ActorType::System => "system",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "operator" => Some(ActorType::Operator),
-            "org_member" => Some(ActorType::OrgMember),
-            "public" => Some(ActorType::Public),
-            "system" => Some(ActorType::System),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

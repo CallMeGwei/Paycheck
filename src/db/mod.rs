@@ -1,4 +1,5 @@
 mod schema;
+mod from_row;
 pub mod queries;
 
 pub use schema::{init_audit_db, init_db};
@@ -17,6 +18,8 @@ pub struct AppState {
     pub audit: DbPool,
     /// Base URL for callbacks (e.g., https://api.example.com)
     pub base_url: String,
+    /// Whether audit logging is enabled
+    pub audit_log_enabled: bool,
 }
 
 pub fn create_pool(database_path: &str) -> Result<DbPool, r2d2::Error> {

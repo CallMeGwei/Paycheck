@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
+use strum::{AsRefStr, EnumString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, AsRefStr, EnumString)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum OrgMemberRole {
     Owner,
     Admin,
@@ -9,23 +11,6 @@ pub enum OrgMemberRole {
 }
 
 impl OrgMemberRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            OrgMemberRole::Owner => "owner",
-            OrgMemberRole::Admin => "admin",
-            OrgMemberRole::Member => "member",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "owner" => Some(OrgMemberRole::Owner),
-            "admin" => Some(OrgMemberRole::Admin),
-            "member" => Some(OrgMemberRole::Member),
-            _ => None,
-        }
-    }
-
     pub fn can_manage_members(&self) -> bool {
         matches!(self, OrgMemberRole::Owner)
     }

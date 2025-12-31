@@ -1,27 +1,12 @@
 use serde::{Deserialize, Serialize};
+use strum::{AsRefStr, EnumString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, AsRefStr, EnumString)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum ProjectMemberRole {
     Admin,
     View,
-}
-
-impl ProjectMemberRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ProjectMemberRole::Admin => "admin",
-            ProjectMemberRole::View => "view",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "admin" => Some(ProjectMemberRole::Admin),
-            "view" => Some(ProjectMemberRole::View),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

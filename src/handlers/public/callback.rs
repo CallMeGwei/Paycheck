@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::jwt::{self, LicenseClaims};
+use crate::util::LicenseExpirations;
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackQuery {
@@ -109,12 +110,11 @@ pub async fn payment_callback(
 
     // Build fresh JWT
     let now = Utc::now().timestamp();
-    let license_exp = product.license_exp_days.map(|days| now + (days as i64 * 86400));
-    let updates_exp = product.updates_exp_days.map(|days| now + (days as i64 * 86400));
+    let exps = LicenseExpirations::from_product(&product, now);
 
     let claims = LicenseClaims {
-        license_exp,
-        updates_exp,
+        license_exp: exps.license_exp,
+        updates_exp: exps.updates_exp,
         tier: product.tier.clone(),
         features: product.features.clone(),
         device_id: session.device_id.clone(),

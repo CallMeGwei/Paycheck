@@ -9,21 +9,7 @@ use crate::error::{AppError, Result};
 use crate::jwt;
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateProject, ProjectPublic, UpdateProject};
-
-fn extract_request_info(headers: &HeaderMap) -> (Option<String>, Option<String>) {
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    (ip, user_agent)
-}
+use crate::util::extract_request_info;
 
 pub async fn create_project(
     State(state): State<AppState>,
@@ -45,6 +31,7 @@ pub async fn create_project(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "create_project",
@@ -125,6 +112,7 @@ pub async fn update_project(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "update_project",
@@ -167,6 +155,7 @@ pub async fn delete_project(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "delete_project",

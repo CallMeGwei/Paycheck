@@ -9,27 +9,13 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::middleware::OperatorContext;
 use crate::models::{ActorType, CreateOrganization, OrgMemberRole, Organization, CreateOrgMember, UpdateOrganization};
+use crate::util::extract_request_info;
 
 #[derive(Serialize)]
 pub struct OrganizationCreated {
     pub organization: Organization,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_api_key: Option<String>,
-}
-
-fn extract_request_info(headers: &HeaderMap) -> (Option<String>, Option<String>) {
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    (ip, user_agent)
 }
 
 pub async fn create_organization(
@@ -63,6 +49,7 @@ pub async fn create_organization(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::Operator,
         Some(&ctx.operator.id),
         "create_organization",
@@ -123,6 +110,7 @@ pub async fn update_organization(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::Operator,
         Some(&ctx.operator.id),
         "update_organization",
@@ -158,6 +146,7 @@ pub async fn delete_organization(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::Operator,
         Some(&ctx.operator.id),
         "delete_organization",

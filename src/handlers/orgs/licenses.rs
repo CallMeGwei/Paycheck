@@ -9,21 +9,7 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateLicenseKey, Device, LicenseKeyWithProduct};
-
-fn extract_request_info(headers: &HeaderMap) -> (Option<String>, Option<String>) {
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .map(String::from);
-
-    (ip, user_agent)
-}
+use crate::util::{extract_request_info, LicenseExpirations};
 
 #[derive(serde::Deserialize)]
 pub struct LicensePath {
@@ -129,15 +115,11 @@ pub async fn create_license(
     let project = queries::get_project_by_id(&conn, &path.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
-    // Compute expirations
+    // Compute expirations (use override if provided, otherwise use product defaults)
     let now = chrono::Utc::now().timestamp();
-
-    // Use override if provided, otherwise use product defaults
     let license_exp_days = body.license_exp_days.unwrap_or(product.license_exp_days);
     let updates_exp_days = body.updates_exp_days.unwrap_or(product.updates_exp_days);
-
-    let expires_at = license_exp_days.map(|days| now + (days as i64) * 86400);
-    let updates_expires_at = updates_exp_days.map(|days| now + (days as i64) * 86400);
+    let exps = LicenseExpirations::from_days(license_exp_days, updates_exp_days, now);
 
     let mut created_licenses = Vec::with_capacity(body.count as usize);
 
@@ -148,8 +130,8 @@ pub async fn create_license(
             &project.license_key_prefix,
             &CreateLicenseKey {
                 customer_id: body.customer_id.clone(),
-                expires_at,
-                updates_expires_at,
+                expires_at: exps.license_exp,
+                updates_expires_at: exps.updates_exp,
                 payment_provider: None,
                 payment_provider_customer_id: None,
                 payment_provider_subscription_id: None,
@@ -159,14 +141,15 @@ pub async fn create_license(
         created_licenses.push(CreatedLicense {
             id: license.id.clone(),
             key: license.key.clone(),
-            expires_at,
-            updates_expires_at,
+            expires_at: exps.license_exp,
+            updates_expires_at: exps.updates_exp,
         });
 
         // Audit log for each license
         let (ip, ua) = extract_request_info(&headers);
         queries::create_audit_log(
             &audit_conn,
+            state.audit_log_enabled,
             ActorType::OrgMember,
             Some(&ctx.member.id),
             "create_license",
@@ -175,7 +158,7 @@ pub async fn create_license(
             Some(&serde_json::json!({
                 "key": license.key,
                 "product_id": body.product_id,
-                "expires_at": expires_at,
+                "expires_at": exps.license_exp,
             })),
             Some(&path.org_id),
             Some(&path.project_id),
@@ -258,6 +241,7 @@ pub async fn revoke_license(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "revoke_license",
@@ -336,6 +320,7 @@ pub async fn replace_license(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "replace_license",
@@ -418,6 +403,7 @@ pub async fn deactivate_device_admin(
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
         &audit_conn,
+        state.audit_log_enabled,
         ActorType::OrgMember,
         Some(&ctx.member.id),
         "deactivate_device",
