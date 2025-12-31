@@ -5,7 +5,9 @@ pub struct LicenseKey {
     pub id: String,
     pub key: String,
     pub product_id: String,
-    pub email: Option<String>,
+    /// Developer-managed customer identifier (optional)
+    /// Use this to link licenses to your own user/account system
+    pub customer_id: Option<String>,
     pub activation_count: i32,
     pub revoked: bool,
     pub revoked_jtis: Vec<String>,
@@ -27,7 +29,9 @@ pub struct LicenseKeyWithProduct {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateLicenseKey {
-    pub email: Option<String>,
+    /// Developer-managed customer identifier (optional)
+    #[serde(default)]
+    pub customer_id: Option<String>,
     pub expires_at: Option<i64>,
     pub updates_expires_at: Option<i64>,
     #[serde(default)]

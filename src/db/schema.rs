@@ -86,7 +86,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             id TEXT PRIMARY KEY,
             key TEXT NOT NULL UNIQUE,
             product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            email TEXT,
+            customer_id TEXT,
             activation_count INTEGER NOT NULL DEFAULT 0,
             revoked INTEGER NOT NULL DEFAULT 0,
             revoked_jtis TEXT NOT NULL DEFAULT '[]',
@@ -99,7 +99,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_license_keys_product ON license_keys(product_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_key ON license_keys(key);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_email ON license_keys(email);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_customer ON license_keys(customer_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_provider_customer ON license_keys(payment_provider, payment_provider_customer_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_provider_subscription ON license_keys(payment_provider, payment_provider_subscription_id);
 
@@ -137,6 +137,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
             device_id TEXT NOT NULL,
             device_type TEXT NOT NULL CHECK (device_type IN ('uuid', 'machine')),
+            customer_id TEXT,
             created_at INTEGER NOT NULL,
             completed INTEGER NOT NULL DEFAULT 0
         );

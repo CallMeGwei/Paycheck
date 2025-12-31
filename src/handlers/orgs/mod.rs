@@ -49,6 +49,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/orgs/{org_id}/projects/{project_id}/products/{id}", delete(delete_product))
         // Licenses
         .route("/orgs/{org_id}/projects/{project_id}/licenses", get(list_licenses))
+        .route("/orgs/{org_id}/projects/{project_id}/licenses", post(create_license))
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}", get(get_license))
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}/revoke", post(revoke_license))
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}/replace", post(replace_license))

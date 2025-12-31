@@ -1,5 +1,6 @@
 use axum::{
     extract::{Query, State},
+    http::HeaderMap,
     Json,
 };
 use chrono::Utc;
@@ -10,6 +11,16 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::jwt::{self, LicenseClaims};
 use crate::models::DeviceType;
+
+/// Extract license key from Authorization header (Bearer token)
+fn extract_key_from_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
 
 /// Query parameters for GET /redeem (using short-lived redemption code)
 #[derive(Debug, Deserialize)]
@@ -23,12 +34,13 @@ pub struct RedeemCodeQuery {
     pub device_name: Option<String>,
 }
 
-/// Request body for POST /redeem (using permanent license key)
+/// Request body for POST /redeem/key (using permanent license key)
 #[derive(Debug, Deserialize)]
 pub struct RedeemKeyBody {
     pub project_id: String,
-    /// Permanent license key - only accepted via POST body, never in URL
-    pub key: String,
+    /// Permanent license key - can be in body OR Authorization header
+    #[serde(default)]
+    pub key: Option<String>,
     pub device_id: String,
     pub device_type: String,
     #[serde(default)]
@@ -92,20 +104,31 @@ pub async fn redeem_with_code(
     )
 }
 
-/// POST /redeem - Redeem using the permanent license key
-/// License key is in POST body, never exposed in URL
+/// POST /redeem/key - Redeem using the permanent license key
+/// License key can be provided via:
+///   - Authorization header: `Authorization: Bearer {key}`
+///   - Request body: `{"key": "..."}`
+/// Header takes precedence if both are provided.
 pub async fn redeem_with_key(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<RedeemKeyBody>,
 ) -> Result<Json<RedeemResponse>> {
     let conn = state.db.get()?;
+
+    // Extract key from header first, fall back to body
+    let key = extract_key_from_header(&headers)
+        .or(body.key)
+        .ok_or_else(|| AppError::BadRequest(
+            "License key required. Provide via Authorization header (Bearer {key}) or request body.".into()
+        ))?;
 
     // Validate device type
     let device_type = DeviceType::from_str(&body.device_type)
         .ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
 
     // Get the license key
-    let license = queries::get_license_key_by_key(&conn, &body.key)?
+    let license = queries::get_license_key_by_key(&conn, &key)?
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
     // Proceed with normal redemption logic
@@ -191,7 +214,6 @@ fn redeem_license_internal(
             DeviceType::Uuid => "uuid".to_string(),
             DeviceType::Machine => "machine".to_string(),
         },
-        email: license.email.clone(),
         product_id: product.id.clone(),
         license_key: license.key.clone(),
     };
@@ -240,9 +262,13 @@ fn redeem_license_internal(
 
 /// POST /redeem/code - Generate a new redemption code from a license key
 /// This allows users to get a URL-safe code without exposing their license key
-#[derive(Debug, Deserialize)]
+/// License key can be provided via:
+///   - Authorization header: `Authorization: Bearer {key}`
+///   - Request body: `{"key": "..."}`
+#[derive(Debug, Deserialize, Default)]
 pub struct GenerateCodeBody {
-    pub key: String,
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -253,12 +279,20 @@ pub struct GenerateCodeResponse {
 
 pub async fn generate_redemption_code(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<GenerateCodeBody>,
 ) -> Result<Json<GenerateCodeResponse>> {
     let conn = state.db.get()?;
 
+    // Extract key from header first, fall back to body
+    let key = extract_key_from_header(&headers)
+        .or(body.key)
+        .ok_or_else(|| AppError::BadRequest(
+            "License key required. Provide via Authorization header (Bearer {key}) or request body.".into()
+        ))?;
+
     // Get the license key
-    let license = queries::get_license_key_by_key(&conn, &body.key)?
+    let license = queries::get_license_key_by_key(&conn, &key)?
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
     // Check if revoked

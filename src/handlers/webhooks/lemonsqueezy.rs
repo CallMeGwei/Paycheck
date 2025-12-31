@@ -152,12 +152,13 @@ async fn handle_order_created(
         .map(|id| id.to_string());
 
     // Create license key with project's prefix
+    // customer_id flows through from payment session (set in /buy URL)
     let license = match queries::create_license_key(
         &conn,
         &payment_session.product_id,
         &project.license_key_prefix,
         &crate::models::CreateLicenseKey {
-            email: order.user_email.clone(),
+            customer_id: payment_session.customer_id.clone(),
             expires_at,
             updates_expires_at,
             payment_provider: Some("lemonsqueezy".to_string()),

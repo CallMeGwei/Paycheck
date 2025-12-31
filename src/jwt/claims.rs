@@ -15,7 +15,6 @@ pub struct LicenseClaims {
     pub device_type: String,       // "uuid" or "machine"
 
     // Metadata
-    pub email: Option<String>,     // Purchaser email
     pub product_id: String,        // Product ID
     pub license_key: String,       // License key for reference
 }
@@ -46,7 +45,6 @@ pub struct ClaimsBuilder {
     pub device_type: String,
     pub tier: String,
     pub features: Vec<String>,
-    pub email: Option<String>,
     pub product_id: String,
     pub license_exp_days: Option<i32>,
     pub updates_exp_days: Option<i32>,
@@ -64,7 +62,6 @@ impl ClaimsBuilder {
             features: self.features,
             device_id: self.device_id,
             device_type: self.device_type,
-            email: self.email,
             product_id: self.product_id,
             license_key: self.license_key,
         };

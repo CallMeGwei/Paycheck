@@ -92,7 +92,6 @@ pub async fn payment_callback(
             crate::models::DeviceType::Uuid => "uuid".to_string(),
             crate::models::DeviceType::Machine => "machine".to_string(),
         },
-        email: license.email.clone(),
         product_id: product.id.clone(),
         license_key: license.key.clone(),
     };

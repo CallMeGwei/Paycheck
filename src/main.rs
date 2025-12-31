@@ -343,6 +343,20 @@ async fn main() {
         audit: audit_pool,
     };
 
+    // Purge old audit logs on startup (90-day retention for GDPR compliance)
+    {
+        let conn = state.audit.get().expect("Failed to get audit connection for purge");
+        match queries::purge_old_audit_logs(&conn, 90) {
+            Ok(count) if count > 0 => {
+                tracing::info!("Purged {} audit log entries older than 90 days", count);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("Failed to purge old audit logs: {}", e);
+            }
+        }
+    }
+
     // Seed dev data if --seed flag is passed (only in dev mode)
     if cli.seed {
         if !config.dev_mode {

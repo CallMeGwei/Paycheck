@@ -15,6 +15,9 @@ pub struct BuyQuery {
     pub product_id: String,
     pub device_id: String,
     pub device_type: String,
+    /// Developer-managed customer identifier (flows through to license)
+    #[serde(default)]
+    pub customer_id: Option<String>,
     #[serde(default)]
     pub provider: Option<String>,
     /// Stripe: price in cents; LemonSqueezy: variant ID
@@ -64,13 +67,14 @@ pub async fn initiate_buy(
         }
     };
 
-    // Create payment session
+    // Create payment session (customer_id flows through to license on webhook)
     let session = queries::create_payment_session(
         &conn,
         &CreatePaymentSession {
             product_id: query.product_id.clone(),
             device_id: query.device_id.clone(),
             device_type,
+            customer_id: query.customer_id.clone(),
         },
     )?;
 

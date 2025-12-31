@@ -3,7 +3,7 @@ use axum::{
     http::HeaderMap,
     Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
@@ -54,6 +54,146 @@ pub async fn list_licenses(
     let conn = state.db.get()?;
     let licenses = queries::list_license_keys_for_project(&conn, &path.project_id)?;
     Ok(Json(licenses))
+}
+
+/// Request body for creating a license directly (for bulk/trial licenses)
+#[derive(Debug, Deserialize)]
+pub struct CreateLicenseBody {
+    /// Product ID to create the license for
+    pub product_id: String,
+    /// Developer-managed customer identifier (optional)
+    /// Use this to link licenses to your own user/account system
+    #[serde(default)]
+    pub customer_id: Option<String>,
+    /// Override license expiration (days from now, null for perpetual)
+    /// If not specified, uses product's license_exp_days
+    #[serde(default)]
+    pub license_exp_days: Option<Option<i32>>,
+    /// Override updates expiration (days from now)
+    /// If not specified, uses product's updates_exp_days
+    #[serde(default)]
+    pub updates_exp_days: Option<Option<i32>>,
+    /// Number of licenses to create (default: 1, max: 100)
+    #[serde(default = "default_count")]
+    pub count: i32,
+}
+
+fn default_count() -> i32 {
+    1
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateLicenseResponse {
+    pub licenses: Vec<CreatedLicense>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreatedLicense {
+    pub id: String,
+    pub key: String,
+    pub expires_at: Option<i64>,
+    pub updates_expires_at: Option<i64>,
+}
+
+/// POST /orgs/{org_id}/projects/{project_id}/licenses
+/// Create one or more licenses directly (for bulk/trial licenses)
+/// Useful for gift cards, bulk purchases, or trial generation
+pub async fn create_license(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<OrgMemberContext>,
+    Path(path): Path<crate::middleware::OrgProjectPath>,
+    headers: HeaderMap,
+    Json(body): Json<CreateLicenseBody>,
+) -> Result<Json<CreateLicenseResponse>> {
+    if !ctx.can_write_project() {
+        return Err(AppError::Forbidden("Insufficient permissions".into()));
+    }
+
+    // Validate count
+    if body.count < 1 || body.count > 100 {
+        return Err(AppError::BadRequest("Count must be between 1 and 100".into()));
+    }
+
+    let conn = state.db.get()?;
+    let audit_conn = state.audit.get()?;
+
+    // Verify product exists and belongs to this project
+    let product = queries::get_product_by_id(&conn, &body.product_id)?
+        .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
+
+    if product.project_id != path.project_id {
+        return Err(AppError::NotFound("Product not found in this project".into()));
+    }
+
+    // Get project for license key prefix
+    let project = queries::get_project_by_id(&conn, &path.project_id)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    // Compute expirations
+    let now = chrono::Utc::now().timestamp();
+
+    // Use override if provided, otherwise use product defaults
+    let license_exp_days = body.license_exp_days.unwrap_or(product.license_exp_days);
+    let updates_exp_days = body.updates_exp_days.unwrap_or(product.updates_exp_days);
+
+    let expires_at = license_exp_days.map(|days| now + (days as i64) * 86400);
+    let updates_expires_at = updates_exp_days.map(|days| now + (days as i64) * 86400);
+
+    let mut created_licenses = Vec::with_capacity(body.count as usize);
+
+    for _ in 0..body.count {
+        let license = queries::create_license_key(
+            &conn,
+            &body.product_id,
+            &project.license_key_prefix,
+            &CreateLicenseKey {
+                customer_id: body.customer_id.clone(),
+                expires_at,
+                updates_expires_at,
+                payment_provider: None,
+                payment_provider_customer_id: None,
+                payment_provider_subscription_id: None,
+            },
+        )?;
+
+        created_licenses.push(CreatedLicense {
+            id: license.id.clone(),
+            key: license.key.clone(),
+            expires_at,
+            updates_expires_at,
+        });
+
+        // Audit log for each license
+        let (ip, ua) = extract_request_info(&headers);
+        queries::create_audit_log(
+            &audit_conn,
+            ActorType::OrgMember,
+            Some(&ctx.member.id),
+            "create_license",
+            "license_key",
+            &license.id,
+            Some(&serde_json::json!({
+                "key": license.key,
+                "product_id": body.product_id,
+                "expires_at": expires_at,
+            })),
+            Some(&path.org_id),
+            Some(&path.project_id),
+            ip.as_deref(),
+            ua.as_deref(),
+        )?;
+    }
+
+    tracing::info!(
+        "Created {} license(s) for product {} (project: {})",
+        created_licenses.len(),
+        body.product_id,
+        path.project_id
+    );
+
+    Ok(Json(CreateLicenseResponse {
+        licenses: created_licenses,
+    }))
 }
 
 pub async fn get_license(
@@ -125,7 +265,6 @@ pub async fn revoke_license(
         &license.id,
         Some(&serde_json::json!({
             "key": license.key,
-            "email": license.email,
         })),
         Some(&path.org_id),
         Some(&path.project_id),
@@ -177,7 +316,7 @@ pub async fn replace_license(
         queries::revoke_license_key(&conn, &old_license.id)?;
     }
 
-    // Create a new license with the same settings (preserving payment info)
+    // Create a new license with the same settings (preserving customer_id and payment info)
     // Note: subscription_id is NOT copied - the old subscription is tied to the old key
     // If this is a subscription, the customer will need to update their payment method
     let new_license = queries::create_license_key(
@@ -185,7 +324,7 @@ pub async fn replace_license(
         &old_license.product_id,
         &project.license_key_prefix,
         &CreateLicenseKey {
-            email: old_license.email.clone(),
+            customer_id: old_license.customer_id.clone(),
             expires_at: old_license.expires_at,
             updates_expires_at: old_license.updates_expires_at,
             payment_provider: old_license.payment_provider.clone(),
@@ -206,7 +345,6 @@ pub async fn replace_license(
             "old_key": old_license.key,
             "old_license_id": old_license.id,
             "new_key": new_license.key,
-            "email": old_license.email,
             "reason": "key_replacement",
         })),
         Some(&path.org_id),

@@ -130,7 +130,6 @@ mod tests {
             features: vec!["export".to_string(), "api".to_string()],
             device_id: "device-789".to_string(),
             device_type: "uuid".to_string(),
-            email: Some("test@example.com".to_string()),
             product_id: "product-abc".to_string(),
             license_key: "PC-XXXX-XXXX-XXXX".to_string(),
         };

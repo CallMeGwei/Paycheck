@@ -849,16 +849,16 @@ pub fn create_license_key(
     let now = now();
 
     conn.execute(
-        "INSERT INTO license_keys (id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id)
+        "INSERT INTO license_keys (id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id)
          VALUES (?1, ?2, ?3, ?4, 0, 0, '[]', ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![&id, &key, product_id, &input.email, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id],
+        params![&id, &key, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id],
     )?;
 
     Ok(LicenseKey {
         id,
         key,
         product_id: product_id.to_string(),
-        email: input.email.clone(),
+        customer_id: input.customer_id.clone(),
         activation_count: 0,
         revoked: false,
         revoked_jtis: vec![],
@@ -873,7 +873,7 @@ pub fn create_license_key(
 
 pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<LicenseKey>> {
     conn.query_row(
-        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
+        "SELECT id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
          FROM license_keys WHERE id = ?1",
         params![id],
         |row| {
@@ -882,7 +882,7 @@ pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<Licen
                 id: row.get(0)?,
                 key: row.get(1)?,
                 product_id: row.get(2)?,
-                email: row.get(3)?,
+                customer_id: row.get(3)?,
                 activation_count: row.get(4)?,
                 revoked: row.get::<_, i32>(5)? != 0,
                 revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
@@ -901,7 +901,7 @@ pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<Licen
 
 pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<LicenseKey>> {
     conn.query_row(
-        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
+        "SELECT id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
          FROM license_keys WHERE key = ?1",
         params![key],
         |row| {
@@ -910,7 +910,7 @@ pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<Lic
                 id: row.get(0)?,
                 key: row.get(1)?,
                 product_id: row.get(2)?,
-                email: row.get(3)?,
+                customer_id: row.get(3)?,
                 activation_count: row.get(4)?,
                 revoked: row.get::<_, i32>(5)? != 0,
                 revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
@@ -929,7 +929,7 @@ pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<Lic
 
 pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Result<Vec<LicenseKeyWithProduct>> {
     let mut stmt = conn.prepare(
-        "SELECT lk.id, lk.key, lk.product_id, lk.email, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, p.name, p.project_id
+        "SELECT lk.id, lk.key, lk.product_id, lk.customer_id, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, p.name, p.project_id
          FROM license_keys lk
          JOIN products p ON lk.product_id = p.id
          WHERE p.project_id = ?1
@@ -944,7 +944,7 @@ pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Res
                     id: row.get(0)?,
                     key: row.get(1)?,
                     product_id: row.get(2)?,
-                    email: row.get(3)?,
+                    customer_id: row.get(3)?,
                     activation_count: row.get(4)?,
                     revoked: row.get::<_, i32>(5)? != 0,
                     revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
@@ -999,7 +999,7 @@ pub fn get_license_key_by_subscription(
     subscription_id: &str,
 ) -> Result<Option<LicenseKey>> {
     conn.query_row(
-        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
+        "SELECT id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
          FROM license_keys WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
         params![provider, subscription_id],
         |row| {
@@ -1008,7 +1008,7 @@ pub fn get_license_key_by_subscription(
                 id: row.get(0)?,
                 key: row.get(1)?,
                 product_id: row.get(2)?,
-                email: row.get(3)?,
+                customer_id: row.get(3)?,
                 activation_count: row.get(4)?,
                 revoked: row.get::<_, i32>(5)? != 0,
                 revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
@@ -1272,9 +1272,9 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
     let now = now();
 
     conn.execute(
-        "INSERT INTO payment_sessions (id, product_id, device_id, device_type, created_at, completed)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0)",
-        params![&id, &input.product_id, &input.device_id, input.device_type.as_str(), now],
+        "INSERT INTO payment_sessions (id, product_id, device_id, device_type, customer_id, created_at, completed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+        params![&id, &input.product_id, &input.device_id, input.device_type.as_str(), &input.customer_id, now],
     )?;
 
     Ok(PaymentSession {
@@ -1282,6 +1282,7 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
         product_id: input.product_id.clone(),
         device_id: input.device_id.clone(),
         device_type: input.device_type,
+        customer_id: input.customer_id.clone(),
         created_at: now,
         completed: false,
     })
@@ -1289,7 +1290,7 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
 
 pub fn get_payment_session(conn: &Connection, id: &str) -> Result<Option<PaymentSession>> {
     conn.query_row(
-        "SELECT id, product_id, device_id, device_type, created_at, completed
+        "SELECT id, product_id, device_id, device_type, customer_id, created_at, completed
          FROM payment_sessions WHERE id = ?1",
         params![id],
         |row| {
@@ -1298,8 +1299,9 @@ pub fn get_payment_session(conn: &Connection, id: &str) -> Result<Option<Payment
                 product_id: row.get(1)?,
                 device_id: row.get(2)?,
                 device_type: DeviceType::from_str(&row.get::<_, String>(3)?).unwrap(),
-                created_at: row.get(4)?,
-                completed: row.get::<_, i32>(5)? != 0,
+                customer_id: row.get(4)?,
+                created_at: row.get(5)?,
+                completed: row.get::<_, i32>(6)? != 0,
             })
         },
     )
@@ -1313,4 +1315,18 @@ pub fn mark_payment_session_completed(conn: &Connection, id: &str) -> Result<()>
         params![id],
     )?;
     Ok(())
+}
+
+// ============ Audit Log Maintenance ============
+
+/// Purge audit logs older than the specified number of days.
+/// Returns the number of deleted records.
+/// This should be called periodically (e.g., on startup or via cron) for GDPR compliance.
+pub fn purge_old_audit_logs(conn: &Connection, retention_days: i64) -> Result<usize> {
+    let cutoff = now() - (retention_days * 86400);
+    let deleted = conn.execute(
+        "DELETE FROM audit_logs WHERE timestamp < ?1",
+        params![cutoff],
+    )?;
+    Ok(deleted)
 }
