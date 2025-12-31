@@ -12,6 +12,9 @@ pub struct LicenseKey {
     pub created_at: i64,
     pub expires_at: Option<i64>,
     pub updates_expires_at: Option<i64>,
+    pub payment_provider: Option<String>,
+    pub payment_provider_customer_id: Option<String>,
+    pub payment_provider_subscription_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,6 +30,12 @@ pub struct CreateLicenseKey {
     pub email: Option<String>,
     pub expires_at: Option<i64>,
     pub updates_expires_at: Option<i64>,
+    #[serde(default)]
+    pub payment_provider: Option<String>,
+    #[serde(default)]
+    pub payment_provider_customer_id: Option<String>,
+    #[serde(default)]
+    pub payment_provider_subscription_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

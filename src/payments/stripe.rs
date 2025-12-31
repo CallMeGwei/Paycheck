@@ -158,6 +158,7 @@ impl StripeClient {
     }
 }
 
+/// Generic Stripe webhook event - object is parsed based on event_type
 #[derive(Debug, Deserialize)]
 pub struct StripeWebhookEvent {
     #[serde(rename = "type")]
@@ -167,14 +168,19 @@ pub struct StripeWebhookEvent {
 
 #[derive(Debug, Deserialize)]
 pub struct StripeEventData {
-    pub object: StripeCheckoutSession,
+    pub object: serde_json::Value,
 }
+
+// ============ checkout.session.completed ============
 
 #[derive(Debug, Deserialize)]
 pub struct StripeCheckoutSession {
     pub id: String,
+    pub mode: Option<String>, // "payment" or "subscription"
     pub payment_status: String,
+    pub customer: Option<String>,
     pub customer_email: Option<String>,
+    pub subscription: Option<String>, // Present for subscription mode
     pub metadata: StripeMetadata,
 }
 
@@ -183,4 +189,24 @@ pub struct StripeMetadata {
     pub paycheck_session_id: Option<String>,
     pub project_id: Option<String>,
     pub product_id: Option<String>,
+}
+
+// ============ invoice.paid ============
+
+#[derive(Debug, Deserialize)]
+pub struct StripeInvoice {
+    pub id: String,
+    pub customer: Option<String>,
+    pub subscription: Option<String>,
+    pub billing_reason: Option<String>, // "subscription_create", "subscription_cycle", etc.
+    pub status: String, // "paid", "open", etc.
+}
+
+// ============ customer.subscription.deleted ============
+
+#[derive(Debug, Deserialize)]
+pub struct StripeSubscription {
+    pub id: String,
+    pub customer: Option<String>,
+    pub status: String, // "active", "canceled", etc.
 }

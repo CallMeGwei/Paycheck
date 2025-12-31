@@ -181,6 +181,7 @@ impl LemonSqueezyClient {
     }
 }
 
+/// Generic LemonSqueezy webhook event - attributes parsed based on event_name
 #[derive(Debug, Deserialize)]
 pub struct LemonSqueezyWebhookEvent {
     pub meta: LemonSqueezyMeta,
@@ -203,11 +204,37 @@ pub struct LemonSqueezyCustomData {
 #[derive(Debug, Deserialize)]
 pub struct LemonSqueezyEventData {
     pub id: String,
-    pub attributes: LemonSqueezyOrderAttributes,
+    pub attributes: serde_json::Value,
 }
+
+// ============ order_created ============
 
 #[derive(Debug, Deserialize)]
 pub struct LemonSqueezyOrderAttributes {
     pub status: String,
+    pub customer_id: Option<i64>,
     pub user_email: Option<String>,
+    pub first_order_item: Option<LemonSqueezyOrderItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LemonSqueezyOrderItem {
+    pub subscription_id: Option<i64>,
+}
+
+// ============ subscription_payment_success ============
+
+#[derive(Debug, Deserialize)]
+pub struct LemonSqueezySubscriptionInvoiceAttributes {
+    pub subscription_id: i64,
+    pub customer_id: i64,
+    pub status: String, // "paid", etc.
+}
+
+// ============ subscription_cancelled ============
+
+#[derive(Debug, Deserialize)]
+pub struct LemonSqueezySubscriptionAttributes {
+    pub customer_id: i64,
+    pub status: String, // "cancelled", "active", etc.
 }

@@ -92,11 +92,16 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             revoked_jtis TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
             expires_at INTEGER,
-            updates_expires_at INTEGER
+            updates_expires_at INTEGER,
+            payment_provider TEXT,
+            payment_provider_customer_id TEXT,
+            payment_provider_subscription_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_license_keys_product ON license_keys(product_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_key ON license_keys(key);
         CREATE INDEX IF NOT EXISTS idx_license_keys_email ON license_keys(email);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_provider_customer ON license_keys(payment_provider, payment_provider_customer_id);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_provider_subscription ON license_keys(payment_provider, payment_provider_subscription_id);
 
         -- Redemption codes (short-lived codes for URL-safe license redemption)
         CREATE TABLE IF NOT EXISTS redemption_codes (

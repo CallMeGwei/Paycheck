@@ -177,7 +177,9 @@ pub async fn replace_license(
         queries::revoke_license_key(&conn, &old_license.id)?;
     }
 
-    // Create a new license with the same settings
+    // Create a new license with the same settings (preserving payment info)
+    // Note: subscription_id is NOT copied - the old subscription is tied to the old key
+    // If this is a subscription, the customer will need to update their payment method
     let new_license = queries::create_license_key(
         &conn,
         &old_license.product_id,
@@ -186,6 +188,9 @@ pub async fn replace_license(
             email: old_license.email.clone(),
             expires_at: old_license.expires_at,
             updates_expires_at: old_license.updates_expires_at,
+            payment_provider: old_license.payment_provider.clone(),
+            payment_provider_customer_id: old_license.payment_provider_customer_id.clone(),
+            payment_provider_subscription_id: old_license.payment_provider_subscription_id.clone(),
         },
     )?;
 

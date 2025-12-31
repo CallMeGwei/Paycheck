@@ -849,9 +849,9 @@ pub fn create_license_key(
     let now = now();
 
     conn.execute(
-        "INSERT INTO license_keys (id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at)
-         VALUES (?1, ?2, ?3, ?4, 0, 0, '[]', ?5, ?6, ?7)",
-        params![&id, &key, product_id, &input.email, now, input.expires_at, input.updates_expires_at],
+        "INSERT INTO license_keys (id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id)
+         VALUES (?1, ?2, ?3, ?4, 0, 0, '[]', ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![&id, &key, product_id, &input.email, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id],
     )?;
 
     Ok(LicenseKey {
@@ -865,12 +865,15 @@ pub fn create_license_key(
         created_at: now,
         expires_at: input.expires_at,
         updates_expires_at: input.updates_expires_at,
+        payment_provider: input.payment_provider.clone(),
+        payment_provider_customer_id: input.payment_provider_customer_id.clone(),
+        payment_provider_subscription_id: input.payment_provider_subscription_id.clone(),
     })
 }
 
 pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<LicenseKey>> {
     conn.query_row(
-        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at
+        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
          FROM license_keys WHERE id = ?1",
         params![id],
         |row| {
@@ -886,6 +889,9 @@ pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<Licen
                 created_at: row.get(7)?,
                 expires_at: row.get(8)?,
                 updates_expires_at: row.get(9)?,
+                payment_provider: row.get(10)?,
+                payment_provider_customer_id: row.get(11)?,
+                payment_provider_subscription_id: row.get(12)?,
             })
         },
     )
@@ -895,7 +901,7 @@ pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<Licen
 
 pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<LicenseKey>> {
     conn.query_row(
-        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at
+        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
          FROM license_keys WHERE key = ?1",
         params![key],
         |row| {
@@ -911,6 +917,9 @@ pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<Lic
                 created_at: row.get(7)?,
                 expires_at: row.get(8)?,
                 updates_expires_at: row.get(9)?,
+                payment_provider: row.get(10)?,
+                payment_provider_customer_id: row.get(11)?,
+                payment_provider_subscription_id: row.get(12)?,
             })
         },
     )
@@ -920,7 +929,7 @@ pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<Lic
 
 pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Result<Vec<LicenseKeyWithProduct>> {
     let mut stmt = conn.prepare(
-        "SELECT lk.id, lk.key, lk.product_id, lk.email, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, p.name, p.project_id
+        "SELECT lk.id, lk.key, lk.product_id, lk.email, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, p.name, p.project_id
          FROM license_keys lk
          JOIN products p ON lk.product_id = p.id
          WHERE p.project_id = ?1
@@ -942,9 +951,12 @@ pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Res
                     created_at: row.get(7)?,
                     expires_at: row.get(8)?,
                     updates_expires_at: row.get(9)?,
+                    payment_provider: row.get(10)?,
+                    payment_provider_customer_id: row.get(11)?,
+                    payment_provider_subscription_id: row.get(12)?,
                 },
-                product_name: row.get(10)?,
-                project_id: row.get(11)?,
+                product_name: row.get(13)?,
+                project_id: row.get(14)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -976,6 +988,53 @@ pub fn add_revoked_jti(conn: &Connection, license_id: &str, jti: &str) -> Result
     conn.execute(
         "UPDATE license_keys SET revoked_jtis = ?1 WHERE id = ?2",
         params![json, license_id],
+    )?;
+    Ok(())
+}
+
+/// Find a license by payment provider and subscription ID (for subscription renewals)
+pub fn get_license_key_by_subscription(
+    conn: &Connection,
+    provider: &str,
+    subscription_id: &str,
+) -> Result<Option<LicenseKey>> {
+    conn.query_row(
+        "SELECT id, key, product_id, email, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id
+         FROM license_keys WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
+        params![provider, subscription_id],
+        |row| {
+            let jtis_str: String = row.get(6)?;
+            Ok(LicenseKey {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                product_id: row.get(2)?,
+                email: row.get(3)?,
+                activation_count: row.get(4)?,
+                revoked: row.get::<_, i32>(5)? != 0,
+                revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
+                created_at: row.get(7)?,
+                expires_at: row.get(8)?,
+                updates_expires_at: row.get(9)?,
+                payment_provider: row.get(10)?,
+                payment_provider_customer_id: row.get(11)?,
+                payment_provider_subscription_id: row.get(12)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Extend license expiration dates (for subscription renewals)
+pub fn extend_license_expiration(
+    conn: &Connection,
+    license_id: &str,
+    new_expires_at: Option<i64>,
+    new_updates_expires_at: Option<i64>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE license_keys SET expires_at = ?1, updates_expires_at = ?2 WHERE id = ?3",
+        params![new_expires_at, new_updates_expires_at, license_id],
     )?;
     Ok(())
 }
