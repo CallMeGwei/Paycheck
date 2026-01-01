@@ -1,8 +1,10 @@
 use axum::{
+    extract::rejection::{JsonRejection, PathRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
+use axum_extra::typed_header::TypedHeaderRejection;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -31,6 +33,18 @@ pub enum AppError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("JSON body error: {0}")]
+    JsonBody(#[from] JsonRejection),
+
+    #[error("Query error: {0}")]
+    Query(#[from] QueryRejection),
+
+    #[error("Path error: {0}")]
+    Path(#[from] PathRejection),
+
+    #[error("Header error: {0}")]
+    Header(#[from] TypedHeaderRejection),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -71,8 +85,24 @@ impl IntoResponse for AppError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error", None)
             }
             AppError::Json(e) => {
-                tracing::error!("JSON error: {}", e);
                 (StatusCode::BAD_REQUEST, "Invalid JSON", Some(e.to_string()))
+            }
+            AppError::JsonBody(e) => {
+                (StatusCode::BAD_REQUEST, "Invalid request body", Some(e.body_text()))
+            }
+            AppError::Query(e) => {
+                (StatusCode::BAD_REQUEST, "Invalid query parameters", Some(e.body_text()))
+            }
+            AppError::Path(e) => {
+                (StatusCode::BAD_REQUEST, "Invalid path parameters", Some(e.body_text()))
+            }
+            AppError::Header(e) => {
+                let msg = e.to_string();
+                if msg.contains("missing") {
+                    (StatusCode::UNAUTHORIZED, "Missing authorization header", None)
+                } else {
+                    (StatusCode::BAD_REQUEST, "Invalid header", Some(msg))
+                }
             }
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);

@@ -1,12 +1,10 @@
-use axum::{
-    extract::{Query, State},
-    Json,
-};
+use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::{Json, Query};
 use crate::util::LicenseExpirations;
 
 #[derive(Debug, Deserialize)]

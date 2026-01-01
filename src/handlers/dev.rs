@@ -1,11 +1,9 @@
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::extract::State;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::Json;
 use crate::models::CreateLicenseKey;
 use crate::util::LicenseExpirations;
 

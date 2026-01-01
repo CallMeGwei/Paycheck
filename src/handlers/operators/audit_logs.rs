@@ -1,10 +1,8 @@
-use axum::{
-    extract::{Query, State},
-    Json,
-};
+use axum::extract::State;
 
 use crate::db::{queries, AppState};
 use crate::error::Result;
+use crate::extractors::{Json, Query};
 use crate::models::{AuditLog, AuditLogQuery};
 
 pub async fn query_audit_logs(

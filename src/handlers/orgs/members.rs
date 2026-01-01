@@ -1,12 +1,12 @@
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
     http::HeaderMap,
-    Json,
 };
 use serde::Serialize;
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateOrgMember, OrgMember, UpdateOrgMember};
 use crate::util::extract_request_info;

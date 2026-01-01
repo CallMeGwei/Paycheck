@@ -1,5 +1,4 @@
 use axum::extract::State;
-use axum::Json;
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
@@ -8,6 +7,7 @@ use serde::Serialize;
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::Json;
 use crate::jwt;
 
 #[derive(Debug, Serialize)]

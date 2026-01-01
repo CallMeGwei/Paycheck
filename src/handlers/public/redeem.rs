@@ -1,8 +1,4 @@
-use axum::{
-    extract::{Query, State},
-    http::HeaderMap,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -10,6 +6,7 @@ use uuid::Uuid;
 use crate::crypto::MasterKey;
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::{Json, Query};
 use crate::jwt::{self, LicenseClaims};
 use crate::models::DeviceType;
 use crate::util::{extract_bearer_token, LicenseExpirations};

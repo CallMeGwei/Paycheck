@@ -444,20 +444,23 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
         }
 
         // Update payment configs if any exist
-        if project.stripe_config_encrypted.is_some() || project.ls_config_encrypted.is_some() {
-            if let Err(e) = queries::update_project_payment_configs(
+        let has_payment_configs =
+            project.stripe_config_encrypted.is_some() || project.ls_config_encrypted.is_some();
+        if has_payment_configs
+            && queries::update_project_payment_configs(
                 &conn,
                 &project.id,
                 new_stripe.as_deref(),
                 new_ls.as_deref(),
-            ) {
-                eprintln!(
-                    "  [ERROR] Failed to update payment configs for project {}: {}",
-                    project.id, e
-                );
-                errors += 1;
-                continue;
-            }
+            )
+            .is_err()
+        {
+            eprintln!(
+                "  [ERROR] Failed to update payment configs for project {}",
+                project.id
+            );
+            errors += 1;
+            continue;
         }
 
         println!("  [OK] Rotated project: {} ({})", project.name, project.id);

@@ -1,11 +1,11 @@
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
     http::HeaderMap,
-    Json,
 };
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateProduct, Product, UpdateProduct};
 use crate::util::extract_request_info;

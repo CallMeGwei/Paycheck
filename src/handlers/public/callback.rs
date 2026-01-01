@@ -1,13 +1,14 @@
 use axum::{
-    extract::{Query, State},
+    extract::State,
     http::HeaderMap,
-    response::{Html, Json, Redirect},
+    response::{Html, Redirect},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::{Json, Query};
 use crate::jwt::{self, LicenseClaims};
 use crate::util::LicenseExpirations;
 

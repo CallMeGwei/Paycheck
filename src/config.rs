@@ -117,7 +117,7 @@ impl Config {
                 eprintln!("WARNING: No PAYCHECK_MASTER_KEY_FILE set.");
                 eprintln!("Using ephemeral key for dev mode.");
                 eprintln!("Private keys will NOT be recoverable after restart!");
-                eprintln!("");
+                eprintln!();
                 eprintln!("For persistent dev usage, create a key file:");
                 eprintln!("  openssl rand -base64 32 > /path/to/master.key");
                 eprintln!("  chmod 400 /path/to/master.key");

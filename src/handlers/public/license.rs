@@ -1,7 +1,4 @@
-use axum::{
-    extract::{Query, State},
-    Json,
-};
+use axum::extract::State;
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
@@ -10,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::{Json, Query};
 
 /// Query parameters for GET /license
 #[derive(Debug, Deserialize)]

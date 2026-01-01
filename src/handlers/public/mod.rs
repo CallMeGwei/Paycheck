@@ -12,10 +12,12 @@ pub use license::*;
 pub use buy::*;
 pub use callback::*;
 
-use axum::{routing::{get, post}, Json, Router};
+use axum::routing::{get, post};
+use axum::Router;
 use serde::Serialize;
 
 use crate::db::AppState;
+use crate::extractors::Json;
 
 #[derive(Serialize)]
 struct HealthResponse {

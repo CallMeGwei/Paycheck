@@ -1,11 +1,9 @@
-use axum::{
-    extract::{Query, State},
-    response::Redirect,
-};
+use axum::{extract::State, response::Redirect};
 use serde::Deserialize;
 
 use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
+use crate::extractors::Query;
 use crate::models::{CreatePaymentSession, DeviceType};
 use crate::payments::{LemonSqueezyClient, PaymentProvider, StripeClient};
 
