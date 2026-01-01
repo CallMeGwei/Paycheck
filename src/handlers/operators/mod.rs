@@ -1,10 +1,12 @@
 mod management;
 mod organizations;
 mod audit_logs;
+mod support;
 
 pub use management::*;
 pub use organizations::*;
 pub use audit_logs::*;
+pub use support::*;
 
 use axum::{
     middleware,
@@ -32,6 +34,11 @@ pub fn router(state: AppState) -> Router<AppState> {
                 .route("/operators/organizations/{id}", get(get_organization))
                 .route("/operators/organizations/{id}", put(update_organization))
                 .route("/operators/organizations/{id}", delete(delete_organization))
+                // Support endpoints (admin+)
+                .route(
+                    "/operators/projects/{project_id}/payment-config",
+                    get(get_project_payment_config),
+                )
                 .layer(middleware::from_fn_with_state(state.clone(), require_admin_role)),
         )
         .merge(

@@ -55,6 +55,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}/replace", post(replace_license))
         // Device management (for remote deactivation of lost devices)
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}/devices/{device_id}", delete(deactivate_device_admin))
+        // Payment config (masked, for customers to verify their settings)
+        .route("/orgs/{org_id}/projects/{project_id}/payment-config", get(get_payment_config))
         .layer(middleware::from_fn_with_state(state.clone(), org_member_project_auth));
 
     org_routes.merge(project_routes)

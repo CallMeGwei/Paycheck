@@ -8,7 +8,10 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::jwt;
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, CreateProject, ProjectPublic, UpdateProject};
+use crate::models::{
+    ActorType, CreateProject, LemonSqueezyConfigMasked, ProjectPublic, StripeConfigMasked,
+    UpdateProject,
+};
 use crate::util::extract_request_info;
 
 pub async fn create_project(
@@ -187,4 +190,45 @@ pub async fn delete_project(
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PaymentConfigResponse {
+    pub project_id: String,
+    pub stripe_config: Option<StripeConfigMasked>,
+    pub ls_config: Option<LemonSqueezyConfigMasked>,
+}
+
+/// Get payment provider configuration for a project (masked for security)
+pub async fn get_payment_config(
+    State(state): State<AppState>,
+    Extension(ctx): Extension<OrgMemberContext>,
+    Path(path): Path<crate::middleware::OrgProjectPath>,
+) -> Result<Json<PaymentConfigResponse>> {
+    // Only admins can view payment config
+    ctx.require_admin()?;
+
+    let conn = state.db.get()?;
+    let project = queries::get_project_by_id(&conn, &path.project_id)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    if project.org_id != path.org_id {
+        return Err(AppError::NotFound("Project not found".into()));
+    }
+
+    let stripe_config = project
+        .decrypt_stripe_config(&state.master_key)?
+        .as_ref()
+        .map(StripeConfigMasked::from);
+
+    let ls_config = project
+        .decrypt_ls_config(&state.master_key)?
+        .as_ref()
+        .map(LemonSqueezyConfigMasked::from);
+
+    Ok(Json(PaymentConfigResponse {
+        project_id: path.project_id,
+        stripe_config,
+        ls_config,
+    }))
 }
