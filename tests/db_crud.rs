@@ -310,6 +310,136 @@ fn test_update_project_stripe_config() {
         .expect("Decryption failed")
         .expect("Config not found");
     assert_eq!(decrypted.secret_key, "sk_test_xxx");
+
+    // Verify the raw data is actually encrypted (has magic bytes)
+    assert!(updated.stripe_config_encrypted.is_some());
+    let raw = updated.stripe_config_encrypted.as_ref().unwrap();
+    assert!(raw.starts_with(b"ENC1"), "Config should be encrypted with ENC1 magic bytes");
+}
+
+#[test]
+fn test_update_project_lemonsqueezy_config() {
+    let conn = setup_test_db();
+    let master_key = test_master_key();
+    let org = create_test_org(&conn, "Test Org");
+    let project = create_test_project(&conn, &org.id, "My App");
+
+    let ls_config = LemonSqueezyConfig {
+        api_key: "ls_test_api_key".to_string(),
+        store_id: "store_12345".to_string(),
+        webhook_secret: "whsec_ls_xxx".to_string(),
+    };
+
+    let update = UpdateProject {
+        name: None,
+        domain: None,
+        license_key_prefix: None,
+        stripe_config: None,
+        ls_config: Some(ls_config.clone()),
+        default_provider: None,
+    };
+
+    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+
+    let updated = queries::get_project_by_id(&conn, &project.id)
+        .expect("Query failed")
+        .expect("Project not found");
+
+    assert!(updated.has_ls_config());
+    let decrypted = updated.decrypt_ls_config(&master_key)
+        .expect("Decryption failed")
+        .expect("Config not found");
+    assert_eq!(decrypted.api_key, "ls_test_api_key");
+    assert_eq!(decrypted.store_id, "store_12345");
+
+    // Verify encryption
+    let raw = updated.ls_config_encrypted.as_ref().unwrap();
+    assert!(raw.starts_with(b"ENC1"), "Config should be encrypted");
+}
+
+#[test]
+fn test_update_project_both_payment_configs() {
+    let conn = setup_test_db();
+    let master_key = test_master_key();
+    let org = create_test_org(&conn, "Test Org");
+    let project = create_test_project(&conn, &org.id, "My App");
+
+    let stripe_config = StripeConfig {
+        secret_key: "sk_test_both".to_string(),
+        publishable_key: "pk_test_both".to_string(),
+        webhook_secret: "whsec_both".to_string(),
+    };
+
+    let ls_config = LemonSqueezyConfig {
+        api_key: "ls_both_key".to_string(),
+        store_id: "store_both".to_string(),
+        webhook_secret: "whsec_ls_both".to_string(),
+    };
+
+    let update = UpdateProject {
+        name: None,
+        domain: None,
+        license_key_prefix: None,
+        stripe_config: Some(stripe_config),
+        ls_config: Some(ls_config),
+        default_provider: Some(Some("stripe".to_string())),
+    };
+
+    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+
+    let updated = queries::get_project_by_id(&conn, &project.id)
+        .expect("Query failed")
+        .expect("Project not found");
+
+    // Both configs should be present and decryptable
+    assert!(updated.has_stripe_config());
+    assert!(updated.has_ls_config());
+
+    let stripe = updated.decrypt_stripe_config(&master_key)
+        .expect("Stripe decryption failed")
+        .expect("Stripe config not found");
+    assert_eq!(stripe.secret_key, "sk_test_both");
+
+    let ls = updated.decrypt_ls_config(&master_key)
+        .expect("LS decryption failed")
+        .expect("LS config not found");
+    assert_eq!(ls.api_key, "ls_both_key");
+
+    assert_eq!(updated.default_provider, Some("stripe".to_string()));
+}
+
+#[test]
+fn test_payment_config_wrong_key_fails() {
+    let conn = setup_test_db();
+    let master_key = test_master_key();
+    let wrong_key = MasterKey::from_bytes([1u8; 32]); // Different key
+    let org = create_test_org(&conn, "Test Org");
+    let project = create_test_project(&conn, &org.id, "My App");
+
+    let stripe_config = StripeConfig {
+        secret_key: "sk_secret".to_string(),
+        publishable_key: "pk_secret".to_string(),
+        webhook_secret: "whsec_secret".to_string(),
+    };
+
+    let update = UpdateProject {
+        name: None,
+        domain: None,
+        license_key_prefix: None,
+        stripe_config: Some(stripe_config),
+        ls_config: None,
+        default_provider: None,
+    };
+
+    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+
+    let updated = queries::get_project_by_id(&conn, &project.id)
+        .expect("Query failed")
+        .expect("Project not found");
+
+    // Decryption with wrong key should fail
+    let result = updated.decrypt_stripe_config(&wrong_key);
+    assert!(result.is_err(), "Decryption with wrong key should fail");
 }
 
 // ============ Product Tests ============
