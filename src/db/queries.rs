@@ -975,6 +975,119 @@ pub fn cleanup_expired_redemption_codes(conn: &Connection) -> Result<usize> {
 
 // ============ Devices ============
 
+/// Result of attempting to acquire a device for a license
+pub enum DeviceAcquisitionResult {
+    /// Returned an existing device (already activated on this device_id)
+    Existing(Device),
+    /// Created a new device successfully
+    Created(Device),
+}
+
+/// Atomically acquire a device for a license, enforcing device and activation limits.
+///
+/// This function uses a transaction with IMMEDIATE mode (SQLite) to prevent race conditions
+/// where multiple concurrent requests could bypass the device limit.
+///
+/// # PostgreSQL Migration Note
+/// When migrating to PostgreSQL, add `FOR UPDATE` to the license SELECT query to achieve
+/// the same row-level locking behavior. SQLite's IMMEDIATE transaction provides this
+/// implicitly by serializing all writes.
+pub fn acquire_device_atomic(
+    conn: &mut Connection,
+    license_id: &str,
+    device_id: &str,
+    device_type: DeviceType,
+    jti: &str,
+    name: Option<&str>,
+    device_limit: i32,
+    activation_limit: i32,
+) -> Result<DeviceAcquisitionResult> {
+    // Use IMMEDIATE to acquire write lock at transaction start, preventing TOCTOU races
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+    // Check if device already exists for this license
+    let existing_device: Option<Device> = query_one(
+        &tx,
+        &format!(
+            "SELECT {} FROM devices WHERE license_key_id = ?1 AND device_id = ?2",
+            DEVICE_COLS
+        ),
+        &[&license_id, &device_id],
+    )?;
+
+    if let Some(device) = existing_device {
+        // Device exists - update JTI and return
+        let now = now();
+        tx.execute(
+            "UPDATE devices SET jti = ?1, last_seen_at = ?2 WHERE id = ?3",
+            params![jti, now, device.id],
+        )?;
+        tx.commit()?;
+        return Ok(DeviceAcquisitionResult::Existing(Device {
+            jti: jti.to_string(),
+            last_seen_at: now,
+            ..device
+        }));
+    }
+
+    // New device - check limits atomically within the transaction
+    let current_device_count: i32 = tx.query_row(
+        "SELECT COUNT(*) FROM devices WHERE license_key_id = ?1",
+        params![license_id],
+        |row| row.get(0),
+    )?;
+
+    if device_limit > 0 && current_device_count >= device_limit {
+        // No need to commit - just drop the transaction
+        return Err(AppError::Forbidden(format!(
+            "Device limit reached ({}/{}). Deactivate a device first.",
+            current_device_count, device_limit
+        )));
+    }
+
+    // Check activation limit
+    let current_activation_count: i32 = tx.query_row(
+        "SELECT activation_count FROM license_keys WHERE id = ?1",
+        params![license_id],
+        |row| row.get(0),
+    )?;
+
+    if activation_limit > 0 && current_activation_count >= activation_limit {
+        return Err(AppError::Forbidden(format!(
+            "Activation limit reached ({}/{})",
+            current_activation_count, activation_limit
+        )));
+    }
+
+    // All checks passed - create device and increment activation count
+    let id = gen_id();
+    let now = now();
+
+    tx.execute(
+        "INSERT INTO devices (id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![&id, license_id, device_id, device_type.as_ref(), name, jti, now, now],
+    )?;
+
+    tx.execute(
+        "UPDATE license_keys SET activation_count = activation_count + 1 WHERE id = ?1",
+        params![license_id],
+    )?;
+
+    tx.commit()?;
+
+    Ok(DeviceAcquisitionResult::Created(Device {
+        id,
+        license_key_id: license_id.to_string(),
+        device_id: device_id.to_string(),
+        device_type,
+        name: name.map(String::from),
+        jti: jti.to_string(),
+        activated_at: now,
+        last_seen_at: now,
+    }))
+}
+
 pub fn create_device(
     conn: &Connection,
     license_key_id: &str,

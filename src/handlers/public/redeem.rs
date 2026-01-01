@@ -55,7 +55,7 @@ pub async fn redeem_with_code(
     State(state): State<AppState>,
     Query(query): Query<RedeemCodeQuery>,
 ) -> Result<Json<RedeemResponse>> {
-    let conn = state.db.get()?;
+    let mut conn = state.db.get()?;
 
     // Validate device type
     let device_type = query.device_type.parse::<DeviceType>()
@@ -84,7 +84,7 @@ pub async fn redeem_with_code(
 
     // Proceed with normal redemption logic
     redeem_license_internal(
-        &conn,
+        &mut conn,
         &state.master_key,
         &license,
         &query.project_id,
@@ -106,7 +106,7 @@ pub async fn redeem_with_key(
     headers: HeaderMap,
     Json(body): Json<RedeemKeyBody>,
 ) -> Result<Json<RedeemResponse>> {
-    let conn = state.db.get()?;
+    let mut conn = state.db.get()?;
 
     // Extract key from header first, fall back to body
     let key = extract_bearer_token(&headers)
@@ -126,7 +126,7 @@ pub async fn redeem_with_key(
 
     // Proceed with normal redemption logic
     redeem_license_internal(
-        &conn,
+        &mut conn,
         &state.master_key,
         &license,
         &body.project_id,
@@ -138,7 +138,7 @@ pub async fn redeem_with_key(
 
 /// Internal function that handles the actual license redemption logic
 fn redeem_license_internal(
-    conn: &rusqlite::Connection,
+    conn: &mut r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>,
     master_key: &MasterKey,
     license: &crate::models::LicenseKey,
     project_id: &str,
@@ -171,28 +171,22 @@ fn redeem_license_internal(
     let project = queries::get_project_by_id(conn, project_id)?
         .ok_or_else(|| AppError::Internal("Project not found".into()))?;
 
-    // Check device limit
-    let current_device_count = queries::count_devices_for_license(conn, &license.id)?;
-    let existing_device = queries::get_device_for_license(conn, &license.id, device_id)?;
-
-    if existing_device.is_none() && product.device_limit > 0 && current_device_count >= product.device_limit {
-        return Err(AppError::Forbidden(format!(
-            "Device limit reached ({}/{}). Deactivate a device first.",
-            current_device_count, product.device_limit
-        )));
-    }
-
-    // Check activation limit (only for new devices)
-    if existing_device.is_none() && product.activation_limit > 0 && license.activation_count >= product.activation_limit {
-        return Err(AppError::Forbidden(format!(
-            "Activation limit reached ({}/{})",
-            license.activation_count, product.activation_limit
-        )));
-    }
-
-    // Generate JTI
+    // Generate JTI for the new token
     let jti = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
+
+    // Atomically acquire device (handles limit checks + creation in a transaction)
+    // This prevents race conditions where concurrent requests could bypass device limits
+    let _device = queries::acquire_device_atomic(
+        conn,
+        &license.id,
+        device_id,
+        device_type,
+        &jti,
+        device_name,
+        product.device_limit,
+        product.activation_limit,
+    )?;
 
     // Calculate expirations
     let exps = LicenseExpirations::from_product(&product, now);
@@ -221,25 +215,6 @@ fn redeem_license_internal(
         &project.domain,
         &jti,
     )?;
-
-    // Update or create device record
-    if let Some(existing) = existing_device {
-        // Update existing device with new JTI
-        queries::update_device_jti(conn, &existing.id, &jti)?;
-    } else {
-        // Create new device
-        queries::create_device(
-            conn,
-            &license.id,
-            device_id,
-            device_type,
-            &jti,
-            device_name,
-        )?;
-
-        // Increment activation count
-        queries::increment_activation_count(conn, &license.id)?;
-    }
 
     // Create a fresh redemption code for future URL-based redemptions
     let new_redemption_code = queries::create_redemption_code(conn, &license.id)?;
