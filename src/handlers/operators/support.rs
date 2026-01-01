@@ -10,37 +10,35 @@ use crate::models::{LemonSqueezyConfig, StripeConfig};
 
 #[derive(Debug, Serialize)]
 pub struct FullPaymentConfigResponse {
-    pub project_id: String,
     pub org_id: String,
-    pub project_name: String,
+    pub org_name: String,
     pub stripe_config: Option<StripeConfig>,
     pub ls_config: Option<LemonSqueezyConfig>,
 }
 
-/// Get full (unmasked) payment provider configuration for a project.
+/// Get full (unmasked) payment provider configuration for an organization.
 /// This is for operator support staff to debug customer payment issues.
-pub async fn get_project_payment_config(
+pub async fn get_org_payment_config(
     State(state): State<AppState>,
-    Path(project_id): Path<String>,
+    Path(org_id): Path<String>,
 ) -> Result<Json<FullPaymentConfigResponse>> {
     let conn = state.db.get()?;
 
-    let project = queries::get_project_by_id(&conn, &project_id)?
-        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+    let org = queries::get_organization_by_id(&conn, &org_id)?
+        .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
 
-    let stripe_config = project.decrypt_stripe_config(&state.master_key)?;
-    let ls_config = project.decrypt_ls_config(&state.master_key)?;
+    let stripe_config = org.decrypt_stripe_config(&state.master_key)?;
+    let ls_config = org.decrypt_ls_config(&state.master_key)?;
 
     tracing::info!(
-        "OPERATOR: Retrieved payment config for project {} ({})",
-        project.name,
-        project_id
+        "OPERATOR: Retrieved payment config for organization {} ({})",
+        org.name,
+        org_id
     );
 
     Ok(Json(FullPaymentConfigResponse {
-        project_id,
-        org_id: project.org_id,
-        project_name: project.name,
+        org_id,
+        org_name: org.name,
         stripe_config,
         ls_config,
     }))

@@ -41,6 +41,10 @@ pub async fn initiate_buy(
     let project = queries::get_project_by_id(&conn, &query.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
+    // Get organization (payment config is at org level)
+    let org = queries::get_organization_by_id(&conn, &project.org_id)?
+        .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
+
     // Get product
     let product = queries::get_product_by_id(&conn, &query.product_id)?
         .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
@@ -55,14 +59,14 @@ pub async fn initiate_buy(
         // Explicit provider specified in query
         p.parse::<PaymentProvider>()
             .ok().ok_or_else(|| AppError::BadRequest("Invalid provider".into()))?
-    } else if let Some(ref default) = project.default_provider {
-        // Use project's default provider
+    } else if let Some(ref default) = org.default_provider {
+        // Use organization's default provider
         default.parse::<PaymentProvider>()
-            .ok().ok_or_else(|| AppError::BadRequest("Invalid default_provider in project".into()))?
+            .ok().ok_or_else(|| AppError::BadRequest("Invalid default_provider in organization".into()))?
     } else {
         // Auto-detect: use the only configured provider, or error if both/neither
-        let has_stripe = project.has_stripe_config();
-        let has_ls = project.has_ls_config();
+        let has_stripe = org.has_stripe_config();
+        let has_ls = org.has_ls_config();
         match (has_stripe, has_ls) {
             (true, false) => PaymentProvider::Stripe,
             (false, true) => PaymentProvider::LemonSqueezy,
@@ -95,7 +99,7 @@ pub async fn initiate_buy(
     // Create checkout with the appropriate provider
     let checkout_url = match provider {
         PaymentProvider::Stripe => {
-            let config = project.decrypt_stripe_config(&state.master_key)?
+            let config = org.decrypt_stripe_config(&state.master_key)?
                 .ok_or_else(|| AppError::BadRequest("Stripe not configured".into()))?;
 
             let price_cents = query.price_cents
@@ -118,7 +122,7 @@ pub async fn initiate_buy(
             url
         }
         PaymentProvider::LemonSqueezy => {
-            let config = project.decrypt_ls_config(&state.master_key)?
+            let config = org.decrypt_ls_config(&state.master_key)?
                 .ok_or_else(|| AppError::BadRequest("LemonSqueezy not configured".into()))?;
 
             let variant_id = query.variant_id.as_ref()

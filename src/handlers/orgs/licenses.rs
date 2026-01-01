@@ -135,6 +135,7 @@ pub async fn create_license(
                 payment_provider: None,
                 payment_provider_customer_id: None,
                 payment_provider_subscription_id: None,
+                payment_provider_order_id: None,
             },
         )?;
 
@@ -314,6 +315,7 @@ pub async fn replace_license(
             payment_provider: old_license.payment_provider.clone(),
             payment_provider_customer_id: old_license.payment_provider_customer_id.clone(),
             payment_provider_subscription_id: old_license.payment_provider_subscription_id.clone(),
+            payment_provider_order_id: old_license.payment_provider_order_id.clone(),
         },
     )?;
 

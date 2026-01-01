@@ -125,7 +125,7 @@ pub async fn update_project(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    queries::update_project(&conn, &path.project_id, &input, &state.master_key)?;
+    queries::update_project(&conn, &path.project_id, &input)?;
 
     let (ip, ua) = extract_request_info(&headers);
     queries::create_audit_log(
@@ -139,8 +139,6 @@ pub async fn update_project(
         Some(&serde_json::json!({
             "name": input.name,
             "domain": input.domain,
-            "stripe_updated": input.stripe_config.is_some(),
-            "ls_updated": input.ls_config.is_some(),
         })),
         Some(&path.org_id),
         Some(&path.project_id),
@@ -194,41 +192,39 @@ pub async fn delete_project(
 
 #[derive(Debug, serde::Serialize)]
 pub struct PaymentConfigResponse {
-    pub project_id: String,
+    pub org_id: String,
     pub stripe_config: Option<StripeConfigMasked>,
     pub ls_config: Option<LemonSqueezyConfigMasked>,
+    pub default_provider: Option<String>,
 }
 
-/// Get payment provider configuration for a project (masked for security)
+/// Get payment provider configuration for the organization (masked for security)
 pub async fn get_payment_config(
     State(state): State<AppState>,
     Extension(ctx): Extension<OrgMemberContext>,
-    Path(path): Path<crate::middleware::OrgProjectPath>,
+    Path(org_id): Path<String>,
 ) -> Result<Json<PaymentConfigResponse>> {
     // Only admins can view payment config
     ctx.require_admin()?;
 
     let conn = state.db.get()?;
-    let project = queries::get_project_by_id(&conn, &path.project_id)?
-        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+    let org = queries::get_organization_by_id(&conn, &org_id)?
+        .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
 
-    if project.org_id != path.org_id {
-        return Err(AppError::NotFound("Project not found".into()));
-    }
-
-    let stripe_config = project
+    let stripe_config = org
         .decrypt_stripe_config(&state.master_key)?
         .as_ref()
         .map(StripeConfigMasked::from);
 
-    let ls_config = project
+    let ls_config = org
         .decrypt_ls_config(&state.master_key)?
         .as_ref()
         .map(LemonSqueezyConfigMasked::from);
 
     Ok(Json(PaymentConfigResponse {
-        project_id: path.project_id,
+        org_id,
         stripe_config,
         ls_config,
+        default_provider: org.default_provider,
     }))
 }

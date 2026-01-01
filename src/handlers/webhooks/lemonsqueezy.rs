@@ -7,7 +7,7 @@ use axum::{
 
 use crate::crypto::MasterKey;
 use crate::db::AppState;
-use crate::models::Project;
+use crate::models::Organization;
 use crate::payments::{
     LemonSqueezyClient, LemonSqueezyOrderAttributes, LemonSqueezySubscriptionInvoiceAttributes,
     LemonSqueezyWebhookEvent,
@@ -37,12 +37,12 @@ impl WebhookProvider for LemonSqueezyWebhookProvider {
 
     fn verify_signature(
         &self,
-        project: &Project,
+        org: &Organization,
         master_key: &MasterKey,
         body: &Bytes,
         signature: &str,
     ) -> Result<bool, WebhookResult> {
-        let ls_config = project
+        let ls_config = org
             .decrypt_ls_config(master_key)
             .map_err(|e| {
                 tracing::error!("Failed to decrypt LemonSqueezy config: {}", e);
@@ -111,6 +111,7 @@ fn parse_order_created(event: &LemonSqueezyWebhookEvent) -> Result<WebhookEvent,
         project_id,
         customer_id: order.customer_id.map(|id| id.to_string()),
         subscription_id,
+        order_id: Some(event.data.id.clone()),
     }))
 }
 

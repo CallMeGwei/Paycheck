@@ -373,18 +373,32 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
             continue;
         }
 
-        // Rotate payment configs if they exist and are encrypted
+        println!("  [OK] Rotated project: {} ({})", project.name, project.id);
+        rotated += 1;
+    }
+
+    // Rotate organization payment configs
+    let organizations = queries::list_organizations(&conn)
+        .map_err(|e| format!("Failed to list organizations: {}", e))?;
+
+    println!();
+    println!("Found {} organization(s) with potential payment configs.", organizations.len());
+
+    let mut org_rotated = 0;
+    let mut org_errors = 0;
+
+    for org in &organizations {
         let mut config_error = false;
 
-        let new_stripe = if let Some(ref encrypted) = project.stripe_config_encrypted {
+        let new_stripe = if let Some(ref encrypted) = org.stripe_config_encrypted {
             if MasterKey::is_encrypted(encrypted) {
-                match old_key.decrypt_private_key(&project.id, encrypted) {
-                    Ok(plaintext) => match new_key.encrypt_private_key(&project.id, &plaintext) {
+                match old_key.decrypt_private_key(&org.id, encrypted) {
+                    Ok(plaintext) => match new_key.encrypt_private_key(&org.id, &plaintext) {
                         Ok(new_enc) => Some(new_enc),
                         Err(e) => {
                             eprintln!(
-                                "  [ERROR] Failed to re-encrypt Stripe config for project {}: {}",
-                                project.id, e
+                                "  [ERROR] Failed to re-encrypt Stripe config for org {}: {}",
+                                org.id, e
                             );
                             config_error = true;
                             None
@@ -392,30 +406,29 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
                     },
                     Err(e) => {
                         eprintln!(
-                            "  [ERROR] Failed to decrypt Stripe config for project {}: {}",
-                            project.id, e
+                            "  [ERROR] Failed to decrypt Stripe config for org {}: {}",
+                            org.id, e
                         );
                         config_error = true;
                         None
                     }
                 }
             } else {
-                // Unencrypted - just keep as is (will be migrated on startup)
                 Some(encrypted.clone())
             }
         } else {
             None
         };
 
-        let new_ls = if let Some(ref encrypted) = project.ls_config_encrypted {
+        let new_ls = if let Some(ref encrypted) = org.ls_config_encrypted {
             if MasterKey::is_encrypted(encrypted) {
-                match old_key.decrypt_private_key(&project.id, encrypted) {
-                    Ok(plaintext) => match new_key.encrypt_private_key(&project.id, &plaintext) {
+                match old_key.decrypt_private_key(&org.id, encrypted) {
+                    Ok(plaintext) => match new_key.encrypt_private_key(&org.id, &plaintext) {
                         Ok(new_enc) => Some(new_enc),
                         Err(e) => {
                             eprintln!(
-                                "  [ERROR] Failed to re-encrypt LemonSqueezy config for project {}: {}",
-                                project.id, e
+                                "  [ERROR] Failed to re-encrypt LemonSqueezy config for org {}: {}",
+                                org.id, e
                             );
                             config_error = true;
                             None
@@ -423,15 +436,14 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
                     },
                     Err(e) => {
                         eprintln!(
-                            "  [ERROR] Failed to decrypt LemonSqueezy config for project {}: {}",
-                            project.id, e
+                            "  [ERROR] Failed to decrypt LemonSqueezy config for org {}: {}",
+                            org.id, e
                         );
                         config_error = true;
                         None
                     }
                 }
             } else {
-                // Unencrypted - just keep as is (will be migrated on startup)
                 Some(encrypted.clone())
             }
         } else {
@@ -439,32 +451,34 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
         };
 
         if config_error {
+            org_errors += 1;
             errors += 1;
             continue;
         }
 
         // Update payment configs if any exist
         let has_payment_configs =
-            project.stripe_config_encrypted.is_some() || project.ls_config_encrypted.is_some();
-        if has_payment_configs
-            && queries::update_project_payment_configs(
+            org.stripe_config_encrypted.is_some() || org.ls_config_encrypted.is_some();
+        if has_payment_configs {
+            if queries::update_organization_payment_configs(
                 &conn,
-                &project.id,
+                &org.id,
                 new_stripe.as_deref(),
                 new_ls.as_deref(),
             )
             .is_err()
-        {
-            eprintln!(
-                "  [ERROR] Failed to update payment configs for project {}",
-                project.id
-            );
-            errors += 1;
-            continue;
+            {
+                eprintln!(
+                    "  [ERROR] Failed to update payment configs for org {}",
+                    org.id
+                );
+                org_errors += 1;
+                errors += 1;
+                continue;
+            }
+            println!("  [OK] Rotated payment config for org: {} ({})", org.name, org.id);
+            org_rotated += 1;
         }
-
-        println!("  [OK] Rotated project: {} ({})", project.name, project.id);
-        rotated += 1;
     }
 
     println!();

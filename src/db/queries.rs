@@ -283,14 +283,17 @@ pub fn create_organization(conn: &Connection, input: &CreateOrganization) -> Res
     let now = now();
 
     conn.execute(
-        "INSERT INTO organizations (id, name, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO organizations (id, name, stripe_config, ls_config, default_provider, created_at, updated_at)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
         params![&id, &input.name, now, now],
     )?;
 
     Ok(Organization {
         id,
         name: input.name.clone(),
+        stripe_config_encrypted: None,
+        ls_config_encrypted: None,
+        default_provider: None,
         created_at: now,
         updated_at: now,
     })
@@ -312,16 +315,65 @@ pub fn list_organizations(conn: &Connection) -> Result<Vec<Organization>> {
     )
 }
 
-pub fn update_organization(conn: &Connection, id: &str, input: &UpdateOrganization) -> Result<bool> {
+pub fn update_organization(
+    conn: &Connection,
+    id: &str,
+    input: &UpdateOrganization,
+    master_key: &MasterKey,
+) -> Result<bool> {
     let now = now();
+    let mut updated = false;
+
     if let Some(ref name) = input.name {
-        let updated = conn.execute(
+        conn.execute(
             "UPDATE organizations SET name = ?1, updated_at = ?2 WHERE id = ?3",
             params![name, now, id],
         )?;
-        return Ok(updated > 0);
+        updated = true;
     }
-    Ok(false)
+    if let Some(ref stripe_config) = input.stripe_config {
+        // Serialize to JSON and encrypt
+        let json = serde_json::to_string(stripe_config)?;
+        let encrypted = master_key.encrypt_private_key(id, json.as_bytes())?;
+        conn.execute(
+            "UPDATE organizations SET stripe_config = ?1, updated_at = ?2 WHERE id = ?3",
+            params![encrypted, now, id],
+        )?;
+        updated = true;
+    }
+    if let Some(ref ls_config) = input.ls_config {
+        // Serialize to JSON and encrypt
+        let json = serde_json::to_string(ls_config)?;
+        let encrypted = master_key.encrypt_private_key(id, json.as_bytes())?;
+        conn.execute(
+            "UPDATE organizations SET ls_config = ?1, updated_at = ?2 WHERE id = ?3",
+            params![encrypted, now, id],
+        )?;
+        updated = true;
+    }
+    if let Some(ref default_provider) = input.default_provider {
+        // Some(None) clears the value, Some(Some(value)) sets it
+        conn.execute(
+            "UPDATE organizations SET default_provider = ?1, updated_at = ?2 WHERE id = ?3",
+            params![default_provider, now, id],
+        )?;
+        updated = true;
+    }
+    Ok(updated)
+}
+
+/// Update an organization's encrypted payment configs (for migration/rotation)
+pub fn update_organization_payment_configs(
+    conn: &Connection,
+    id: &str,
+    stripe_config: Option<&[u8]>,
+    ls_config: Option<&[u8]>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE organizations SET stripe_config = ?1, ls_config = ?2, updated_at = ?3 WHERE id = ?4",
+        params![stripe_config, ls_config, now(), id],
+    )?;
+    Ok(())
 }
 
 pub fn delete_organization(conn: &Connection, id: &str) -> Result<bool> {
@@ -438,9 +490,6 @@ pub fn create_project(
         license_key_prefix: input.license_key_prefix.clone(),
         private_key: private_key.to_vec(),
         public_key: public_key.to_string(),
-        stripe_config_encrypted: None,
-        ls_config_encrypted: None,
-        default_provider: None,
         created_at: now,
         updated_at: now,
     })
@@ -471,9 +520,6 @@ pub fn create_project_with_id(
         license_key_prefix: input.license_key_prefix.clone(),
         private_key: private_key.to_vec(),
         public_key: public_key.to_string(),
-        stripe_config_encrypted: None,
-        ls_config_encrypted: None,
-        default_provider: None,
         created_at: now,
         updated_at: now,
     })
@@ -513,26 +559,7 @@ pub fn update_project_private_key(conn: &Connection, id: &str, private_key: &[u8
     Ok(())
 }
 
-/// Update a project's encrypted payment configs (for migration/rotation)
-pub fn update_project_payment_configs(
-    conn: &Connection,
-    id: &str,
-    stripe_config: Option<&[u8]>,
-    ls_config: Option<&[u8]>,
-) -> Result<()> {
-    conn.execute(
-        "UPDATE projects SET stripe_config = ?1, ls_config = ?2, updated_at = ?3 WHERE id = ?4",
-        params![stripe_config, ls_config, now(), id],
-    )?;
-    Ok(())
-}
-
-pub fn update_project(
-    conn: &Connection,
-    id: &str,
-    input: &UpdateProject,
-    master_key: &MasterKey,
-) -> Result<()> {
+pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Result<()> {
     let now = now();
 
     if let Some(ref name) = input.name {
@@ -551,31 +578,6 @@ pub fn update_project(
         conn.execute(
             "UPDATE projects SET license_key_prefix = ?1, updated_at = ?2 WHERE id = ?3",
             params![license_key_prefix, now, id],
-        )?;
-    }
-    if let Some(ref stripe_config) = input.stripe_config {
-        // Serialize to JSON and encrypt
-        let json = serde_json::to_string(stripe_config)?;
-        let encrypted = master_key.encrypt_private_key(id, json.as_bytes())?;
-        conn.execute(
-            "UPDATE projects SET stripe_config = ?1, updated_at = ?2 WHERE id = ?3",
-            params![encrypted, now, id],
-        )?;
-    }
-    if let Some(ref ls_config) = input.ls_config {
-        // Serialize to JSON and encrypt
-        let json = serde_json::to_string(ls_config)?;
-        let encrypted = master_key.encrypt_private_key(id, json.as_bytes())?;
-        conn.execute(
-            "UPDATE projects SET ls_config = ?1, updated_at = ?2 WHERE id = ?3",
-            params![encrypted, now, id],
-        )?;
-    }
-    if let Some(ref default_provider) = input.default_provider {
-        // Some(None) clears the value, Some(Some(value)) sets it
-        conn.execute(
-            "UPDATE projects SET default_provider = ?1, updated_at = ?2 WHERE id = ?3",
-            params![default_provider, now, id],
         )?;
     }
     Ok(())
@@ -758,9 +760,9 @@ pub fn create_license_key(
     let now = now();
 
     conn.execute(
-        "INSERT INTO license_keys (id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id)
-         VALUES (?1, ?2, ?3, ?4, 0, 0, '[]', ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![&id, &key, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id],
+        "INSERT INTO license_keys (id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id)
+         VALUES (?1, ?2, ?3, ?4, 0, 0, '[]', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![&id, &key, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id, &input.payment_provider_order_id],
     )?;
 
     Ok(LicenseKey {
@@ -777,6 +779,7 @@ pub fn create_license_key(
         payment_provider: input.payment_provider.clone(),
         payment_provider_customer_id: input.payment_provider_customer_id.clone(),
         payment_provider_subscription_id: input.payment_provider_subscription_id.clone(),
+        payment_provider_order_id: input.payment_provider_order_id.clone(),
     })
 }
 
@@ -798,7 +801,7 @@ pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<Lic
 
 pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Result<Vec<LicenseKeyWithProduct>> {
     let mut stmt = conn.prepare(
-        "SELECT lk.id, lk.key, lk.product_id, lk.customer_id, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, p.name, p.project_id
+        "SELECT lk.id, lk.key, lk.product_id, lk.customer_id, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, lk.payment_provider_order_id, p.name, p.project_id
          FROM license_keys lk
          JOIN products p ON lk.product_id = p.id
          WHERE p.project_id = ?1
@@ -823,9 +826,10 @@ pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Res
                     payment_provider: row.get(10)?,
                     payment_provider_customer_id: row.get(11)?,
                     payment_provider_subscription_id: row.get(12)?,
+                    payment_provider_order_id: row.get(13)?,
                 },
-                product_name: row.get(13)?,
-                project_id: row.get(14)?,
+                product_name: row.get(14)?,
+                project_id: row.get(15)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;

@@ -101,7 +101,7 @@ pub async fn update_organization(
     let existing = queries::get_organization_by_id(&conn, &id)?
         .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
 
-    queries::update_organization(&conn, &id, &input)?;
+    queries::update_organization(&conn, &id, &input, &state.master_key)?;
 
     // Fetch updated organization
     let organization = queries::get_organization_by_id(&conn, &id)?
@@ -119,6 +119,8 @@ pub async fn update_organization(
         Some(&serde_json::json!({
             "old_name": existing.name,
             "new_name": input.name,
+            "stripe_updated": input.stripe_config.is_some(),
+            "ls_updated": input.ls_config.is_some(),
         })),
         Some(&id),
         None,

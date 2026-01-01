@@ -74,6 +74,7 @@ fn test_create_license_with_customer_id() {
         payment_provider: None,
         payment_provider_customer_id: None,
         payment_provider_subscription_id: None,
+        payment_provider_order_id: None,
     };
 
     let license = queries::create_license_key(&conn, &product.id, "TEST", &input)
@@ -96,6 +97,7 @@ fn test_create_license_with_payment_provider() {
         payment_provider: Some("stripe".to_string()),
         payment_provider_customer_id: Some("cus_xxx".to_string()),
         payment_provider_subscription_id: Some("sub_yyy".to_string()),
+        payment_provider_order_id: Some("cs_test_xxx".to_string()),
     };
 
     let license = queries::create_license_key(&conn, &product.id, "TEST", &input)
@@ -155,6 +157,7 @@ fn test_get_license_key_by_subscription() {
         payment_provider: Some("stripe".to_string()),
         payment_provider_customer_id: Some("cus_xxx".to_string()),
         payment_provider_subscription_id: Some("sub_unique_id".to_string()),
+        payment_provider_order_id: None,
     };
 
     let created = queries::create_license_key(&conn, &product.id, "TEST", &input)
@@ -181,6 +184,7 @@ fn test_get_license_key_by_subscription_wrong_provider() {
         payment_provider: Some("stripe".to_string()),
         payment_provider_customer_id: None,
         payment_provider_subscription_id: Some("sub_id".to_string()),
+        payment_provider_order_id: None,
     };
 
     queries::create_license_key(&conn, &product.id, "TEST", &input)

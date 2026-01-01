@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     extract::{Path, Request, State},
     http::StatusCode,
@@ -40,10 +42,12 @@ impl OrgMemberContext {
 
 pub async fn org_member_auth(
     State(state): State<AppState>,
-    Path(org_id): Path<String>,
+    Path(params): Path<HashMap<String, String>>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    let org_id = params.get("org_id").ok_or(StatusCode::BAD_REQUEST)?;
+
     let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
@@ -53,7 +57,7 @@ pub async fn org_member_auth(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    if member.org_id != org_id {
+    if member.org_id != *org_id {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -65,6 +69,8 @@ pub async fn org_member_auth(
     Ok(next.run(request).await)
 }
 
+/// Path struct for handlers that need org_id and project_id.
+/// Note: The middleware uses HashMap extraction to support routes with extra params.
 #[derive(Clone, serde::Deserialize)]
 pub struct OrgProjectPath {
     pub org_id: String,
@@ -73,10 +79,13 @@ pub struct OrgProjectPath {
 
 pub async fn org_member_project_auth(
     State(state): State<AppState>,
-    Path(path): Path<OrgProjectPath>,
+    Path(params): Path<HashMap<String, String>>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    let org_id = params.get("org_id").ok_or(StatusCode::BAD_REQUEST)?;
+    let project_id = params.get("project_id").ok_or(StatusCode::BAD_REQUEST)?;
+
     let api_key = extract_bearer_token(request.headers())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
@@ -86,16 +95,16 @@ pub async fn org_member_project_auth(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    if member.org_id != path.org_id {
+    if member.org_id != *org_id {
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Check project exists and belongs to org
-    let project = queries::get_project_by_id(&conn, &path.project_id)
+    let project = queries::get_project_by_id(&conn, project_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    if project.org_id != path.org_id {
+    if project.org_id != *org_id {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -103,7 +112,7 @@ pub async fn org_member_project_auth(
     let project_role = if member.role.has_implicit_project_access() {
         None // Owner/admin have implicit access, no need for project_members entry
     } else {
-        queries::get_project_member(&conn, &member.id, &path.project_id)
+        queries::get_project_member(&conn, &member.id, project_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .map(|pm| pm.role)
     };

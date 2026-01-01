@@ -7,7 +7,7 @@ use axum::{
 
 use crate::crypto::MasterKey;
 use crate::db::AppState;
-use crate::models::Project;
+use crate::models::Organization;
 use crate::payments::{
     StripeCheckoutSession, StripeClient, StripeInvoice, StripeSubscription, StripeWebhookEvent,
 };
@@ -36,12 +36,12 @@ impl WebhookProvider for StripeWebhookProvider {
 
     fn verify_signature(
         &self,
-        project: &Project,
+        org: &Organization,
         master_key: &MasterKey,
         body: &Bytes,
         signature: &str,
     ) -> Result<bool, WebhookResult> {
-        let stripe_config = project
+        let stripe_config = org
             .decrypt_stripe_config(master_key)
             .map_err(|e| {
                 tracing::error!("Failed to decrypt Stripe config: {}", e);
@@ -97,6 +97,7 @@ fn parse_checkout_completed(event: &StripeWebhookEvent) -> Result<WebhookEvent, 
         project_id,
         customer_id: session.customer,
         subscription_id: session.subscription,
+        order_id: Some(session.id),
     }))
 }
 

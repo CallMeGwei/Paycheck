@@ -54,6 +54,7 @@ pub async fn create_dev_license(
             payment_provider: None,
             payment_provider_customer_id: None,
             payment_provider_subscription_id: None,
+            payment_provider_order_id: None,
         },
     )?;
 

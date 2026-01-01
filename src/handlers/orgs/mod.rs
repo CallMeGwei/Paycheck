@@ -20,7 +20,7 @@ use crate::db::AppState;
 use crate::middleware::{org_member_auth, org_member_project_auth};
 
 pub fn router(state: AppState) -> Router<AppState> {
-    // Org-level routes (members management)
+    // Org-level routes (members management, payment config)
     let org_routes = Router::new()
         .route("/orgs/{org_id}/members", post(create_org_member))
         .route("/orgs/{org_id}/members", get(list_org_members))
@@ -29,6 +29,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/orgs/{org_id}/members/{id}", delete(delete_org_member))
         .route("/orgs/{org_id}/projects", post(create_project))
         .route("/orgs/{org_id}/projects", get(list_projects))
+        // Payment config (at org level, masked for customers to verify their settings)
+        .route("/orgs/{org_id}/payment-config", get(get_payment_config))
         .layer(middleware::from_fn_with_state(state.clone(), org_member_auth));
 
     // Project-level routes
@@ -55,8 +57,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}/replace", post(replace_license))
         // Device management (for remote deactivation of lost devices)
         .route("/orgs/{org_id}/projects/{project_id}/licenses/{key}/devices/{device_id}", delete(deactivate_device_admin))
-        // Payment config (masked, for customers to verify their settings)
-        .route("/orgs/{org_id}/projects/{project_id}/payment-config", get(get_payment_config))
         .layer(middleware::from_fn_with_state(state.clone(), org_member_project_auth));
 
     org_routes.merge(project_routes)

@@ -11,7 +11,7 @@ use rusqlite::Connection;
 
 use crate::crypto::MasterKey;
 use crate::db::queries;
-use crate::models::{CreateLicenseKey, PaymentSession, Product, Project};
+use crate::models::{CreateLicenseKey, Organization, PaymentSession, Product, Project};
 use crate::util::LicenseExpirations;
 
 /// Result type for webhook operations.
@@ -24,6 +24,8 @@ pub struct CheckoutData {
     pub project_id: String,
     pub customer_id: Option<String>,
     pub subscription_id: Option<String>,
+    /// Provider's order/checkout session ID (Stripe: cs_xxx, LemonSqueezy: order ID)
+    pub order_id: Option<String>,
 }
 
 /// Data extracted from a subscription renewal event.
@@ -65,10 +67,10 @@ pub trait WebhookProvider: Send + Sync {
     /// Extract signature from request headers.
     fn extract_signature(&self, headers: &HeaderMap) -> Result<String, WebhookResult>;
 
-    /// Verify webhook signature against project configuration.
+    /// Verify webhook signature against organization configuration.
     fn verify_signature(
         &self,
-        project: &Project,
+        org: &Organization,
         master_key: &MasterKey,
         body: &Bytes,
         signature: &str,
@@ -107,6 +109,7 @@ pub fn process_checkout(
             payment_provider: Some(provider.to_string()),
             payment_provider_customer_id: data.customer_id.clone(),
             payment_provider_subscription_id: data.subscription_id.clone(),
+            payment_provider_order_id: data.order_id.clone(),
         },
     ) {
         Ok(l) => l,
@@ -255,8 +258,18 @@ async fn handle_checkout<P: WebhookProvider>(
         }
     };
 
+    // Get organization for payment config
+    let org = match queries::get_organization_by_id(&conn, &project.org_id) {
+        Ok(Some(o)) => o,
+        Ok(None) => return (StatusCode::OK, "Organization not found"),
+        Err(e) => {
+            tracing::error!("DB error: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+        }
+    };
+
     // Verify signature
-    match provider.verify_signature(&project, &state.master_key, body, signature) {
+    match provider.verify_signature(&org, &state.master_key, body, signature) {
         Ok(true) => {}
         Ok(false) => return (StatusCode::UNAUTHORIZED, "Invalid signature"),
         Err(e) => return e,
@@ -341,8 +354,18 @@ async fn handle_renewal<P: WebhookProvider>(
         }
     };
 
+    // Get organization for payment config
+    let org = match queries::get_organization_by_id(&conn, &project.org_id) {
+        Ok(Some(o)) => o,
+        Ok(None) => return (StatusCode::OK, "Organization not found"),
+        Err(e) => {
+            tracing::error!("DB error: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+        }
+    };
+
     // Verify signature
-    match provider.verify_signature(&project, &state.master_key, body, signature) {
+    match provider.verify_signature(&org, &state.master_key, body, signature) {
         Ok(true) => {}
         Ok(false) => return (StatusCode::UNAUTHORIZED, "Invalid signature"),
         Err(e) => return e,
@@ -398,8 +421,18 @@ async fn handle_cancellation<P: WebhookProvider>(
         }
     };
 
+    // Get organization for payment config
+    let org = match queries::get_organization_by_id(&conn, &project.org_id) {
+        Ok(Some(o)) => o,
+        Ok(None) => return (StatusCode::OK, "Organization not found"),
+        Err(e) => {
+            tracing::error!("DB error: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+        }
+    };
+
     // Verify signature
-    match provider.verify_signature(&project, &state.master_key, body, signature) {
+    match provider.verify_signature(&org, &state.master_key, body, signature) {
         Ok(true) => {}
         Ok(false) => return (StatusCode::UNAUTHORIZED, "Invalid signature"),
         Err(e) => return e,

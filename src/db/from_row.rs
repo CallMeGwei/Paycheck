@@ -47,13 +47,13 @@ pub const OPERATOR_COLS: &str =
     "id, email, name, role, api_key_hash, created_at, created_by";
 
 pub const ORGANIZATION_COLS: &str =
-    "id, name, created_at, updated_at";
+    "id, name, stripe_config, ls_config, default_provider, created_at, updated_at";
 
 pub const ORG_MEMBER_COLS: &str =
     "id, org_id, email, name, role, api_key_hash, created_at";
 
 pub const PROJECT_COLS: &str =
-    "id, org_id, name, domain, license_key_prefix, private_key, public_key, stripe_config, ls_config, default_provider, created_at, updated_at";
+    "id, org_id, name, domain, license_key_prefix, private_key, public_key, created_at, updated_at";
 
 pub const PROJECT_MEMBER_COLS: &str =
     "id, org_member_id, project_id, role, created_at";
@@ -62,7 +62,7 @@ pub const PRODUCT_COLS: &str =
     "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at";
 
 pub const LICENSE_KEY_COLS: &str =
-    "id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id";
+    "id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
 
 pub const DEVICE_COLS: &str =
     "id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at";
@@ -91,11 +91,17 @@ impl FromRow for Operator {
 
 impl FromRow for Organization {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        // Read config data as raw bytes (encrypted)
+        let stripe_data: Option<Vec<u8>> = row.get(2)?;
+        let ls_data: Option<Vec<u8>> = row.get(3)?;
         Ok(Organization {
             id: row.get(0)?,
             name: row.get(1)?,
-            created_at: row.get(2)?,
-            updated_at: row.get(3)?,
+            stripe_config_encrypted: stripe_data,
+            ls_config_encrypted: ls_data,
+            default_provider: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
         })
     }
 }
@@ -116,9 +122,6 @@ impl FromRow for OrgMember {
 
 impl FromRow for Project {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        // Read config data as raw bytes (may be encrypted or legacy plaintext JSON)
-        let stripe_data: Option<Vec<u8>> = row.get(7)?;
-        let ls_data: Option<Vec<u8>> = row.get(8)?;
         Ok(Project {
             id: row.get(0)?,
             org_id: row.get(1)?,
@@ -127,11 +130,8 @@ impl FromRow for Project {
             license_key_prefix: row.get(4)?,
             private_key: row.get(5)?,
             public_key: row.get(6)?,
-            stripe_config_encrypted: stripe_data,
-            ls_config_encrypted: ls_data,
-            default_provider: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
         })
     }
 }
@@ -197,6 +197,7 @@ impl FromRow for LicenseKey {
             payment_provider: row.get(10)?,
             payment_provider_customer_id: row.get(11)?,
             payment_provider_subscription_id: row.get(12)?,
+            payment_provider_order_id: row.get(13)?,
         })
     }
 }

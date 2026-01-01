@@ -109,6 +109,7 @@ pub fn create_test_license(
         payment_provider: None,
         payment_provider_customer_id: None,
         payment_provider_subscription_id: None,
+        payment_provider_order_id: None,
     };
     queries::create_license_key(conn, product_id, prefix, &input)
         .expect("Failed to create test license")

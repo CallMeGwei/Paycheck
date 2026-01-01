@@ -1,7 +1,7 @@
 //! Tests for payment config endpoints.
 //!
-//! - Org endpoint: GET /orgs/{org_id}/projects/{project_id}/payment-config (masked, for customers)
-//! - Operator endpoint: GET /operators/projects/{project_id}/payment-config (full, for support)
+//! - Org endpoint: GET /orgs/{org_id}/payment-config (masked, for customers)
+//! - Operator endpoint: GET /operators/organizations/{org_id}/payment-config (full, for support)
 
 use axum::{
     body::Body,
@@ -15,13 +15,13 @@ mod common;
 use common::*;
 
 use paycheck::db::AppState;
-use paycheck::models::{LemonSqueezyConfig, StripeConfig, UpdateProject};
+use paycheck::models::{LemonSqueezyConfig, StripeConfig, UpdateOrganization};
 
 // ============ Operator Endpoint Tests (without auth middleware for simplicity) ============
 
 fn operator_app_with_payment_configs() -> (Router, String) {
     use axum::routing::get;
-    use paycheck::handlers::operators::get_project_payment_config;
+    use paycheck::handlers::operators::get_org_payment_config;
 
     let master_key = test_master_key();
 
@@ -31,21 +31,18 @@ fn operator_app_with_payment_configs() -> (Router, String) {
     let manager = SqliteConnectionManager::memory();
     let pool = Pool::builder().max_size(4).build(manager).unwrap();
 
-    let project_id: String;
+    let org_id: String;
     {
         let conn = pool.get().unwrap();
         paycheck::db::init_db(&conn).unwrap();
 
         // Create test data
         let org = create_test_org(&conn, "Test Org");
-        let project = create_test_project(&conn, &org.id, "Test Project");
-        project_id = project.id.clone();
+        org_id = org.id.clone();
 
-        // Add payment configs
-        let update = UpdateProject {
+        // Add payment configs to organization
+        let update = UpdateOrganization {
             name: None,
-            domain: None,
-            license_key_prefix: None,
             stripe_config: Some(StripeConfig {
                 secret_key: "sk_test_abc123xyz789".to_string(),
                 publishable_key: "pk_test_abc123xyz789".to_string(),
@@ -59,8 +56,8 @@ fn operator_app_with_payment_configs() -> (Router, String) {
             default_provider: Some(Some("stripe".to_string())),
         };
 
-        queries::update_project(&conn, &project.id, &update, &master_key)
-            .expect("Failed to update project with payment configs");
+        queries::update_organization(&conn, &org.id, &update, &master_key)
+            .expect("Failed to update organization with payment configs");
     }
 
     let audit_manager = SqliteConnectionManager::memory();
@@ -80,21 +77,21 @@ fn operator_app_with_payment_configs() -> (Router, String) {
 
     // Note: Testing without auth middleware - auth is tested separately
     let app = Router::new()
-        .route("/operators/projects/{project_id}/payment-config", get(get_project_payment_config))
+        .route("/operators/organizations/{org_id}/payment-config", get(get_org_payment_config))
         .with_state(state);
 
-    (app, project_id)
+    (app, org_id)
 }
 
 #[tokio::test]
 async fn test_operator_get_payment_config_full_unmasked() {
-    let (app, project_id) = operator_app_with_payment_configs();
+    let (app, org_id) = operator_app_with_payment_configs();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/operators/projects/{}/payment-config", project_id))
+                .uri(format!("/operators/organizations/{}/payment-config", org_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -106,7 +103,7 @@ async fn test_operator_get_payment_config_full_unmasked() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["project_id"], project_id);
+    assert_eq!(json["org_id"], org_id);
 
     // Verify Stripe config is FULL (unmasked)
     let stripe = &json["stripe_config"];
@@ -122,14 +119,14 @@ async fn test_operator_get_payment_config_full_unmasked() {
 }
 
 #[tokio::test]
-async fn test_operator_get_payment_config_nonexistent_project() {
-    let (app, _project_id) = operator_app_with_payment_configs();
+async fn test_operator_get_payment_config_nonexistent_org() {
+    let (app, _org_id) = operator_app_with_payment_configs();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/operators/projects/nonexistent-id/payment-config")
+                .uri("/operators/organizations/nonexistent-id/payment-config")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -142,7 +139,7 @@ async fn test_operator_get_payment_config_nonexistent_project() {
 #[tokio::test]
 async fn test_operator_get_payment_config_no_configs() {
     use axum::routing::get;
-    use paycheck::handlers::operators::get_project_payment_config;
+    use paycheck::handlers::operators::get_org_payment_config;
 
     let master_key = test_master_key();
 
@@ -152,14 +149,13 @@ async fn test_operator_get_payment_config_no_configs() {
     let manager = SqliteConnectionManager::memory();
     let pool = Pool::builder().max_size(4).build(manager).unwrap();
 
-    let project_id: String;
+    let org_id: String;
     {
         let conn = pool.get().unwrap();
         paycheck::db::init_db(&conn).unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let project = create_test_project(&conn, &org.id, "Test Project");
-        project_id = project.id.clone();
+        org_id = org.id.clone();
         // No payment configs added
     }
 
@@ -179,14 +175,14 @@ async fn test_operator_get_payment_config_no_configs() {
     };
 
     let app = Router::new()
-        .route("/operators/projects/{project_id}/payment-config", get(get_project_payment_config))
+        .route("/operators/organizations/{org_id}/payment-config", get(get_org_payment_config))
         .with_state(state);
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/operators/projects/{}/payment-config", project_id))
+                .uri(format!("/operators/organizations/{}/payment-config", org_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -202,10 +198,7 @@ async fn test_operator_get_payment_config_no_configs() {
     assert!(json["ls_config"].is_null());
 }
 
-// ============ Org Endpoint Tests ============
-// Note: The org endpoint requires OrgMemberContext from middleware.
-// Testing the handler directly requires mocking the Extension, which is complex.
-// For now, we test the masking logic via unit tests on the Masked types.
+// ============ Config Masking Tests ============
 
 #[test]
 fn test_stripe_config_masking() {

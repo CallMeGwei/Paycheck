@@ -36,8 +36,8 @@ pub fn router(state: AppState) -> Router<AppState> {
                 .route("/operators/organizations/{id}", delete(delete_organization))
                 // Support endpoints (admin+)
                 .route(
-                    "/operators/projects/{project_id}/payment-config",
-                    get(get_project_payment_config),
+                    "/operators/organizations/{org_id}/payment-config",
+                    get(get_org_payment_config),
                 )
                 .layer(middleware::from_fn_with_state(state.clone(), require_admin_role)),
         )

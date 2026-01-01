@@ -136,12 +136,16 @@ fn test_list_organizations() {
 #[test]
 fn test_update_organization() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Original Name");
 
     let update = UpdateOrganization {
         name: Some("Updated Name".to_string()),
+        stripe_config: None,
+        ls_config: None,
+        default_provider: None,
     };
-    queries::update_organization(&conn, &org.id, &update).expect("Update failed");
+    queries::update_organization(&conn, &org.id, &update, &master_key).expect("Update failed");
 
     let updated = queries::get_organization_by_id(&conn, &org.id)
         .expect("Query failed")
@@ -278,11 +282,10 @@ fn test_list_projects_for_org() {
 }
 
 #[test]
-fn test_update_project_stripe_config() {
+fn test_update_org_stripe_config() {
     let conn = setup_test_db();
     let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
-    let project = create_test_project(&conn, &org.id, "My App");
 
     let stripe_config = StripeConfig {
         secret_key: "sk_test_xxx".to_string(),
@@ -290,20 +293,18 @@ fn test_update_project_stripe_config() {
         webhook_secret: "whsec_xxx".to_string(),
     };
 
-    let update = UpdateProject {
+    let update = UpdateOrganization {
         name: None,
-        domain: None,
-        license_key_prefix: None,
         stripe_config: Some(stripe_config.clone()),
         ls_config: None,
         default_provider: None,
     };
 
-    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+    queries::update_organization(&conn, &org.id, &update, &master_key).expect("Update failed");
 
-    let updated = queries::get_project_by_id(&conn, &project.id)
+    let updated = queries::get_organization_by_id(&conn, &org.id)
         .expect("Query failed")
-        .expect("Project not found");
+        .expect("Organization not found");
 
     assert!(updated.has_stripe_config());
     let decrypted = updated.decrypt_stripe_config(&master_key)
@@ -318,11 +319,10 @@ fn test_update_project_stripe_config() {
 }
 
 #[test]
-fn test_update_project_lemonsqueezy_config() {
+fn test_update_org_lemonsqueezy_config() {
     let conn = setup_test_db();
     let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
-    let project = create_test_project(&conn, &org.id, "My App");
 
     let ls_config = LemonSqueezyConfig {
         api_key: "ls_test_api_key".to_string(),
@@ -330,20 +330,18 @@ fn test_update_project_lemonsqueezy_config() {
         webhook_secret: "whsec_ls_xxx".to_string(),
     };
 
-    let update = UpdateProject {
+    let update = UpdateOrganization {
         name: None,
-        domain: None,
-        license_key_prefix: None,
         stripe_config: None,
         ls_config: Some(ls_config.clone()),
         default_provider: None,
     };
 
-    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+    queries::update_organization(&conn, &org.id, &update, &master_key).expect("Update failed");
 
-    let updated = queries::get_project_by_id(&conn, &project.id)
+    let updated = queries::get_organization_by_id(&conn, &org.id)
         .expect("Query failed")
-        .expect("Project not found");
+        .expect("Organization not found");
 
     assert!(updated.has_ls_config());
     let decrypted = updated.decrypt_ls_config(&master_key)
@@ -358,11 +356,10 @@ fn test_update_project_lemonsqueezy_config() {
 }
 
 #[test]
-fn test_update_project_both_payment_configs() {
+fn test_update_org_both_payment_configs() {
     let conn = setup_test_db();
     let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
-    let project = create_test_project(&conn, &org.id, "My App");
 
     let stripe_config = StripeConfig {
         secret_key: "sk_test_both".to_string(),
@@ -376,20 +373,18 @@ fn test_update_project_both_payment_configs() {
         webhook_secret: "whsec_ls_both".to_string(),
     };
 
-    let update = UpdateProject {
+    let update = UpdateOrganization {
         name: None,
-        domain: None,
-        license_key_prefix: None,
         stripe_config: Some(stripe_config),
         ls_config: Some(ls_config),
         default_provider: Some(Some("stripe".to_string())),
     };
 
-    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+    queries::update_organization(&conn, &org.id, &update, &master_key).expect("Update failed");
 
-    let updated = queries::get_project_by_id(&conn, &project.id)
+    let updated = queries::get_organization_by_id(&conn, &org.id)
         .expect("Query failed")
-        .expect("Project not found");
+        .expect("Organization not found");
 
     // Both configs should be present and decryptable
     assert!(updated.has_stripe_config());
@@ -414,7 +409,6 @@ fn test_payment_config_wrong_key_fails() {
     let master_key = test_master_key();
     let wrong_key = MasterKey::from_bytes([1u8; 32]); // Different key
     let org = create_test_org(&conn, "Test Org");
-    let project = create_test_project(&conn, &org.id, "My App");
 
     let stripe_config = StripeConfig {
         secret_key: "sk_secret".to_string(),
@@ -422,20 +416,18 @@ fn test_payment_config_wrong_key_fails() {
         webhook_secret: "whsec_secret".to_string(),
     };
 
-    let update = UpdateProject {
+    let update = UpdateOrganization {
         name: None,
-        domain: None,
-        license_key_prefix: None,
         stripe_config: Some(stripe_config),
         ls_config: None,
         default_provider: None,
     };
 
-    queries::update_project(&conn, &project.id, &update, &master_key).expect("Update failed");
+    queries::update_organization(&conn, &org.id, &update, &master_key).expect("Update failed");
 
-    let updated = queries::get_project_by_id(&conn, &project.id)
+    let updated = queries::get_organization_by_id(&conn, &org.id)
         .expect("Query failed")
-        .expect("Project not found");
+        .expect("Organization not found");
 
     // Decryption with wrong key should fail
     let result = updated.decrypt_stripe_config(&wrong_key);

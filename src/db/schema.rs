@@ -19,6 +19,9 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE TABLE IF NOT EXISTS organizations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            stripe_config TEXT,
+            ls_config TEXT,
+            default_provider TEXT CHECK (default_provider IS NULL OR default_provider IN ('stripe', 'lemonsqueezy')),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -46,9 +49,6 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             license_key_prefix TEXT NOT NULL DEFAULT 'PC',
             private_key BLOB NOT NULL,
             public_key TEXT NOT NULL,
-            stripe_config TEXT,
-            ls_config TEXT,
-            default_provider TEXT CHECK (default_provider IS NULL OR default_provider IN ('stripe', 'lemonsqueezy')),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -96,13 +96,15 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             updates_expires_at INTEGER,
             payment_provider TEXT,
             payment_provider_customer_id TEXT,
-            payment_provider_subscription_id TEXT
+            payment_provider_subscription_id TEXT,
+            payment_provider_order_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_license_keys_product ON license_keys(product_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_key ON license_keys(key);
         CREATE INDEX IF NOT EXISTS idx_license_keys_customer ON license_keys(customer_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_provider_customer ON license_keys(payment_provider, payment_provider_customer_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_provider_subscription ON license_keys(payment_provider, payment_provider_subscription_id);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_provider_order ON license_keys(payment_provider, payment_provider_order_id);
 
         -- Redemption codes (short-lived codes for URL-safe license redemption)
         CREATE TABLE IF NOT EXISTS redemption_codes (
