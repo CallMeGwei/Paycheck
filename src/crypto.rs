@@ -1,10 +1,14 @@
-//! Envelope encryption for project private keys.
+//! Envelope encryption for sensitive data (private keys, license keys, etc).
 //!
-//! Uses HKDF to derive per-project data encryption keys (DEKs) from a master key,
-//! then encrypts private keys with AES-256-GCM.
+//! Uses HKDF to derive per-entity data encryption keys (DEKs) from a master key,
+//! then encrypts data with AES-256-GCM.
 //!
-//! Format of encrypted data: nonce (12 bytes) || ciphertext (32 bytes + 16 byte tag)
-//! Total: 60 bytes for a 32-byte Ed25519 private key.
+//! Format of encrypted data: MAGIC (4 bytes) || nonce (12 bytes) || ciphertext
+//!
+//! Used for:
+//! - Project Ed25519 private keys (DEK derived from project_id)
+//! - Organization payment configs (DEK derived from org_id)
+//! - License keys (DEK derived from project_id)
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -13,7 +17,7 @@ use aes_gcm::{
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use hkdf::Hkdf;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, Result};
 
@@ -145,6 +149,14 @@ impl MasterKey {
     }
 }
 
+/// Hash a license key for database lookups.
+/// Uses SHA-256, returns lowercase hex string.
+pub fn hash_license_key(key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +248,21 @@ mod tests {
             .encrypt_private_key("project-1", &raw_key)
             .unwrap();
         assert!(MasterKey::is_encrypted(&encrypted));
+    }
+
+    #[test]
+    fn test_hash_license_key() {
+        let key = "PC-ABCD-1234-WXYZ-5678";
+        let hash = hash_license_key(key);
+
+        // Should be 64 hex chars (256 bits)
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Same input should produce same hash
+        assert_eq!(hash, hash_license_key(key));
+
+        // Different input should produce different hash
+        assert_ne!(hash, hash_license_key("PC-DIFFERENT-KEY"));
     }
 }

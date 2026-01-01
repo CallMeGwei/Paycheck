@@ -56,7 +56,7 @@ pub async fn get_license_info(
     let license_key = auth.token();
 
     // Get the license key
-    let license = queries::get_license_key_by_key(&conn, license_key)?
+    let license = queries::get_license_key_by_key(&conn, license_key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
     // Get the product to verify project and get limits

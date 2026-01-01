@@ -43,7 +43,7 @@ pub async fn validate_license(
     };
 
     // Get the license
-    let license = match queries::get_license_key_by_id(&conn, &device.license_key_id)? {
+    let license = match queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)? {
         Some(l) => l,
         None => {
             return Ok(Json(ValidateResponse {

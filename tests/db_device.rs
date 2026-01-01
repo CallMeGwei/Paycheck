@@ -9,10 +9,11 @@ use common::*;
 #[test]
 fn test_create_device() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     let device = create_test_device(&conn, &license.id, "device-uuid-123", DeviceType::Uuid);
 
@@ -27,10 +28,11 @@ fn test_create_device() {
 #[test]
 fn test_create_device_machine_type() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     let jti = uuid::Uuid::new_v4().to_string();
     let device = queries::create_device(
@@ -52,10 +54,11 @@ fn test_create_device_machine_type() {
 #[test]
 fn test_create_device_without_name() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     let jti = uuid::Uuid::new_v4().to_string();
     let device = queries::create_device(
@@ -76,10 +79,11 @@ fn test_create_device_without_name() {
 #[test]
 fn test_get_device_by_jti() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let created = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
     let fetched = queries::get_device_by_jti(&conn, &created.jti)
@@ -104,10 +108,11 @@ fn test_get_device_by_jti_not_found() {
 #[test]
 fn test_get_device_for_license() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let created = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
     let fetched = queries::get_device_for_license(&conn, &license.id, "device-123")
@@ -122,10 +127,11 @@ fn test_get_device_for_license() {
 #[test]
 fn test_get_device_for_license_wrong_device_id() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
     // Look up with wrong device_id
@@ -138,11 +144,12 @@ fn test_get_device_for_license_wrong_device_id() {
 #[test]
 fn test_get_device_for_license_wrong_license() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license1 = create_test_license(&conn, &product.id, "TEST", None);
-    let license2 = create_test_license(&conn, &product.id, "TEST", None);
+    let license1 = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
+    let license2 = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     create_test_device(&conn, &license1.id, "device-123", DeviceType::Uuid);
 
     // Look up with wrong license_id
@@ -155,10 +162,11 @@ fn test_get_device_for_license_wrong_license() {
 #[test]
 fn test_list_devices_for_license() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     create_test_device(&conn, &license.id, "device-1", DeviceType::Uuid);
     create_test_device(&conn, &license.id, "device-2", DeviceType::Machine);
@@ -173,10 +181,11 @@ fn test_list_devices_for_license() {
 #[test]
 fn test_list_devices_for_license_empty() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     let devices = queries::list_devices_for_license(&conn, &license.id)
         .expect("Query failed");
@@ -189,10 +198,11 @@ fn test_list_devices_for_license_empty() {
 #[test]
 fn test_device_id_unique_per_license() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     // Create first device
     create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
@@ -214,11 +224,12 @@ fn test_device_id_unique_per_license() {
 #[test]
 fn test_same_device_id_different_licenses() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license1 = create_test_license(&conn, &product.id, "TEST", None);
-    let license2 = create_test_license(&conn, &product.id, "TEST", None);
+    let license1 = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
+    let license2 = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     // Same device_id on different licenses should work
     let device1 = create_test_device(&conn, &license1.id, "shared-device", DeviceType::Uuid);
@@ -234,10 +245,11 @@ fn test_same_device_id_different_licenses() {
 #[test]
 fn test_jti_unique_across_devices() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     // Create multiple devices and ensure JTIs are unique
     let mut jtis = std::collections::HashSet::new();
@@ -252,10 +264,11 @@ fn test_jti_unique_across_devices() {
 #[test]
 fn test_delete_device() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
     let deleted = queries::delete_device(&conn, &device.id).expect("Delete failed");
@@ -278,10 +291,11 @@ fn test_delete_device_not_found() {
 #[test]
 fn test_delete_license_cascades_to_devices() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
     // Delete product which cascades to license
@@ -296,10 +310,11 @@ fn test_delete_license_cascades_to_devices() {
 #[test]
 fn test_count_devices_for_license() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     // Start with no devices
     let devices = queries::list_devices_for_license(&conn, &license.id).expect("Query failed");

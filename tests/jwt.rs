@@ -46,7 +46,7 @@ fn test_sign_and_verify_roundtrip() {
     let token = jwt::sign_claims(&claims, &private_key, "license-id", "myapp.com", "jti-123")
         .expect("Signing should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key, "myapp.com").expect("Verification should succeed");
 
     assert_eq!(verified.custom.tier, "pro");
     assert_eq!(verified.custom.device_id, "device-123");
@@ -62,7 +62,7 @@ fn test_sign_preserves_standard_claims() {
     let token = jwt::sign_claims(&claims, &private_key, "my-subject", "my-audience", "my-jti")
         .expect("Signing should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key, "my-audience").expect("Verification should succeed");
 
     assert_eq!(verified.subject, Some("my-subject".to_string()));
     assert!(verified.audiences.is_some(), "Audiences should be set");
@@ -79,7 +79,7 @@ fn test_verify_with_wrong_key_fails() {
     let token = jwt::sign_claims(&claims, &private_key, "license-id", "myapp.com", "jti-123")
         .expect("Signing should succeed");
 
-    let result = jwt::verify_token(&token, &wrong_public_key);
+    let result = jwt::verify_token(&token, &wrong_public_key, "myapp.com");
     assert!(result.is_err(), "Verification with wrong key should fail");
 }
 
@@ -103,7 +103,7 @@ fn test_verify_tampered_token_fails() {
     let tampered_payload: String = payload_chars.into_iter().collect();
     let tampered_token = format!("{}.{}.{}", parts[0], tampered_payload, parts[2]);
 
-    let result = jwt::verify_token(&tampered_token, &public_key);
+    let result = jwt::verify_token(&tampered_token, &public_key, "myapp.com");
     assert!(result.is_err(), "Verification of tampered token should fail");
 }
 
@@ -118,7 +118,7 @@ fn test_verify_truncated_token_fails() {
     // Remove the last 10 characters
     let truncated = &token[..token.len() - 10];
 
-    let result = jwt::verify_token(truncated, &public_key);
+    let result = jwt::verify_token(truncated, &public_key, "myapp.com");
     assert!(result.is_err(), "Verification of truncated token should fail");
 }
 
@@ -185,7 +185,7 @@ fn test_verify_with_invalid_public_key_format() {
         .expect("Signing should succeed");
 
     // Invalid base64
-    let result = jwt::verify_token(&token, "not-valid-base64!!!");
+    let result = jwt::verify_token(&token, "not-valid-base64!!!", "myapp.com");
     assert!(result.is_err(), "Invalid public key format should fail");
 }
 
@@ -199,7 +199,7 @@ fn test_verify_with_short_public_key() {
 
     // Valid base64 but wrong length
     let short_key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &[0u8; 16]);
-    let result = jwt::verify_token(&token, &short_key);
+    let result = jwt::verify_token(&token, &short_key, "myapp.com");
     assert!(result.is_err(), "Short public key should fail");
 }
 
@@ -347,7 +347,7 @@ fn test_sign_with_unicode_claims() {
     let token = jwt::sign_claims(&claims, &private_key, "ライセンス", "アプリ.com", "JTI")
         .expect("Signing with unicode should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key, "アプリ.com").expect("Verification should succeed");
 
     assert_eq!(verified.custom.tier, "プロ");
     assert!(verified.custom.features.contains(&"日本語".to_string()));
@@ -370,7 +370,7 @@ fn test_sign_with_special_characters() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with special chars should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
 
     assert_eq!(verified.custom.tier, claims.tier);
     assert_eq!(verified.custom.device_id, claims.device_id);
@@ -393,7 +393,7 @@ fn test_sign_with_empty_features() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with empty features should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
 
     assert!(verified.custom.features.is_empty());
 }
@@ -417,7 +417,19 @@ fn test_sign_with_many_features() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with many features should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
 
     assert_eq!(verified.custom.features.len(), 100);
+}
+
+#[test]
+fn test_verify_with_wrong_audience_fails() {
+    let (private_key, public_key) = jwt::generate_keypair();
+    let claims = create_test_claims();
+
+    let token = jwt::sign_claims(&claims, &private_key, "license-id", "myapp.com", "jti-123")
+        .expect("Signing should succeed");
+
+    let result = jwt::verify_token(&token, &public_key, "wrongapp.com");
+    assert!(result.is_err(), "Verification with wrong audience should fail");
 }

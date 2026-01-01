@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use hmac::{Hmac, Mac};
+use subtle::ConstantTimeEq;
 
 use crate::error::{AppError, Result};
 use crate::models::LemonSqueezyConfig;
@@ -177,7 +178,19 @@ impl LemonSqueezyClient {
         mac.update(payload);
         let expected = hex::encode(mac.finalize().into_bytes());
 
-        Ok(expected == signature)
+        // Use constant-time comparison to prevent timing attacks.
+        // An attacker could otherwise measure response times to progressively
+        // discover the correct signature byte-by-byte.
+        let expected_bytes = expected.as_bytes();
+        let provided_bytes = signature.as_bytes();
+
+        // Length check is not constant-time, but that's fine - signature length
+        // is not secret (it's always 64 hex chars for SHA-256)
+        if expected_bytes.len() != provided_bytes.len() {
+            return Ok(false);
+        }
+
+        Ok(expected_bytes.ct_eq(provided_bytes).into())
     }
 }
 

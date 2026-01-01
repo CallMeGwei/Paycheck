@@ -8,11 +8,12 @@ use crate::error::{AppError, Result};
 use crate::models::*;
 
 use super::from_row::{
-    query_all, query_one,
+    query_all, query_one, LicenseKeyRow,
     DEVICE_COLS, LICENSE_KEY_COLS, OPERATOR_COLS, ORG_MEMBER_COLS,
     ORGANIZATION_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS,
     PROJECT_MEMBER_COLS, REDEMPTION_CODE_COLS,
 };
+use crate::crypto::hash_license_key;
 
 fn now() -> i64 {
     Utc::now().timestamp()
@@ -26,6 +27,32 @@ pub fn hash_api_key(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+/// Decrypt a LicenseKeyRow into a LicenseKey.
+/// Uses the project DEK (derived from project_id) for decryption.
+fn decrypt_license_key_row(row: LicenseKeyRow, master_key: &MasterKey) -> Result<LicenseKey> {
+    let key_bytes = master_key.decrypt_private_key(&row.project_id, &row.encrypted_key)?;
+    let key = String::from_utf8(key_bytes)
+        .map_err(|e| AppError::Internal(format!("Invalid UTF-8 in decrypted license key: {}", e)))?;
+
+    Ok(LicenseKey {
+        id: row.id,
+        key,
+        project_id: row.project_id,
+        product_id: row.product_id,
+        customer_id: row.customer_id,
+        activation_count: row.activation_count,
+        revoked: row.revoked,
+        revoked_jtis: row.revoked_jtis,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+        updates_expires_at: row.updates_expires_at,
+        payment_provider: row.payment_provider,
+        payment_provider_customer_id: row.payment_provider_customer_id,
+        payment_provider_subscription_id: row.payment_provider_subscription_id,
+        payment_provider_order_id: row.payment_provider_order_id,
+    })
 }
 
 pub fn generate_api_key() -> String {
@@ -762,23 +789,31 @@ pub fn generate_license_key_string(prefix: &str) -> String {
 
 pub fn create_license_key(
     conn: &Connection,
+    project_id: &str,
     product_id: &str,
     prefix: &str,
     input: &CreateLicenseKey,
+    master_key: &MasterKey,
 ) -> Result<LicenseKey> {
     let id = gen_id();
     let key = generate_license_key_string(prefix);
     let now = now();
 
+    // Hash for lookups, encrypt for storage
+    let key_hash = hash_license_key(&key);
+    let encrypted_key = master_key.encrypt_private_key(project_id, key.as_bytes())?;
+
     conn.execute(
-        "INSERT INTO license_keys (id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id)
-         VALUES (?1, ?2, ?3, ?4, 0, 0, '[]', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![&id, &key, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id, &input.payment_provider_order_id],
+        "INSERT INTO license_keys (id, key_hash, encrypted_key, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, '[]', ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![&id, &key_hash, &encrypted_key, project_id, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id, &input.payment_provider_order_id],
     )?;
 
+    // Return with plaintext key (shown once at creation)
     Ok(LicenseKey {
         id,
         key,
+        project_id: project_id.to_string(),
         product_id: product_id.to_string(),
         customer_id: input.customer_id.clone(),
         activation_count: 0,
@@ -794,56 +829,84 @@ pub fn create_license_key(
     })
 }
 
-pub fn get_license_key_by_id(conn: &Connection, id: &str) -> Result<Option<LicenseKey>> {
-    query_one(
+pub fn get_license_key_by_id(
+    conn: &Connection,
+    id: &str,
+    master_key: &MasterKey,
+) -> Result<Option<LicenseKey>> {
+    let row: Option<LicenseKeyRow> = query_one(
         conn,
         &format!("SELECT {} FROM license_keys WHERE id = ?1", LICENSE_KEY_COLS),
         &[&id],
-    )
+    )?;
+    row.map(|r| decrypt_license_key_row(r, master_key)).transpose()
 }
 
-pub fn get_license_key_by_key(conn: &Connection, key: &str) -> Result<Option<LicenseKey>> {
-    query_one(
+pub fn get_license_key_by_key(
+    conn: &Connection,
+    key: &str,
+    master_key: &MasterKey,
+) -> Result<Option<LicenseKey>> {
+    // Hash the input key for lookup
+    let key_hash = hash_license_key(key);
+    let row: Option<LicenseKeyRow> = query_one(
         conn,
-        &format!("SELECT {} FROM license_keys WHERE key = ?1", LICENSE_KEY_COLS),
-        &[&key],
-    )
+        &format!("SELECT {} FROM license_keys WHERE key_hash = ?1", LICENSE_KEY_COLS),
+        &[&key_hash],
+    )?;
+    row.map(|r| decrypt_license_key_row(r, master_key)).transpose()
 }
 
-pub fn list_license_keys_for_project(conn: &Connection, project_id: &str) -> Result<Vec<LicenseKeyWithProduct>> {
+pub fn list_license_keys_for_project(
+    conn: &Connection,
+    project_id: &str,
+    master_key: &MasterKey,
+) -> Result<Vec<LicenseKeyWithProduct>> {
     let mut stmt = conn.prepare(
-        "SELECT lk.id, lk.key, lk.product_id, lk.customer_id, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, lk.payment_provider_order_id, p.name, p.project_id
+        "SELECT lk.id, lk.key_hash, lk.encrypted_key, lk.project_id, lk.product_id, lk.customer_id, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, lk.payment_provider_order_id, p.name
          FROM license_keys lk
          JOIN products p ON lk.product_id = p.id
-         WHERE p.project_id = ?1
+         WHERE lk.project_id = ?1
          ORDER BY lk.created_at DESC",
     )?;
 
-    let licenses = stmt
+    // Collect rows first, then decrypt
+    let rows: Vec<(LicenseKeyRow, String)> = stmt
         .query_map(params![project_id], |row| {
-            let jtis_str: String = row.get(6)?;
-            Ok(LicenseKeyWithProduct {
-                license: LicenseKey {
+            let jtis_str: String = row.get(8)?;
+            Ok((
+                LicenseKeyRow {
                     id: row.get(0)?,
-                    key: row.get(1)?,
-                    product_id: row.get(2)?,
-                    customer_id: row.get(3)?,
-                    activation_count: row.get(4)?,
-                    revoked: row.get::<_, i32>(5)? != 0,
+                    key_hash: row.get(1)?,
+                    encrypted_key: row.get(2)?,
+                    project_id: row.get(3)?,
+                    product_id: row.get(4)?,
+                    customer_id: row.get(5)?,
+                    activation_count: row.get(6)?,
+                    revoked: row.get::<_, i32>(7)? != 0,
                     revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-                    created_at: row.get(7)?,
-                    expires_at: row.get(8)?,
-                    updates_expires_at: row.get(9)?,
-                    payment_provider: row.get(10)?,
-                    payment_provider_customer_id: row.get(11)?,
-                    payment_provider_subscription_id: row.get(12)?,
-                    payment_provider_order_id: row.get(13)?,
+                    created_at: row.get(9)?,
+                    expires_at: row.get(10)?,
+                    updates_expires_at: row.get(11)?,
+                    payment_provider: row.get(12)?,
+                    payment_provider_customer_id: row.get(13)?,
+                    payment_provider_subscription_id: row.get(14)?,
+                    payment_provider_order_id: row.get(15)?,
                 },
-                product_name: row.get(14)?,
-                project_id: row.get(15)?,
-            })
+                row.get(16)?, // product_name
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    // Decrypt each license key
+    let mut licenses = Vec::with_capacity(rows.len());
+    for (row, product_name) in rows {
+        let license = decrypt_license_key_row(row, master_key)?;
+        licenses.push(LicenseKeyWithProduct {
+            license,
+            product_name,
+        });
+    }
 
     Ok(licenses)
 }
@@ -861,8 +924,13 @@ pub fn revoke_license_key(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn add_revoked_jti(conn: &Connection, license_id: &str, jti: &str) -> Result<()> {
-    let license = get_license_key_by_id(conn, license_id)?
+pub fn add_revoked_jti(
+    conn: &Connection,
+    license_id: &str,
+    jti: &str,
+    master_key: &MasterKey,
+) -> Result<()> {
+    let license = get_license_key_by_id(conn, license_id, master_key)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     let mut jtis = license.revoked_jtis;
@@ -881,15 +949,17 @@ pub fn get_license_key_by_subscription(
     conn: &Connection,
     provider: &str,
     subscription_id: &str,
+    master_key: &MasterKey,
 ) -> Result<Option<LicenseKey>> {
-    query_one(
+    let row: Option<LicenseKeyRow> = query_one(
         conn,
         &format!(
             "SELECT {} FROM license_keys WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
             LICENSE_KEY_COLS
         ),
         &[&provider, &subscription_id],
-    )
+    )?;
+    row.map(|r| decrypt_license_key_row(r, master_key)).transpose()
 }
 
 /// Extend license expiration dates (for subscription renewals)
@@ -1204,6 +1274,7 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
         redirect_url: input.redirect_url.clone(),
         created_at: now,
         completed: false,
+        license_key_id: None,
     })
 }
 
@@ -1215,6 +1286,34 @@ pub fn get_payment_session(conn: &Connection, id: &str) -> Result<Option<Payment
     )
 }
 
+/// Atomically mark a payment session as completed, returning whether the claim was successful.
+///
+/// Uses compare-and-swap to prevent race conditions where multiple concurrent webhook
+/// requests could create multiple licenses from a single payment.
+///
+/// Returns:
+/// - `Ok(true)` if this call successfully claimed the session (was not already completed)
+/// - `Ok(false)` if the session was already completed by another request
+/// - `Err(_)` if the session doesn't exist or a database error occurred
+pub fn try_claim_payment_session(conn: &Connection, id: &str) -> Result<bool> {
+    let affected = conn.execute(
+        "UPDATE payment_sessions SET completed = 1 WHERE id = ?1 AND completed = 0",
+        params![id],
+    )?;
+    Ok(affected > 0)
+}
+
+/// Set the license_key_id on a payment session after license creation.
+/// Called after try_claim_payment_session succeeds and license is created.
+pub fn set_payment_session_license(conn: &Connection, session_id: &str, license_key_id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE payment_sessions SET license_key_id = ?1 WHERE id = ?2",
+        params![license_key_id, session_id],
+    )?;
+    Ok(())
+}
+
+#[deprecated(note = "Use try_claim_payment_session for atomic webhook processing")]
 pub fn mark_payment_session_completed(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(
         "UPDATE payment_sessions SET completed = 1 WHERE id = ?1",

@@ -80,7 +80,12 @@ pub fn decode_unverified(token: &str) -> Result<LicenseClaims> {
 }
 
 /// Verify a JWT and extract claims
-pub fn verify_token(token: &str, public_key_b64: &str) -> Result<JWTClaims<LicenseClaims>> {
+/// Validates signature, expiration, issuer ("paycheck"), and audience (expected_audience)
+pub fn verify_token(
+    token: &str,
+    public_key_b64: &str,
+    expected_audience: &str,
+) -> Result<JWTClaims<LicenseClaims>> {
     let public_bytes = BASE64
         .decode(public_key_b64)
         .map_err(|e| AppError::Internal(format!("Invalid public key encoding: {}", e)))?;
@@ -99,8 +104,12 @@ pub fn verify_token(token: &str, public_key_b64: &str) -> Result<JWTClaims<Licen
     let public_key = Ed25519PublicKey::from_bytes(&verifying_key.to_bytes())
         .map_err(|e| AppError::Internal(format!("Failed to create public key: {}", e)))?;
 
+    let mut options = VerificationOptions::default();
+    options.allowed_issuers = Some(std::collections::HashSet::from(["paycheck".to_string()]));
+    options.allowed_audiences = Some(std::collections::HashSet::from([expected_audience.to_string()]));
+
     let claims = public_key
-        .verify_token::<LicenseClaims>(token, None)
+        .verify_token::<LicenseClaims>(token, Some(options))
         .map_err(|e| AppError::BadRequest(format!("Invalid token: {}", e)))?;
 
     Ok(claims)
@@ -143,7 +152,7 @@ mod tests {
         ).unwrap();
         assert!(!token.is_empty());
 
-        let verified = verify_token(&token, &public_key).unwrap();
+        let verified = verify_token(&token, &public_key, "myapp.com").unwrap();
         assert_eq!(verified.subject.as_deref(), Some("license-123"));
         assert!(verified.audiences.is_some());
         assert_eq!(verified.custom.tier, claims.tier);

@@ -9,15 +9,17 @@ use common::*;
 #[test]
 fn test_create_license_key() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
-    let license = create_test_license(&conn, &product.id, "TEST", Some(future_timestamp(365)));
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", Some(future_timestamp(365)), &master_key);
 
     assert!(!license.id.is_empty());
     assert!(license.key.starts_with("TEST-"));
     assert_eq!(license.product_id, product.id);
+    assert_eq!(license.project_id, project.id);
     assert_eq!(license.activation_count, 0);
     assert!(!license.revoked);
     assert!(license.revoked_jtis.is_empty());
@@ -26,13 +28,14 @@ fn test_create_license_key() {
 #[test]
 fn test_license_key_format() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
     // Create a few licenses to verify format is consistent
     for _ in 0..5 {
-        let license = create_test_license(&conn, &product.id, "MYAPP", None);
+        let license = create_test_license(&conn, &project.id, &product.id, "MYAPP", None, &master_key);
 
         // Format should be PREFIX-XXXX-XXXX-XXXX-XXXX
         assert!(license.key.starts_with("MYAPP-"));
@@ -48,6 +51,7 @@ fn test_license_key_format() {
 #[test]
 fn test_license_key_uniqueness() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
@@ -55,7 +59,7 @@ fn test_license_key_uniqueness() {
     // Create many licenses and verify they're all unique
     let mut keys = std::collections::HashSet::new();
     for _ in 0..100 {
-        let license = create_test_license(&conn, &product.id, "TEST", None);
+        let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
         assert!(keys.insert(license.key), "Duplicate license key generated");
     }
 }
@@ -63,6 +67,7 @@ fn test_license_key_uniqueness() {
 #[test]
 fn test_create_license_with_customer_id() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
@@ -77,7 +82,7 @@ fn test_create_license_with_customer_id() {
         payment_provider_order_id: None,
     };
 
-    let license = queries::create_license_key(&conn, &product.id, "TEST", &input)
+    let license = queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
         .expect("Failed to create license");
 
     assert_eq!(license.customer_id, Some("cust_12345".to_string()));
@@ -86,6 +91,7 @@ fn test_create_license_with_customer_id() {
 #[test]
 fn test_create_license_with_payment_provider() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
@@ -100,7 +106,7 @@ fn test_create_license_with_payment_provider() {
         payment_provider_order_id: Some("cs_test_xxx".to_string()),
     };
 
-    let license = queries::create_license_key(&conn, &product.id, "TEST", &input)
+    let license = queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
         .expect("Failed to create license");
 
     assert_eq!(license.payment_provider, Some("stripe".to_string()));
@@ -113,12 +119,13 @@ fn test_create_license_with_payment_provider() {
 #[test]
 fn test_get_license_key_by_id() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let created = create_test_license(&conn, &product.id, "TEST", Some(future_timestamp(365)));
+    let created = create_test_license(&conn, &project.id, &product.id, "TEST", Some(future_timestamp(365)), &master_key);
 
-    let fetched = queries::get_license_key_by_id(&conn, &created.id)
+    let fetched = queries::get_license_key_by_id(&conn, &created.id, &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -130,12 +137,13 @@ fn test_get_license_key_by_id() {
 #[test]
 fn test_get_license_key_by_key() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let created = create_test_license(&conn, &product.id, "TEST", Some(future_timestamp(365)));
+    let created = create_test_license(&conn, &project.id, &product.id, "TEST", Some(future_timestamp(365)), &master_key);
 
-    let fetched = queries::get_license_key_by_key(&conn, &created.key)
+    let fetched = queries::get_license_key_by_key(&conn, &created.key, &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -146,6 +154,7 @@ fn test_get_license_key_by_key() {
 #[test]
 fn test_get_license_key_by_subscription() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
@@ -160,10 +169,10 @@ fn test_get_license_key_by_subscription() {
         payment_provider_order_id: None,
     };
 
-    let created = queries::create_license_key(&conn, &product.id, "TEST", &input)
+    let created = queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
         .expect("Failed to create license");
 
-    let fetched = queries::get_license_key_by_subscription(&conn, "stripe", "sub_unique_id")
+    let fetched = queries::get_license_key_by_subscription(&conn, "stripe", "sub_unique_id", &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -173,6 +182,7 @@ fn test_get_license_key_by_subscription() {
 #[test]
 fn test_get_license_key_by_subscription_wrong_provider() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
@@ -187,11 +197,11 @@ fn test_get_license_key_by_subscription_wrong_provider() {
         payment_provider_order_id: None,
     };
 
-    queries::create_license_key(&conn, &product.id, "TEST", &input)
+    queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
         .expect("Failed to create license");
 
     // Same subscription ID but different provider should return None
-    let result = queries::get_license_key_by_subscription(&conn, "lemonsqueezy", "sub_id")
+    let result = queries::get_license_key_by_subscription(&conn, "lemonsqueezy", "sub_id", &master_key)
         .expect("Query failed");
 
     assert!(result.is_none());
@@ -200,17 +210,18 @@ fn test_get_license_key_by_subscription_wrong_provider() {
 #[test]
 fn test_list_license_keys_for_project() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product1 = create_test_product(&conn, &project.id, "Free", "free");
     let product2 = create_test_product(&conn, &project.id, "Pro", "pro");
 
     // Create licenses for both products
-    create_test_license(&conn, &product1.id, "TEST", None);
-    create_test_license(&conn, &product1.id, "TEST", None);
-    create_test_license(&conn, &product2.id, "TEST", None);
+    create_test_license(&conn, &project.id, &product1.id, "TEST", None, &master_key);
+    create_test_license(&conn, &project.id, &product1.id, "TEST", None, &master_key);
+    create_test_license(&conn, &project.id, &product2.id, "TEST", None, &master_key);
 
-    let licenses = queries::list_license_keys_for_project(&conn, &project.id)
+    let licenses = queries::list_license_keys_for_project(&conn, &project.id, &master_key)
         .expect("Query failed");
 
     assert_eq!(licenses.len(), 3);
@@ -224,10 +235,11 @@ fn test_list_license_keys_for_project() {
 #[test]
 fn test_increment_activation_count() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     assert_eq!(license.activation_count, 0);
 
@@ -235,7 +247,7 @@ fn test_increment_activation_count() {
     queries::increment_activation_count(&conn, &license.id).expect("Increment failed");
     queries::increment_activation_count(&conn, &license.id).expect("Increment failed");
 
-    let updated = queries::get_license_key_by_id(&conn, &license.id)
+    let updated = queries::get_license_key_by_id(&conn, &license.id, &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -245,16 +257,17 @@ fn test_increment_activation_count() {
 #[test]
 fn test_revoke_license_key() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     assert!(!license.revoked);
 
     queries::revoke_license_key(&conn, &license.id).expect("Revoke failed");
 
-    let revoked = queries::get_license_key_by_id(&conn, &license.id)
+    let revoked = queries::get_license_key_by_id(&conn, &license.id, &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -264,17 +277,18 @@ fn test_revoke_license_key() {
 #[test]
 fn test_add_revoked_jti() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     assert!(license.revoked_jtis.is_empty());
 
-    queries::add_revoked_jti(&conn, &license.id, "jti_1").expect("Add JTI failed");
-    queries::add_revoked_jti(&conn, &license.id, "jti_2").expect("Add JTI failed");
+    queries::add_revoked_jti(&conn, &license.id, "jti_1", &master_key).expect("Add JTI failed");
+    queries::add_revoked_jti(&conn, &license.id, "jti_2", &master_key).expect("Add JTI failed");
 
-    let updated = queries::get_license_key_by_id(&conn, &license.id)
+    let updated = queries::get_license_key_by_id(&conn, &license.id, &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -286,18 +300,19 @@ fn test_add_revoked_jti() {
 #[test]
 fn test_extend_license_expiration() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
     let old_exp = future_timestamp(30);
-    let license = create_test_license(&conn, &product.id, "TEST", Some(old_exp));
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", Some(old_exp), &master_key);
 
     let new_exp = future_timestamp(365);
     queries::extend_license_expiration(&conn, &license.id, Some(new_exp), Some(new_exp))
         .expect("Extend failed");
 
-    let updated = queries::get_license_key_by_id(&conn, &license.id)
+    let updated = queries::get_license_key_by_id(&conn, &license.id, &master_key)
         .expect("Query failed")
         .expect("License not found");
 
@@ -310,10 +325,11 @@ fn test_extend_license_expiration() {
 #[test]
 fn test_create_redemption_code() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     let code = queries::create_redemption_code(&conn, &license.id)
         .expect("Failed to create redemption code");
@@ -329,10 +345,11 @@ fn test_create_redemption_code() {
 #[test]
 fn test_get_redemption_code_by_code() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let created = queries::create_redemption_code(&conn, &license.id)
         .expect("Failed to create redemption code");
 
@@ -348,10 +365,11 @@ fn test_get_redemption_code_by_code() {
 #[test]
 fn test_mark_redemption_code_used() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let code = queries::create_redemption_code(&conn, &license.id)
         .expect("Failed to create redemption code");
 
@@ -371,12 +389,13 @@ fn test_mark_redemption_code_used() {
 #[test]
 fn test_license_with_expiration() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
     let exp = future_timestamp(365);
-    let license = create_test_license(&conn, &product.id, "TEST", Some(exp));
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", Some(exp), &master_key);
 
     assert_eq!(license.expires_at, Some(exp));
 }
@@ -384,11 +403,12 @@ fn test_license_with_expiration() {
 #[test]
 fn test_license_without_expiration() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     assert!(license.expires_at.is_none()); // Perpetual license
 }
@@ -398,24 +418,26 @@ fn test_license_without_expiration() {
 #[test]
 fn test_delete_product_cascades_to_licenses() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
     queries::delete_product(&conn, &product.id).expect("Delete failed");
 
-    let result = queries::get_license_key_by_id(&conn, &license.id).expect("Query failed");
+    let result = queries::get_license_key_by_id(&conn, &license.id, &master_key).expect("Query failed");
     assert!(result.is_none());
 }
 
 #[test]
 fn test_delete_license_cascades_to_redemption_codes() {
     let conn = setup_test_db();
+    let master_key = test_master_key();
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App");
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(&conn, &product.id, "TEST", None);
+    let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
     let code = queries::create_redemption_code(&conn, &license.id)
         .expect("Failed to create redemption code");
 

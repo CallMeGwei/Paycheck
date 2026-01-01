@@ -99,9 +99,11 @@ pub fn create_test_product(conn: &Connection, project_id: &str, name: &str, tier
 /// Create a test license key
 pub fn create_test_license(
     conn: &Connection,
+    project_id: &str,
     product_id: &str,
     prefix: &str,
     expires_at: Option<i64>,
+    master_key: &MasterKey,
 ) -> LicenseKey {
     let input = CreateLicenseKey {
         customer_id: Some("test-customer".to_string()),
@@ -112,7 +114,7 @@ pub fn create_test_license(
         payment_provider_subscription_id: None,
         payment_provider_order_id: None,
     };
-    queries::create_license_key(conn, product_id, prefix, &input)
+    queries::create_license_key(conn, project_id, product_id, prefix, &input, master_key)
         .expect("Failed to create test license")
 }
 
@@ -146,12 +148,14 @@ pub fn past_timestamp(days: i64) -> i64 {
 /// Test data builder for creating complete test hierarchies
 pub struct TestDataBuilder {
     pub conn: Connection,
+    pub master_key: MasterKey,
 }
 
 impl TestDataBuilder {
     pub fn new() -> Self {
         Self {
             conn: setup_test_db(),
+            master_key: test_master_key(),
         }
     }
 
@@ -162,7 +166,7 @@ impl TestDataBuilder {
             create_test_org_member(&self.conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
         let project = create_test_project(&self.conn, &org.id, "Test Project");
         let product = create_test_product(&self.conn, &project.id, "Pro Plan", "pro");
-        let license = create_test_license(&self.conn, &product.id, &project.license_key_prefix, Some(future_timestamp(365)));
+        let license = create_test_license(&self.conn, &project.id, &product.id, &project.license_key_prefix, Some(future_timestamp(365)), &self.master_key);
 
         TestHierarchy {
             org,

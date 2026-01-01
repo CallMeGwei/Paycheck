@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use hmac::{Hmac, Mac};
+use subtle::ConstantTimeEq;
 
 use crate::error::{AppError, Result};
 use crate::models::StripeConfig;
@@ -128,6 +129,10 @@ impl StripeClient {
         Ok((session.id, session.url))
     }
 
+    /// Maximum age of a webhook timestamp before it's rejected (in seconds).
+    /// Stripe recommends 300 seconds (5 minutes).
+    const WEBHOOK_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
+
     pub fn verify_webhook_signature(&self, payload: &[u8], signature: &str) -> Result<bool> {
         // Stripe signature format: t=timestamp,v1=signature
         let parts: Vec<&str> = signature.split(',').collect();
@@ -143,11 +148,35 @@ impl StripeClient {
             }
         }
 
-        let timestamp = timestamp.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
+        let timestamp_str = timestamp.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
         let sig_v1 = sig_v1.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
 
+        // Parse and validate timestamp to prevent replay attacks.
+        // Reject webhooks older than WEBHOOK_TIMESTAMP_TOLERANCE_SECS.
+        let timestamp: i64 = timestamp_str
+            .parse()
+            .map_err(|_| AppError::BadRequest("Invalid timestamp in signature".into()))?;
+
+        let now = chrono::Utc::now().timestamp();
+        let age = now - timestamp;
+
+        if age > Self::WEBHOOK_TIMESTAMP_TOLERANCE_SECS {
+            tracing::warn!(
+                "Stripe webhook rejected: timestamp too old (age={}s, max={}s)",
+                age,
+                Self::WEBHOOK_TIMESTAMP_TOLERANCE_SECS
+            );
+            return Ok(false);
+        }
+
+        // Also reject timestamps from the future (clock skew tolerance: 60 seconds)
+        if age < -60 {
+            tracing::warn!("Stripe webhook rejected: timestamp in the future (age={}s)", age);
+            return Ok(false);
+        }
+
         // Construct signed payload
-        let signed_payload = format!("{}.{}", timestamp, String::from_utf8_lossy(payload));
+        let signed_payload = format!("{}.{}", timestamp_str, String::from_utf8_lossy(payload));
 
         // Compute expected signature
         let mut mac = HmacSha256::new_from_slice(self.webhook_secret.as_bytes())
@@ -155,7 +184,19 @@ impl StripeClient {
         mac.update(signed_payload.as_bytes());
         let expected = hex::encode(mac.finalize().into_bytes());
 
-        Ok(expected == sig_v1)
+        // Use constant-time comparison to prevent timing attacks.
+        // An attacker could otherwise measure response times to progressively
+        // discover the correct signature byte-by-byte.
+        let expected_bytes = expected.as_bytes();
+        let provided_bytes = sig_v1.as_bytes();
+
+        // Length check is not constant-time, but that's fine - signature length
+        // is not secret (it's always 64 hex chars for SHA-256)
+        if expected_bytes.len() != provided_bytes.len() {
+            return Ok(false);
+        }
+
+        Ok(expected_bytes.ct_eq(provided_bytes).into())
     }
 }
 

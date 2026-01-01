@@ -81,6 +81,9 @@ pub trait WebhookProvider: Send + Sync {
 }
 
 /// Process a checkout completion event - creates license and device.
+///
+/// Uses atomic compare-and-swap to prevent race conditions where multiple concurrent
+/// webhook deliveries could create multiple licenses from a single payment.
 pub fn process_checkout(
     conn: &Connection,
     provider: &str,
@@ -88,9 +91,22 @@ pub fn process_checkout(
     payment_session: &PaymentSession,
     product: &Product,
     data: &CheckoutData,
+    master_key: &MasterKey,
 ) -> WebhookResult {
-    if payment_session.completed {
-        return (StatusCode::OK, "Already processed");
+    // Atomically claim this payment session BEFORE creating any resources.
+    // This prevents race conditions where concurrent webhooks could all create licenses.
+    match queries::try_claim_payment_session(conn, &data.session_id) {
+        Ok(true) => {
+            // Successfully claimed - proceed with license creation
+        }
+        Ok(false) => {
+            // Already claimed by another request
+            return (StatusCode::OK, "Already processed");
+        }
+        Err(e) => {
+            tracing::error!("Failed to claim payment session: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+        }
     }
 
     // Compute expirations from product settings
@@ -100,6 +116,7 @@ pub fn process_checkout(
     // Create license key
     let license = match queries::create_license_key(
         conn,
+        &project.id,
         &payment_session.product_id,
         &project.license_key_prefix,
         &CreateLicenseKey {
@@ -111,6 +128,7 @@ pub fn process_checkout(
             payment_provider_subscription_id: data.subscription_id.clone(),
             payment_provider_order_id: data.order_id.clone(),
         },
+        master_key,
     ) {
         Ok(l) => l,
         Err(e) => {
@@ -118,6 +136,12 @@ pub fn process_checkout(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create license");
         }
     };
+
+    // Link license to payment session for efficient callback lookup
+    if let Err(e) = queries::set_payment_session_license(conn, &data.session_id, &license.id) {
+        tracing::error!("Failed to link license to session: {}", e);
+        // Non-fatal - callback will fall back to search
+    }
 
     // Create device
     let jti = uuid::Uuid::new_v4().to_string();
@@ -138,16 +162,10 @@ pub fn process_checkout(
         tracing::error!("Failed to increment activation count: {}", e);
     }
 
-    // Mark session as completed
-    if let Err(e) = queries::mark_payment_session_completed(conn, &data.session_id) {
-        tracing::error!("Failed to mark session completed: {}", e);
-    }
-
     tracing::info!(
-        "{} checkout completed: session={}, license={}, subscription={:?}",
+        "{} checkout completed: session={}, license=[REDACTED], subscription={:?}",
         provider,
         data.session_id,
-        license.key,
         data.subscription_id
     );
 
@@ -295,7 +313,7 @@ async fn handle_checkout<P: WebhookProvider>(
         }
     };
 
-    process_checkout(&conn, provider.provider_name(), &project, &payment_session, &product, &data)
+    process_checkout(&conn, provider.provider_name(), &project, &payment_session, &product, &data, &state.master_key)
 }
 
 async fn handle_renewal<P: WebhookProvider>(
@@ -323,7 +341,7 @@ async fn handle_renewal<P: WebhookProvider>(
     };
 
     // Find license by subscription ID
-    let license = match queries::get_license_key_by_subscription(&conn, provider.provider_name(), &data.subscription_id) {
+    let license = match queries::get_license_key_by_subscription(&conn, provider.provider_name(), &data.subscription_id, &state.master_key) {
         Ok(Some(l)) => l,
         Ok(None) => {
             tracing::warn!("No license found for {} subscription: {}", provider.provider_name(), data.subscription_id);
@@ -390,7 +408,7 @@ async fn handle_cancellation<P: WebhookProvider>(
     };
 
     // Find license by subscription ID
-    let license = match queries::get_license_key_by_subscription(&conn, provider.provider_name(), &data.subscription_id) {
+    let license = match queries::get_license_key_by_subscription(&conn, provider.provider_name(), &data.subscription_id, &state.master_key) {
         Ok(Some(l)) => l,
         Ok(None) => {
             tracing::warn!("No license found for {} subscription: {}", provider.provider_name(), data.subscription_id);

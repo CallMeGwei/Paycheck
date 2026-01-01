@@ -46,32 +46,16 @@ pub async fn payment_callback(
         return Ok(Redirect::temporary(&redirect_url));
     }
 
-    // Find the license created by the webhook
-    // We need to find a license for this product that was created around the same time
-    let licenses = queries::list_license_keys_for_project(&conn, &session.product_id)?;
-
     // Get the product to find project
     let product = queries::get_product_by_id(&conn, &session.product_id)?
         .ok_or_else(|| AppError::Internal("Product not found".into()))?;
 
-    // Find a device with this device_id that was recently created
-    let mut found_license = None;
-    for license_with_product in &licenses {
-        if let Ok(devices) = queries::list_devices_for_license(&conn, &license_with_product.license.id) {
-            for device in devices {
-                if device.device_id == session.device_id {
-                    found_license = Some(&license_with_product.license);
-                    break;
-                }
-            }
-        }
-        if found_license.is_some() {
-            break;
-        }
-    }
-
-    let license = found_license
+    // Get license directly via stored ID (set by webhook when license was created)
+    let license_id = session.license_key_id
         .ok_or_else(|| AppError::Internal("License not found - payment may still be processing".into()))?;
+
+    let license = queries::get_license_key_by_id(&conn, &license_id, &state.master_key)?
+        .ok_or_else(|| AppError::Internal("License not found".into()))?;
 
     // Get the device to find JTI
     let device = queries::get_device_for_license(&conn, &license.id, &session.device_id)?

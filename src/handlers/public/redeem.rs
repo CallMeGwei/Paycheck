@@ -76,7 +76,7 @@ pub async fn redeem_with_code(
     }
 
     // Get the license key
-    let license = queries::get_license_key_by_id(&conn, &redemption_code.license_key_id)?
+    let license = queries::get_license_key_by_id(&conn, &redemption_code.license_key_id, &state.master_key)?
         .ok_or_else(|| AppError::Internal("License key not found".into()))?;
 
     // Mark redemption code as used
@@ -121,7 +121,7 @@ pub async fn redeem_with_key(
         .ok().ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
 
     // Get the license key
-    let license = queries::get_license_key_by_key(&conn, &key)?
+    let license = queries::get_license_key_by_key(&conn, &key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
     // Proceed with normal redemption logic
@@ -263,7 +263,7 @@ pub async fn generate_redemption_code(
         ))?;
 
     // Get the license key
-    let license = queries::get_license_key_by_key(&conn, &key)?
+    let license = queries::get_license_key_by_key(&conn, &key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
     // Check if revoked

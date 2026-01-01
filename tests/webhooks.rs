@@ -14,6 +14,17 @@ fn create_stripe_test_client() -> StripeClient {
     StripeClient::new(&config)
 }
 
+/// Get current Unix timestamp as a string (for webhook signature tests)
+fn current_timestamp() -> String {
+    chrono::Utc::now().timestamp().to_string()
+}
+
+/// Get an old timestamp (for testing timestamp rejection)
+fn old_timestamp() -> String {
+    // 10 minutes ago - beyond the 5-minute tolerance
+    (chrono::Utc::now().timestamp() - 600).to_string()
+}
+
 fn compute_stripe_signature(payload: &[u8], secret: &str, timestamp: &str) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
@@ -31,8 +42,8 @@ fn compute_stripe_signature(payload: &[u8], secret: &str, timestamp: &str) -> St
 fn test_stripe_valid_signature() {
     let client = create_stripe_test_client();
     let payload = b"{\"type\":\"checkout.session.completed\"}";
-    let timestamp = "1234567890";
-    let signature = compute_stripe_signature(payload, "whsec_test_secret", timestamp);
+    let timestamp = current_timestamp();
+    let signature = compute_stripe_signature(payload, "whsec_test_secret", &timestamp);
     let signature_header = format!("t={},v1={}", timestamp, signature);
 
     let result = client
@@ -46,9 +57,9 @@ fn test_stripe_valid_signature() {
 fn test_stripe_invalid_signature() {
     let client = create_stripe_test_client();
     let payload = b"{\"type\":\"checkout.session.completed\"}";
-    let timestamp = "1234567890";
+    let timestamp = current_timestamp();
     // Use wrong secret to generate invalid signature
-    let signature = compute_stripe_signature(payload, "wrong_secret", timestamp);
+    let signature = compute_stripe_signature(payload, "wrong_secret", &timestamp);
     let signature_header = format!("t={},v1={}", timestamp, signature);
 
     let result = client
@@ -63,9 +74,9 @@ fn test_stripe_modified_payload() {
     let client = create_stripe_test_client();
     let original_payload = b"{\"type\":\"checkout.session.completed\"}";
     let modified_payload = b"{\"type\":\"checkout.session.completed\",\"hacked\":true}";
-    let timestamp = "1234567890";
+    let timestamp = current_timestamp();
     // Sign the original payload
-    let signature = compute_stripe_signature(original_payload, "whsec_test_secret", timestamp);
+    let signature = compute_stripe_signature(original_payload, "whsec_test_secret", &timestamp);
     let signature_header = format!("t={},v1={}", timestamp, signature);
 
     // Verify with modified payload
@@ -74,6 +85,22 @@ fn test_stripe_modified_payload() {
         .expect("Verification should not error");
 
     assert!(!result, "Modified payload should be rejected");
+}
+
+#[test]
+fn test_stripe_old_timestamp_rejected() {
+    let client = create_stripe_test_client();
+    let payload = b"{\"type\":\"checkout.session.completed\"}";
+    let timestamp = old_timestamp();
+    // Valid signature but timestamp too old
+    let signature = compute_stripe_signature(payload, "whsec_test_secret", &timestamp);
+    let signature_header = format!("t={},v1={}", timestamp, signature);
+
+    let result = client
+        .verify_webhook_signature(payload, &signature_header)
+        .expect("Verification should not error");
+
+    assert!(!result, "Old timestamp should be rejected (replay attack prevention)");
 }
 
 #[test]
@@ -219,8 +246,8 @@ fn test_stripe_large_payload() {
     let large_data = "x".repeat(100_000);
     let payload = format!("{{\"data\":\"{}\"}}", large_data);
     let payload_bytes = payload.as_bytes();
-    let timestamp = "1234567890";
-    let signature = compute_stripe_signature(payload_bytes, "whsec_test_secret", timestamp);
+    let timestamp = current_timestamp();
+    let signature = compute_stripe_signature(payload_bytes, "whsec_test_secret", &timestamp);
     let signature_header = format!("t={},v1={}", timestamp, signature);
 
     let result = client
@@ -251,8 +278,8 @@ fn test_stripe_binary_payload() {
     let client = create_stripe_test_client();
     // Binary data in payload
     let payload = &[0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD];
-    let timestamp = "1234567890";
-    let signature = compute_stripe_signature(payload, "whsec_test_secret", timestamp);
+    let timestamp = current_timestamp();
+    let signature = compute_stripe_signature(payload, "whsec_test_secret", &timestamp);
     let signature_header = format!("t={},v1={}", timestamp, signature);
 
     let result = client
@@ -279,8 +306,8 @@ fn test_lemonsqueezy_binary_payload() {
 fn test_stripe_unicode_in_payload() {
     let client = create_stripe_test_client();
     let payload = "{\"customer_name\":\"日本語\",\"emoji\":\"🎉\"}".as_bytes();
-    let timestamp = "1234567890";
-    let signature = compute_stripe_signature(payload, "whsec_test_secret", timestamp);
+    let timestamp = current_timestamp();
+    let signature = compute_stripe_signature(payload, "whsec_test_secret", &timestamp);
     let signature_header = format!("t={},v1={}", timestamp, signature);
 
     let result = client

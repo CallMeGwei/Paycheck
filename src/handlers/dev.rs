@@ -45,6 +45,7 @@ pub async fn create_dev_license(
     // Create the license with project's prefix (no payment info for dev licenses)
     let license = queries::create_license_key(
         &conn,
+        &project.id,
         &input.product_id,
         &project.license_key_prefix,
         &CreateLicenseKey {
@@ -56,6 +57,7 @@ pub async fn create_dev_license(
             payment_provider_subscription_id: None,
             payment_provider_order_id: None,
         },
+        &state.master_key,
     )?;
 
     tracing::info!(

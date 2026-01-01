@@ -61,14 +61,17 @@ pub const PROJECT_MEMBER_COLS: &str =
 pub const PRODUCT_COLS: &str =
     "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at";
 
+/// Columns for license_keys table.
+/// Note: encrypted_key requires decryption with MasterKey, so use LicenseKeyRow
+/// and decrypt manually rather than using the FromRow trait.
 pub const LICENSE_KEY_COLS: &str =
-    "id, key, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
+    "id, key_hash, encrypted_key, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
 
 pub const DEVICE_COLS: &str =
     "id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at";
 
 pub const PAYMENT_SESSION_COLS: &str =
-    "id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed";
+    "id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed, license_key_id";
 
 pub const REDEMPTION_CODE_COLS: &str =
     "id, code, license_key_id, expires_at, used, created_at";
@@ -182,24 +185,47 @@ impl FromRow for Product {
     }
 }
 
-impl FromRow for LicenseKey {
+/// Raw license key row from database, with encrypted key.
+/// Use `decrypt_license_key_row` to convert to `LicenseKey`.
+pub struct LicenseKeyRow {
+    pub id: String,
+    pub key_hash: String,
+    pub encrypted_key: Vec<u8>,
+    pub project_id: String,
+    pub product_id: String,
+    pub customer_id: Option<String>,
+    pub activation_count: i32,
+    pub revoked: bool,
+    pub revoked_jtis: Vec<String>,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+    pub updates_expires_at: Option<i64>,
+    pub payment_provider: Option<String>,
+    pub payment_provider_customer_id: Option<String>,
+    pub payment_provider_subscription_id: Option<String>,
+    pub payment_provider_order_id: Option<String>,
+}
+
+impl FromRow for LicenseKeyRow {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        let jtis_str: String = row.get(6)?;
-        Ok(LicenseKey {
+        let jtis_str: String = row.get(8)?;
+        Ok(LicenseKeyRow {
             id: row.get(0)?,
-            key: row.get(1)?,
-            product_id: row.get(2)?,
-            customer_id: row.get(3)?,
-            activation_count: row.get(4)?,
-            revoked: row.get::<_, i32>(5)? != 0,
+            key_hash: row.get(1)?,
+            encrypted_key: row.get(2)?,
+            project_id: row.get(3)?,
+            product_id: row.get(4)?,
+            customer_id: row.get(5)?,
+            activation_count: row.get(6)?,
+            revoked: row.get::<_, i32>(7)? != 0,
             revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-            created_at: row.get(7)?,
-            expires_at: row.get(8)?,
-            updates_expires_at: row.get(9)?,
-            payment_provider: row.get(10)?,
-            payment_provider_customer_id: row.get(11)?,
-            payment_provider_subscription_id: row.get(12)?,
-            payment_provider_order_id: row.get(13)?,
+            created_at: row.get(9)?,
+            expires_at: row.get(10)?,
+            updates_expires_at: row.get(11)?,
+            payment_provider: row.get(12)?,
+            payment_provider_customer_id: row.get(13)?,
+            payment_provider_subscription_id: row.get(14)?,
+            payment_provider_order_id: row.get(15)?,
         })
     }
 }
@@ -230,6 +256,7 @@ impl FromRow for PaymentSession {
             redirect_url: row.get(5)?,
             created_at: row.get(6)?,
             completed: row.get::<_, i32>(7)? != 0,
+            license_key_id: row.get(8)?,
         })
     }
 }

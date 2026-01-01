@@ -1303,7 +1303,7 @@ mod cross_project_boundaries {
         let project2 = create_test_project(&conn, &org.id, "Project 2");
 
         let product = create_test_product(&conn, &project1.id, "Product 1", "pro");
-        let license = create_test_license(&conn, &product.id, &project1.license_key_prefix, None);
+        let license = create_test_license(&conn, &project1.id, &product.id, &project1.license_key_prefix, None, &state.master_key);
 
         let (_owner, owner_key) =
             create_test_org_member(&conn, &org.id, "owner@org.com", OrgMemberRole::Owner);
@@ -1464,7 +1464,7 @@ mod license_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project");
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &product.id, &project.license_key_prefix, None);
+        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
 
         let (member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
@@ -1501,7 +1501,7 @@ mod license_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project");
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &product.id, &project.license_key_prefix, None);
+        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
 
         let (member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
@@ -1547,7 +1547,7 @@ mod device_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project");
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &product.id, &project.license_key_prefix, None);
+        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
         let (member, member_key) =
@@ -1585,7 +1585,7 @@ mod device_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project");
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &product.id, &project.license_key_prefix, None);
+        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
         let (member, member_key) =

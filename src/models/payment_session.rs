@@ -14,6 +14,8 @@ pub struct PaymentSession {
     pub redirect_url: Option<String>,
     pub created_at: i64,
     pub completed: bool,
+    /// License key ID created by webhook (set when checkout completes)
+    pub license_key_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

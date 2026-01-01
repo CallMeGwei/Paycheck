@@ -39,7 +39,8 @@ pub async fn deactivate_device(
         .ok_or_else(|| AppError::Internal("Project not found".into()))?;
 
     // Now verify the JWT signature with the project's public key
-    let verified_claims = jwt::verify_token(token, &project.public_key)?;
+    // Also validates issuer ("paycheck") and audience (project.domain)
+    let verified_claims = jwt::verify_token(token, &project.public_key, &project.domain)?;
 
     // Extract JTI from verified claims
     let jti = verified_claims
@@ -51,7 +52,7 @@ pub async fn deactivate_device(
         .ok_or_else(|| AppError::NotFound("Device not found or already deactivated".into()))?;
 
     // Get the license to add revoked JTI
-    let license = queries::get_license_key_by_id(&conn, &device.license_key_id)?
+    let license = queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)?
         .ok_or_else(|| AppError::Internal("License not found".into()))?;
 
     // Check if this JTI is already revoked
@@ -60,7 +61,7 @@ pub async fn deactivate_device(
     }
 
     // Add the device's JTI to revoked list so the token can't be used anymore
-    queries::add_revoked_jti(&conn, &license.id, &jti)?;
+    queries::add_revoked_jti(&conn, &license.id, &jti, &state.master_key)?;
 
     // Delete the device record
     queries::delete_device(&conn, &device.id)?;

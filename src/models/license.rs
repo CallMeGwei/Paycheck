@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct LicenseKey {
     pub id: String,
     pub key: String,
+    pub project_id: String,
     pub product_id: String,
     /// Developer-managed customer identifier (optional)
     /// Use this to link licenses to your own user/account system
@@ -25,7 +26,7 @@ pub struct LicenseKeyWithProduct {
     #[serde(flatten)]
     pub license: LicenseKey,
     pub product_name: String,
-    pub project_id: String,
+    // Note: project_id is now part of LicenseKey, so no separate field needed
 }
 
 #[derive(Debug, Deserialize)]

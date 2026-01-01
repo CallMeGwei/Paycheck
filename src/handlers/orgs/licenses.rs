@@ -38,7 +38,7 @@ pub async fn list_licenses(
     Path(path): Path<crate::middleware::OrgProjectPath>,
 ) -> Result<Json<Vec<LicenseKeyWithProduct>>> {
     let conn = state.db.get()?;
-    let licenses = queries::list_license_keys_for_project(&conn, &path.project_id)?;
+    let licenses = queries::list_license_keys_for_project(&conn, &path.project_id, &state.master_key)?;
     Ok(Json(licenses))
 }
 
@@ -126,6 +126,7 @@ pub async fn create_license(
     for _ in 0..body.count {
         let license = queries::create_license_key(
             &conn,
+            &project.id,
             &body.product_id,
             &project.license_key_prefix,
             &CreateLicenseKey {
@@ -137,6 +138,7 @@ pub async fn create_license(
                 payment_provider_subscription_id: None,
                 payment_provider_order_id: None,
             },
+            &state.master_key,
         )?;
 
         created_licenses.push(CreatedLicense {
@@ -186,7 +188,7 @@ pub async fn get_license(
 ) -> Result<Json<LicenseWithDevices>> {
     let conn = state.db.get()?;
 
-    let license = queries::get_license_key_by_key(&conn, &path.key)?
+    let license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -203,7 +205,6 @@ pub async fn get_license(
         license: LicenseKeyWithProduct {
             license,
             product_name: product.name,
-            project_id: product.project_id,
         },
         devices,
     }))
@@ -222,7 +223,7 @@ pub async fn revoke_license(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    let license = queries::get_license_key_by_key(&conn, &path.key)?
+    let license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -281,7 +282,7 @@ pub async fn replace_license(
     let audit_conn = state.audit.get()?;
 
     // Get the old license
-    let old_license = queries::get_license_key_by_key(&conn, &path.key)?
+    let old_license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -306,6 +307,7 @@ pub async fn replace_license(
     // If this is a subscription, the customer will need to update their payment method
     let new_license = queries::create_license_key(
         &conn,
+        &project.id,
         &old_license.product_id,
         &project.license_key_prefix,
         &CreateLicenseKey {
@@ -317,6 +319,7 @@ pub async fn replace_license(
             payment_provider_subscription_id: old_license.payment_provider_subscription_id.clone(),
             payment_provider_order_id: old_license.payment_provider_order_id.clone(),
         },
+        &state.master_key,
     )?;
 
     let (ip, ua) = extract_request_info(&headers);
@@ -377,7 +380,7 @@ pub async fn deactivate_device_admin(
     let audit_conn = state.audit.get()?;
 
     // Get the license
-    let license = queries::get_license_key_by_key(&conn, &path.key)?
+    let license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -393,7 +396,7 @@ pub async fn deactivate_device_admin(
         .ok_or_else(|| AppError::NotFound("Device not found".into()))?;
 
     // Add the device's JTI to revoked list so the token can't be used anymore
-    queries::add_revoked_jti(&conn, &license.id, &device.jti)?;
+    queries::add_revoked_jti(&conn, &license.id, &device.jti, &state.master_key)?;
 
     // Delete the device record
     queries::delete_device(&conn, &device.id)?;

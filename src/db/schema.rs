@@ -84,9 +84,14 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_products_project ON products(project_id);
 
         -- License keys
+        -- encrypted_key: AES-256-GCM encrypted with project DEK (derived from project_id)
+        -- key_hash: SHA-256 hash for O(1) lookups without decryption
+        -- project_id: denormalized for DEK derivation (avoids join through products)
         CREATE TABLE IF NOT EXISTS license_keys (
             id TEXT PRIMARY KEY,
-            key TEXT NOT NULL UNIQUE,
+            key_hash TEXT NOT NULL UNIQUE,
+            encrypted_key BLOB NOT NULL,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
             customer_id TEXT,
             activation_count INTEGER NOT NULL DEFAULT 0,
@@ -101,7 +106,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             payment_provider_order_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_license_keys_product ON license_keys(product_id);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_key ON license_keys(key);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_project ON license_keys(project_id);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_key_hash ON license_keys(key_hash);
         CREATE INDEX IF NOT EXISTS idx_license_keys_customer ON license_keys(customer_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_provider_customer ON license_keys(payment_provider, payment_provider_customer_id);
         CREATE INDEX IF NOT EXISTS idx_license_keys_provider_subscription ON license_keys(payment_provider, payment_provider_subscription_id);
@@ -144,7 +150,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             customer_id TEXT,
             redirect_url TEXT,
             created_at INTEGER NOT NULL,
-            completed INTEGER NOT NULL DEFAULT 0
+            completed INTEGER NOT NULL DEFAULT 0,
+            license_key_id TEXT REFERENCES license_keys(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_payment_sessions_product ON payment_sessions(product_id);
         "#,
