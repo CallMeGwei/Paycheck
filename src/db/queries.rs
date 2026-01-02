@@ -1334,15 +1334,6 @@ pub fn set_payment_session_license(conn: &Connection, session_id: &str, license_
     Ok(())
 }
 
-#[deprecated(note = "Use try_claim_payment_session for atomic webhook processing")]
-pub fn mark_payment_session_completed(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE payment_sessions SET completed = 1 WHERE id = ?1",
-        params![id],
-    )?;
-    Ok(())
-}
-
 // ============ Webhook Event Deduplication ============
 
 /// Atomically record a webhook event, returning true if this is a new event.

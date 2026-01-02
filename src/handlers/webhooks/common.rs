@@ -87,7 +87,7 @@ pub trait WebhookProvider: Send + Sync {
 /// Uses atomic compare-and-swap to prevent race conditions where multiple concurrent
 /// webhook deliveries could create multiple licenses from a single payment.
 pub fn process_checkout(
-    conn: &Connection,
+    conn: &mut Connection,
     provider: &str,
     project: &Project,
     payment_session: &PaymentSession,
@@ -145,23 +145,20 @@ pub fn process_checkout(
         // Non-fatal - callback will fall back to search
     }
 
-    // Create device
+    // Create device atomically (includes activation count increment in transaction)
     let jti = uuid::Uuid::new_v4().to_string();
-    if let Err(e) = queries::create_device(
+    if let Err(e) = queries::acquire_device_atomic(
         conn,
         &license.id,
         &payment_session.device_id,
         payment_session.device_type,
         &jti,
         None,
+        product.device_limit,
+        product.activation_limit,
     ) {
         tracing::error!("Failed to create device: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create device");
-    }
-
-    // Increment activation count
-    if let Err(e) = queries::increment_activation_count(conn, &license.id) {
-        tracing::error!("Failed to increment activation count: {}", e);
     }
 
     tracing::info!(
@@ -282,7 +279,7 @@ async fn handle_checkout<P: WebhookProvider>(
     signature: &str,
     data: CheckoutData,
 ) -> WebhookResult {
-    let conn = match state.db.get() {
+    let mut conn = match state.db.get() {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("DB connection error: {}", e);
@@ -336,7 +333,7 @@ async fn handle_checkout<P: WebhookProvider>(
         }
     };
 
-    process_checkout(&conn, provider.provider_name(), &project, &payment_session, &product, &data, &state.master_key)
+    process_checkout(&mut conn, provider.provider_name(), &project, &payment_session, &product, &data, &state.master_key)
 }
 
 async fn handle_renewal<P: WebhookProvider>(
