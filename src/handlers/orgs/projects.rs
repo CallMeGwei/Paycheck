@@ -12,7 +12,7 @@ use crate::models::{
     ActorType, CreateProject, LemonSqueezyConfigMasked, ProjectPublic, StripeConfigMasked,
     UpdateProject,
 };
-use crate::util::extract_request_info;
+use crate::util::audit_log;
 
 pub async fn create_project(
     State(state): State<AppState>,
@@ -46,23 +46,11 @@ pub async fn create_project(
         &public_key,
     )?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "create_project",
-        "project",
-        &project.id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "domain": input.domain,
-        })),
-        Some(&org_id),
-        Some(&project.id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "create_project", "project", &project.id,
+        Some(&serde_json::json!({ "name": input.name, "domain": input.domain })),
+        Some(&org_id), Some(&project.id),
     )?;
 
     Ok(Json(project.into()))
@@ -127,23 +115,11 @@ pub async fn update_project(
 
     queries::update_project(&conn, &path.project_id, &input)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "update_project",
-        "project",
-        &path.project_id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "domain": input.domain,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "update_project", "project", &path.project_id,
+        Some(&serde_json::json!({ "name": input.name, "domain": input.domain })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     let project = queries::get_project_by_id(&conn, &path.project_id)?
@@ -168,23 +144,11 @@ pub async fn delete_project(
 
     queries::delete_project(&conn, &path.project_id)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "delete_project",
-        "project",
-        &path.project_id,
-        Some(&serde_json::json!({
-            "name": existing.name,
-            "domain": existing.domain,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "delete_project", "project", &path.project_id,
+        Some(&serde_json::json!({ "name": existing.name, "domain": existing.domain })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

@@ -1,8 +1,11 @@
 //! Shared utility functions for the Paycheck application.
 
 use axum::http::HeaderMap;
+use rusqlite::Connection;
 
-use crate::models::Product;
+use crate::db::queries;
+use crate::error::Result;
+use crate::models::{ActorType, AuditLog, Product};
 
 const SECONDS_PER_DAY: i64 = 86400;
 
@@ -65,4 +68,39 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
+}
+
+/// Create an audit log entry, automatically extracting IP and user-agent from headers.
+///
+/// This is a thin wrapper around `queries::create_audit_log` that handles the
+/// common pattern of extracting request info from headers.
+#[allow(clippy::too_many_arguments)]
+pub fn audit_log(
+    conn: &Connection,
+    enabled: bool,
+    actor_type: ActorType,
+    actor_id: Option<&str>,
+    headers: &HeaderMap,
+    action: &str,
+    resource_type: &str,
+    resource_id: &str,
+    details: Option<&serde_json::Value>,
+    org_id: Option<&str>,
+    project_id: Option<&str>,
+) -> Result<AuditLog> {
+    let (ip, ua) = extract_request_info(headers);
+    queries::create_audit_log(
+        conn,
+        enabled,
+        actor_type,
+        actor_id,
+        action,
+        resource_type,
+        resource_id,
+        details,
+        org_id,
+        project_id,
+        ip.as_deref(),
+        ua.as_deref(),
+    )
 }

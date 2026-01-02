@@ -8,7 +8,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::Json;
 use crate::jwt::{self, LicenseClaims};
 use crate::models::ActorType;
-use crate::util::{extract_bearer_token, extract_request_info, LicenseExpirations};
+use crate::util::{audit_log, extract_bearer_token, LicenseExpirations};
 
 /// Validate that a string is a valid UUID format.
 /// This is a cheap check to reject garbage before hitting the database.
@@ -129,23 +129,11 @@ pub async fn refresh_token(
     )?;
 
     // Audit log the refresh
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Public,
-        Some(&jti),
-        "refresh_token",
-        "device",
-        &device.id,
-        Some(&serde_json::json!({
-            "license_id": license.id,
-            "product_id": product.id,
-        })),
-        Some(&project.org_id),
-        Some(&project.id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Public, Some(&jti), &headers,
+        "refresh_token", "device", &device.id,
+        Some(&serde_json::json!({ "license_id": license.id, "product_id": product.id })),
+        Some(&project.org_id), Some(&project.id),
     )?;
 
     Ok(Json(RefreshResponse { token: new_token }))

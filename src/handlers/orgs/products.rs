@@ -8,7 +8,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateProduct, Product, UpdateProduct};
-use crate::util::extract_request_info;
+use crate::util::audit_log;
 
 #[derive(serde::Deserialize)]
 pub struct ProductPath {
@@ -32,23 +32,11 @@ pub async fn create_product(
     let audit_conn = state.audit.get()?;
     let product = queries::create_product(&conn, &path.project_id, &input)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "create_product",
-        "product",
-        &product.id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "tier": input.tier,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "create_product", "product", &product.id,
+        Some(&serde_json::json!({ "name": input.name, "tier": input.tier })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(product))
@@ -101,23 +89,11 @@ pub async fn update_product(
 
     queries::update_product(&conn, &path.id, &input)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "update_product",
-        "product",
-        &path.id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "tier": input.tier,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "update_product", "product", &path.id,
+        Some(&serde_json::json!({ "name": input.name, "tier": input.tier })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     let product = queries::get_product_by_id(&conn, &path.id)?
@@ -148,22 +124,11 @@ pub async fn delete_product(
 
     queries::delete_product(&conn, &path.id)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "delete_product",
-        "product",
-        &path.id,
-        Some(&serde_json::json!({
-            "name": existing.name,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "delete_product", "product", &path.id,
+        Some(&serde_json::json!({ "name": existing.name })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

@@ -9,7 +9,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
 use crate::models::{ActorType, CreateOrganization, OrgMemberRole, Organization, CreateOrgMember, UpdateOrganization};
-use crate::util::extract_request_info;
+use crate::util::audit_log;
 
 #[derive(Serialize)]
 pub struct OrganizationCreated {
@@ -46,23 +46,11 @@ pub async fn create_organization(
         None
     };
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        "create_organization",
-        "organization",
-        &organization.id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "owner_email": input.owner_email,
-        })),
-        Some(&organization.id),
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
+        "create_organization", "organization", &organization.id,
+        Some(&serde_json::json!({ "name": input.name, "owner_email": input.owner_email })),
+        Some(&organization.id), None,
     )?;
 
     Ok(Json(OrganizationCreated {
@@ -107,25 +95,11 @@ pub async fn update_organization(
     let organization = queries::get_organization_by_id(&conn, &id)?
         .ok_or_else(|| AppError::Internal("Organization not found after update".into()))?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        "update_organization",
-        "organization",
-        &id,
-        Some(&serde_json::json!({
-            "old_name": existing.name,
-            "new_name": input.name,
-            "stripe_updated": input.stripe_config.is_some(),
-            "ls_updated": input.ls_config.is_some(),
-        })),
-        Some(&id),
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
+        "update_organization", "organization", &id,
+        Some(&serde_json::json!({ "old_name": existing.name, "new_name": input.name, "stripe_updated": input.stripe_config.is_some(), "ls_updated": input.ls_config.is_some() })),
+        Some(&id), None,
     )?;
 
     Ok(Json(organization))
@@ -145,22 +119,11 @@ pub async fn delete_organization(
 
     queries::delete_organization(&conn, &id)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        "delete_organization",
-        "organization",
-        &id,
-        Some(&serde_json::json!({
-            "name": existing.name,
-        })),
-        Some(&id),
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
+        "delete_organization", "organization", &id,
+        Some(&serde_json::json!({ "name": existing.name })),
+        Some(&id), None,
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

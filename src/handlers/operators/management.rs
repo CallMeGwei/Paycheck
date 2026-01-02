@@ -9,7 +9,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
 use crate::models::{ActorType, CreateOperator, Operator, UpdateOperator};
-use crate::util::extract_request_info;
+use crate::util::audit_log;
 
 #[derive(Serialize)]
 pub struct OperatorCreated {
@@ -28,23 +28,11 @@ pub async fn create_operator(
     let api_key = queries::generate_api_key();
     let operator = queries::create_operator(&conn, &input, &api_key, Some(&ctx.operator.id))?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        "create_operator",
-        "operator",
-        &operator.id,
-        Some(&serde_json::json!({
-            "email": input.email,
-            "role": input.role,
-        })),
-        None,
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
+        "create_operator", "operator", &operator.id,
+        Some(&serde_json::json!({ "email": input.email, "role": input.role })),
+        None, None,
     )?;
 
     Ok(Json(OperatorCreated { operator, api_key }))
@@ -88,23 +76,11 @@ pub async fn update_operator(
 
     queries::update_operator(&conn, &id, &input)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        "update_operator",
-        "operator",
-        &id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "role": input.role,
-        })),
-        None,
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
+        "update_operator", "operator", &id,
+        Some(&serde_json::json!({ "name": input.name, "role": input.role })),
+        None, None,
     )?;
 
     let operator = queries::get_operator_by_id(&conn, &id)?
@@ -132,22 +108,11 @@ pub async fn delete_operator(
 
     queries::delete_operator(&conn, &id)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        "delete_operator",
-        "operator",
-        &id,
-        Some(&serde_json::json!({
-            "email": existing.email,
-        })),
-        None,
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
+        "delete_operator", "operator", &id,
+        Some(&serde_json::json!({ "email": existing.email })),
+        None, None,
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

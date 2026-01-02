@@ -8,7 +8,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateProjectMember, ProjectMemberWithDetails, UpdateProjectMember};
-use crate::util::extract_request_info;
+use crate::util::audit_log;
 
 #[derive(serde::Deserialize)]
 pub struct ProjectMemberPath {
@@ -50,24 +50,11 @@ pub async fn create_project_member(
 
     let project_member = queries::create_project_member(&conn, &path.project_id, &input)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "create_project_member",
-        "project_member",
-        &project_member.id,
-        Some(&serde_json::json!({
-            "org_member_id": input.org_member_id,
-            "project_id": path.project_id,
-            "role": input.role,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "create_project_member", "project_member", &project_member.id,
+        Some(&serde_json::json!({ "org_member_id": input.org_member_id, "project_id": path.project_id, "role": input.role })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(ProjectMemberWithDetails {
@@ -109,22 +96,11 @@ pub async fn update_project_member(
         return Err(AppError::NotFound("Project member not found".into()));
     }
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "update_project_member",
-        "project_member",
-        &path.id,
-        Some(&serde_json::json!({
-            "role": input.role,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "update_project_member", "project_member", &path.id,
+        Some(&serde_json::json!({ "role": input.role })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "updated": true })))
@@ -148,20 +124,11 @@ pub async fn delete_project_member(
         return Err(AppError::NotFound("Project member not found".into()));
     }
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "delete_project_member",
-        "project_member",
-        &path.id,
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "delete_project_member", "project_member", &path.id,
         None,
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

@@ -9,7 +9,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateLicenseKey, Device, LicenseKeyWithProduct};
-use crate::util::{extract_request_info, LicenseExpirations};
+use crate::util::{audit_log, LicenseExpirations};
 
 #[derive(serde::Deserialize)]
 pub struct LicensePath {
@@ -149,24 +149,11 @@ pub async fn create_license(
         });
 
         // Audit log for each license
-        let (ip, ua) = extract_request_info(&headers);
-        queries::create_audit_log(
-            &audit_conn,
-            state.audit_log_enabled,
-            ActorType::OrgMember,
-            Some(&ctx.member.id),
-            "create_license",
-            "license_key",
-            &license.id,
-            Some(&serde_json::json!({
-                "key": license.key,
-                "product_id": body.product_id,
-                "expires_at": exps.license_exp,
-            })),
-            Some(&path.org_id),
-            Some(&path.project_id),
-            ip.as_deref(),
-            ua.as_deref(),
+        audit_log(
+            &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+            "create_license", "license_key", &license.id,
+            Some(&serde_json::json!({ "key": license.key, "product_id": body.product_id, "expires_at": exps.license_exp })),
+            Some(&path.org_id), Some(&path.project_id),
         )?;
     }
 
@@ -240,22 +227,11 @@ pub async fn revoke_license(
 
     queries::revoke_license_key(&conn, &license.id)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "revoke_license",
-        "license_key",
-        &license.id,
-        Some(&serde_json::json!({
-            "key": license.key,
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "revoke_license", "license_key", &license.id,
+        Some(&serde_json::json!({ "key": license.key })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "revoked": true })))
@@ -322,25 +298,11 @@ pub async fn replace_license(
         &state.master_key,
     )?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "replace_license",
-        "license_key",
-        &new_license.id,
-        Some(&serde_json::json!({
-            "old_key": old_license.key,
-            "old_license_id": old_license.id,
-            "new_key": new_license.key,
-            "reason": "key_replacement",
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "replace_license", "license_key", &new_license.id,
+        Some(&serde_json::json!({ "old_key": old_license.key, "old_license_id": old_license.id, "new_key": new_license.key, "reason": "key_replacement" })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     tracing::info!(
@@ -405,25 +367,11 @@ pub async fn deactivate_device_admin(
     let remaining = queries::count_devices_for_license(&conn, &license.id)?;
 
     // Audit log
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "deactivate_device",
-        "device",
-        &device.id,
-        Some(&serde_json::json!({
-            "license_key": license.key,
-            "device_id": path.device_id,
-            "device_name": device.name,
-            "reason": "admin_remote_deactivation",
-        })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "deactivate_device", "device", &device.id,
+        Some(&serde_json::json!({ "license_key": license.key, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" })),
+        Some(&path.org_id), Some(&path.project_id),
     )?;
 
     tracing::info!(

@@ -9,7 +9,7 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateOrgMember, OrgMember, UpdateOrgMember};
-use crate::util::extract_request_info;
+use crate::util::audit_log;
 
 #[derive(Serialize)]
 pub struct OrgMemberCreated {
@@ -31,23 +31,11 @@ pub async fn create_org_member(
     let api_key = queries::generate_api_key();
     let member = queries::create_org_member(&conn, &org_id, &input, &api_key)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "create_org_member",
-        "org_member",
-        &member.id,
-        Some(&serde_json::json!({
-            "email": input.email,
-            "role": input.role,
-        })),
-        Some(&org_id),
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "create_org_member", "org_member", &member.id,
+        Some(&serde_json::json!({ "email": input.email, "role": input.role })),
+        Some(&org_id), None,
     )?;
 
     Ok(Json(OrgMemberCreated { member, api_key }))
@@ -109,23 +97,11 @@ pub async fn update_org_member(
 
     queries::update_org_member(&conn, &path.id, &input)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "update_org_member",
-        "org_member",
-        &path.id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "role": input.role,
-        })),
-        Some(&path.org_id),
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "update_org_member", "org_member", &path.id,
+        Some(&serde_json::json!({ "name": input.name, "role": input.role })),
+        Some(&path.org_id), None,
     )?;
 
     let member = queries::get_org_member_by_id(&conn, &path.id)?
@@ -159,22 +135,11 @@ pub async fn delete_org_member(
 
     queries::delete_org_member(&conn, &path.id)?;
 
-    let (ip, ua) = extract_request_info(&headers);
-    queries::create_audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        "delete_org_member",
-        "org_member",
-        &path.id,
-        Some(&serde_json::json!({
-            "email": existing.email,
-        })),
-        Some(&path.org_id),
-        None,
-        ip.as_deref(),
-        ua.as_deref(),
+    audit_log(
+        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
+        "delete_org_member", "org_member", &path.id,
+        Some(&serde_json::json!({ "email": existing.email })),
+        Some(&path.org_id), None,
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
