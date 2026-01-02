@@ -61,9 +61,10 @@ impl MasterKey {
     /// Generate a new random master key (for initial setup).
     /// Returns the key as a base64-encoded string.
     pub fn generate() -> String {
+        use rand::rngs::OsRng;
         use rand::RngCore;
         let mut key = [0u8; MASTER_KEY_SIZE];
-        rand::thread_rng().fill_bytes(&mut key);
+        OsRng.fill_bytes(&mut key);
         BASE64.encode(key)
     }
 
