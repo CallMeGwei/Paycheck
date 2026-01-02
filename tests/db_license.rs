@@ -358,7 +358,7 @@ fn test_get_redemption_code_by_code() {
         .expect("Code not found");
 
     assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.code, created.code);
+    // Note: fetched.code contains the hash, not plaintext (code is hashed at rest)
     assert_eq!(fetched.license_key_id, license.id);
 }
 

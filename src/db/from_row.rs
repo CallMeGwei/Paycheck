@@ -74,7 +74,7 @@ pub const PAYMENT_SESSION_COLS: &str =
     "id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed, license_key_id";
 
 pub const REDEMPTION_CODE_COLS: &str =
-    "id, code, license_key_id, expires_at, used, created_at";
+    "id, code_hash, license_key_id, expires_at, used, created_at";
 
 // ============ FromRow Implementations ============
 

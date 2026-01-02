@@ -149,11 +149,11 @@ impl MasterKey {
     }
 }
 
-/// Hash a license key for database lookups.
+/// Hash a secret for database lookups (license keys, API keys, redemption codes).
 /// Uses SHA-256, returns lowercase hex string.
-pub fn hash_license_key(key: &str) -> String {
+pub fn hash_secret(input: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
+    hasher.update(input.as_bytes());
     hex::encode(hasher.finalize())
 }
 
@@ -251,18 +251,18 @@ mod tests {
     }
 
     #[test]
-    fn test_hash_license_key() {
+    fn test_hash_secret() {
         let key = "PC-ABCD-1234-WXYZ-5678";
-        let hash = hash_license_key(key);
+        let hash = hash_secret(key);
 
         // Should be 64 hex chars (256 bits)
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
 
         // Same input should produce same hash
-        assert_eq!(hash, hash_license_key(key));
+        assert_eq!(hash, hash_secret(key));
 
         // Different input should produce different hash
-        assert_ne!(hash, hash_license_key("PC-DIFFERENT-KEY"));
+        assert_ne!(hash, hash_secret("PC-DIFFERENT-KEY"));
     }
 }

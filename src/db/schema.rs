@@ -116,13 +116,13 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         -- Redemption codes (short-lived codes for URL-safe license redemption)
         CREATE TABLE IF NOT EXISTS redemption_codes (
             id TEXT PRIMARY KEY,
-            code TEXT NOT NULL UNIQUE,
+            code_hash TEXT NOT NULL UNIQUE,
             license_key_id TEXT NOT NULL REFERENCES license_keys(id) ON DELETE CASCADE,
             expires_at INTEGER NOT NULL,
             used INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_redemption_codes_code ON redemption_codes(code);
+        CREATE INDEX IF NOT EXISTS idx_redemption_codes_hash ON redemption_codes(code_hash);
         CREATE INDEX IF NOT EXISTS idx_redemption_codes_license ON redemption_codes(license_key_id);
         CREATE INDEX IF NOT EXISTS idx_redemption_codes_expires ON redemption_codes(expires_at);
 

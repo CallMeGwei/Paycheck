@@ -1,9 +1,8 @@
 use chrono::Utc;
 use rusqlite::{params, Connection};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::crypto::MasterKey;
+use crate::crypto::{hash_secret, MasterKey};
 use crate::error::{AppError, Result};
 use crate::models::*;
 
@@ -13,7 +12,6 @@ use super::from_row::{
     ORGANIZATION_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS,
     PROJECT_MEMBER_COLS, REDEMPTION_CODE_COLS,
 };
-use crate::crypto::hash_license_key;
 
 fn now() -> i64 {
     Utc::now().timestamp()
@@ -21,12 +19,6 @@ fn now() -> i64 {
 
 fn gen_id() -> String {
     Uuid::new_v4().to_string()
-}
-
-pub fn hash_api_key(key: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 /// Decrypt a LicenseKeyRow into a LicenseKey.
@@ -69,7 +61,7 @@ pub fn create_operator(
 ) -> Result<Operator> {
     let id = gen_id();
     let now = now();
-    let api_key_hash = hash_api_key(api_key);
+    let api_key_hash = hash_secret(api_key);
 
     conn.execute(
         "INSERT INTO operators (id, email, name, role, api_key_hash, created_at, created_by)
@@ -105,7 +97,7 @@ pub fn get_operator_by_id(conn: &Connection, id: &str) -> Result<Option<Operator
 }
 
 pub fn get_operator_by_api_key(conn: &Connection, api_key: &str) -> Result<Option<Operator>> {
-    let hash = hash_api_key(api_key);
+    let hash = hash_secret(api_key);
     query_one(
         conn,
         &format!("SELECT {} FROM operators WHERE api_key_hash = ?1", OPERATOR_COLS),
@@ -418,7 +410,7 @@ pub fn create_org_member(
 ) -> Result<OrgMember> {
     let id = gen_id();
     let now = now();
-    let api_key_hash = hash_api_key(api_key);
+    let api_key_hash = hash_secret(api_key);
 
     conn.execute(
         "INSERT INTO org_members (id, org_id, email, name, role, api_key_hash, created_at)
@@ -454,7 +446,7 @@ pub fn get_org_member_by_id(conn: &Connection, id: &str) -> Result<Option<OrgMem
 }
 
 pub fn get_org_member_by_api_key(conn: &Connection, api_key: &str) -> Result<Option<OrgMember>> {
-    let hash = hash_api_key(api_key);
+    let hash = hash_secret(api_key);
     query_one(
         conn,
         &format!("SELECT {} FROM org_members WHERE api_key_hash = ?1", ORG_MEMBER_COLS),
@@ -800,7 +792,7 @@ pub fn create_license_key(
     let now = now();
 
     // Hash for lookups, encrypt for storage
-    let key_hash = hash_license_key(&key);
+    let key_hash = hash_secret(&key);
     let encrypted_key = master_key.encrypt_private_key(project_id, key.as_bytes())?;
 
     conn.execute(
@@ -848,7 +840,7 @@ pub fn get_license_key_by_key(
     master_key: &MasterKey,
 ) -> Result<Option<LicenseKey>> {
     // Hash the input key for lookup
-    let key_hash = hash_license_key(key);
+    let key_hash = hash_secret(key);
     let row: Option<LicenseKeyRow> = query_one(
         conn,
         &format!("SELECT {} FROM license_keys WHERE key_hash = ?1", LICENSE_KEY_COLS),
@@ -999,15 +991,17 @@ pub fn create_redemption_code(
 ) -> Result<RedemptionCode> {
     let id = gen_id();
     let code = generate_redemption_code_string();
+    let code_hash = hash_secret(&code);
     let now = now();
     let expires_at = now + REDEMPTION_CODE_TTL_SECONDS;
 
     conn.execute(
-        "INSERT INTO redemption_codes (id, code, license_key_id, expires_at, used, created_at)
+        "INSERT INTO redemption_codes (id, code_hash, license_key_id, expires_at, used, created_at)
          VALUES (?1, ?2, ?3, ?4, 0, ?5)",
-        params![&id, &code, license_key_id, expires_at, now],
+        params![&id, &code_hash, license_key_id, expires_at, now],
     )?;
 
+    // Return plaintext code for caller to give to user
     Ok(RedemptionCode {
         id,
         code,
@@ -1019,10 +1013,11 @@ pub fn create_redemption_code(
 }
 
 pub fn get_redemption_code_by_code(conn: &Connection, code: &str) -> Result<Option<RedemptionCode>> {
+    let code_hash = hash_secret(code);
     query_one(
         conn,
-        &format!("SELECT {} FROM redemption_codes WHERE code = ?1", REDEMPTION_CODE_COLS),
-        &[&code],
+        &format!("SELECT {} FROM redemption_codes WHERE code_hash = ?1", REDEMPTION_CODE_COLS),
+        &[&code_hash],
     )
 }
 
