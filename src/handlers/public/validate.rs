@@ -29,62 +29,43 @@ pub async fn validate_license(
 ) -> Result<Json<ValidateResponse>> {
     let conn = state.db.get()?;
 
+    // Helper for invalid responses - no reason given to prevent information disclosure
+    let invalid_response = || {
+        Json(ValidateResponse {
+            valid: false,
+            reason: None,
+            license_exp: None,
+            updates_exp: None,
+        })
+    };
+
     // Find the device by JTI
     let device = match queries::get_device_by_jti(&conn, &query.jti)? {
         Some(d) => d,
-        None => {
-            return Ok(Json(ValidateResponse {
-                valid: false,
-                reason: Some("Token not found or already replaced".into()),
-                license_exp: None,
-                updates_exp: None,
-            }));
-        }
+        None => return Ok(invalid_response()),
     };
 
     // Get the license
     let license = match queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)? {
         Some(l) => l,
-        None => {
-            return Ok(Json(ValidateResponse {
-                valid: false,
-                reason: Some("License not found".into()),
-                license_exp: None,
-                updates_exp: None,
-            }));
-        }
+        None => return Ok(invalid_response()),
     };
 
     // Check if license is revoked
     if license.revoked {
-        return Ok(Json(ValidateResponse {
-            valid: false,
-            reason: Some("License has been revoked".into()),
-            license_exp: None,
-            updates_exp: None,
-        }));
+        return Ok(invalid_response());
     }
 
     // Check if this specific JTI is revoked
     if license.revoked_jtis.contains(&query.jti) {
-        return Ok(Json(ValidateResponse {
-            valid: false,
-            reason: Some("This token has been revoked".into()),
-            license_exp: None,
-            updates_exp: None,
-        }));
+        return Ok(invalid_response());
     }
 
     // Check if license has expired
     if let Some(expires_at) = license.expires_at
         && Utc::now().timestamp() > expires_at
     {
-        return Ok(Json(ValidateResponse {
-            valid: false,
-            reason: Some("License has expired".into()),
-            license_exp: None,
-            updates_exp: None,
-        }));
+        return Ok(invalid_response());
     }
 
     // Get the product for expiration info
@@ -93,12 +74,7 @@ pub async fn validate_license(
 
     // Verify project matches
     if product.project_id != query.project_id {
-        return Ok(Json(ValidateResponse {
-            valid: false,
-            reason: Some("Token not found".into()),
-            license_exp: None,
-            updates_exp: None,
-        }));
+        return Ok(invalid_response());
     }
 
     // Update last seen
@@ -111,12 +87,7 @@ pub async fn validate_license(
     if let Some(exp) = exps.license_exp
         && Utc::now().timestamp() > exp
     {
-        return Ok(Json(ValidateResponse {
-            valid: false,
-            reason: Some("License access has expired".into()),
-            license_exp: Some(exp),
-            updates_exp: exps.updates_exp,
-        }));
+        return Ok(invalid_response());
     }
 
     Ok(Json(ValidateResponse {

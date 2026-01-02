@@ -65,14 +65,9 @@ pub async fn redeem_with_code(
     let redemption_code = queries::get_redemption_code_by_code(&conn, &query.code)?
         .ok_or_else(|| AppError::NotFound("Redemption code not found or expired".into()))?;
 
-    // Check if already used
-    if redemption_code.used {
-        return Err(AppError::Forbidden("Redemption code has already been used".into()));
-    }
-
-    // Check if expired
-    if Utc::now().timestamp() > redemption_code.expires_at {
-        return Err(AppError::Forbidden("Redemption code has expired".into()));
+    // Check if already used or expired (generic message to prevent enumeration)
+    if redemption_code.used || Utc::now().timestamp() > redemption_code.expires_at {
+        return Err(AppError::Forbidden("Cannot be redeemed".into()));
     }
 
     // Get the license key
@@ -146,16 +141,10 @@ fn redeem_license_internal(
     device_type: DeviceType,
     device_name: Option<&str>,
 ) -> Result<Json<RedeemResponse>> {
-    // Check if revoked
-    if license.revoked {
-        return Err(AppError::Forbidden("License has been revoked".into()));
-    }
-
-    // Check if expired
-    if let Some(expires_at) = license.expires_at
-        && Utc::now().timestamp() > expires_at
-    {
-        return Err(AppError::Forbidden("License has expired".into()));
+    // Check if revoked or expired (generic message to prevent enumeration)
+    let is_expired = license.expires_at.is_some_and(|exp| Utc::now().timestamp() > exp);
+    if license.revoked || is_expired {
+        return Err(AppError::Forbidden("Cannot be redeemed".into()));
     }
 
     // Get the product
@@ -266,16 +255,10 @@ pub async fn generate_redemption_code(
     let license = queries::get_license_key_by_key(&conn, &key, &state.master_key)?
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
-    // Check if revoked
-    if license.revoked {
-        return Err(AppError::Forbidden("License has been revoked".into()));
-    }
-
-    // Check if expired
-    if let Some(expires_at) = license.expires_at
-        && Utc::now().timestamp() > expires_at
-    {
-        return Err(AppError::Forbidden("License has expired".into()));
+    // Check if revoked or expired (generic message to prevent enumeration)
+    let is_expired = license.expires_at.is_some_and(|exp| Utc::now().timestamp() > exp);
+    if license.revoked || is_expired {
+        return Err(AppError::Forbidden("Cannot be redeemed".into()));
     }
 
     // Create a new redemption code
