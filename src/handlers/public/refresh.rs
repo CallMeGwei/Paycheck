@@ -84,10 +84,10 @@ pub async fn refresh_token(
     }
 
     // Check if license has expired (database-level expiration, not JWT exp)
-    if let Some(expires_at) = license.expires_at {
-        if Utc::now().timestamp() > expires_at {
-            return Err(AppError::Unauthorized);
-        }
+    if let Some(expires_at) = license.expires_at
+        && Utc::now().timestamp() > expires_at
+    {
+        return Err(AppError::Unauthorized);
     }
 
     // Update last_seen_at
@@ -98,10 +98,10 @@ pub async fn refresh_token(
     let exps = LicenseExpirations::from_product(&product, device.activated_at);
 
     // Check if license_exp has passed
-    if let Some(exp) = exps.license_exp {
-        if now > exp {
-            return Err(AppError::Unauthorized);
-        }
+    if let Some(exp) = exps.license_exp
+        && now > exp
+    {
+        return Err(AppError::Unauthorized);
     }
 
     // Build new claims with updated expirations

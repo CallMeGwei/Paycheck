@@ -123,9 +123,11 @@ fn verify_token_internal(
     let public_key = Ed25519PublicKey::from_bytes(&verifying_key.to_bytes())
         .map_err(|e| AppError::Internal(format!("Failed to create public key: {}", e)))?;
 
-    let mut options = VerificationOptions::default();
-    options.allowed_issuers = Some(std::collections::HashSet::from(["paycheck".to_string()]));
-    options.allowed_audiences = Some(std::collections::HashSet::from([expected_audience.to_string()]));
+    let mut options = VerificationOptions {
+        allowed_issuers: Some(std::collections::HashSet::from(["paycheck".to_string()])),
+        allowed_audiences: Some(std::collections::HashSet::from([expected_audience.to_string()])),
+        ..Default::default()
+    };
 
     if allow_expired {
         // Set a large time tolerance to effectively ignore expiration

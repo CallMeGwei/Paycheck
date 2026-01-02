@@ -587,7 +587,7 @@ pub fn update_project_private_key(conn: &Connection, id: &str, private_key: &[u8
 
 pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Result<()> {
     let redirect_json = input.allowed_redirect_urls.as_ref()
-        .map(|urls| serde_json::to_string(urls))
+        .map(serde_json::to_string)
         .transpose()?;
 
     UpdateBuilder::new("projects", id)
@@ -726,14 +726,14 @@ pub fn list_products_for_project(conn: &Connection, project_id: &str) -> Result<
 
 pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Result<()> {
     let features_json = input.features.as_ref()
-        .map(|f| serde_json::to_string(f))
+        .map(serde_json::to_string)
         .transpose()?;
 
     UpdateBuilder::new("products", id)
         .set_opt("name", input.name.clone())
         .set_opt("tier", input.tier.clone())
-        .set_opt("license_exp_days", input.license_exp_days.clone())
-        .set_opt("updates_exp_days", input.updates_exp_days.clone())
+        .set_opt("license_exp_days", input.license_exp_days)
+        .set_opt("updates_exp_days", input.updates_exp_days)
         .set_opt("activation_limit", input.activation_limit)
         .set_opt("device_limit", input.device_limit)
         .set_opt("features", features_json)
@@ -1061,6 +1061,7 @@ pub enum DeviceAcquisitionResult {
 /// When migrating to PostgreSQL, add `FOR UPDATE` to the license SELECT query to achieve
 /// the same row-level locking behavior. SQLite's IMMEDIATE transaction provides this
 /// implicitly by serializing all writes.
+#[allow(clippy::too_many_arguments)]
 pub fn acquire_device_atomic(
     conn: &mut Connection,
     license_id: &str,
