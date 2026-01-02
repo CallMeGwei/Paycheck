@@ -3,7 +3,7 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::jwt;
@@ -39,10 +39,17 @@ pub async fn create_project(
     )?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "create_project", "project", &project.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "create_project",
+        "project",
+        &project.id,
         Some(&serde_json::json!({ "name": input.name, "domain": input.domain })),
-        Some(&org_id), Some(&project.id),
+        Some(&org_id),
+        Some(&project.id),
     )?;
 
     Ok(Json(project.into()))
@@ -108,10 +115,17 @@ pub async fn update_project(
     queries::update_project(&conn, &path.project_id, &input)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "update_project", "project", &path.project_id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "update_project",
+        "project",
+        &path.project_id,
         Some(&serde_json::json!({ "name": input.name, "domain": input.domain })),
-        Some(&path.org_id), Some(&path.project_id),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     let project = queries::get_project_by_id(&conn, &path.project_id)?
@@ -137,10 +151,17 @@ pub async fn delete_project(
     queries::delete_project(&conn, &path.project_id)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "delete_project", "project", &path.project_id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "delete_project",
+        "project",
+        &path.project_id,
         Some(&serde_json::json!({ "name": existing.name, "domain": existing.domain })),
-        Some(&path.org_id), Some(&path.project_id),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

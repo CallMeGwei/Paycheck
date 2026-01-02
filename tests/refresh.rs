@@ -5,10 +5,10 @@
 //! license key on the client.
 
 use axum::{
+    Router,
     body::Body,
     http::{Request, StatusCode},
     routing::post,
-    Router,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -75,8 +75,14 @@ fn setup_refresh_test() -> (Router, String, String, String, String) {
             .decrypt_private_key(&project.id, &project.private_key)
             .unwrap();
 
-        token = jwt::sign_claims(&claims, &private_key, &license.id, &project.domain, &device.jti)
-            .unwrap();
+        token = jwt::sign_claims(
+            &claims,
+            &private_key,
+            &license.id,
+            &project.domain,
+            &device.jti,
+        )
+        .unwrap();
     }
 
     let audit_manager = SqliteConnectionManager::memory();
@@ -301,8 +307,14 @@ async fn test_refresh_with_revoked_license_fails() {
         let private_key = master_key
             .decrypt_private_key(&project.id, &project.private_key)
             .unwrap();
-        token = jwt::sign_claims(&claims, &private_key, &license.id, &project.domain, &device.jti)
-            .unwrap();
+        token = jwt::sign_claims(
+            &claims,
+            &private_key,
+            &license.id,
+            &project.domain,
+            &device.jti,
+        )
+        .unwrap();
 
         // Revoke the license
         queries::revoke_license_key(&conn, &license.id).unwrap();
@@ -383,8 +395,14 @@ async fn test_refresh_with_revoked_jti_fails() {
         let private_key = master_key
             .decrypt_private_key(&project.id, &project.private_key)
             .unwrap();
-        token = jwt::sign_claims(&claims, &private_key, &license.id, &project.domain, &device.jti)
-            .unwrap();
+        token = jwt::sign_claims(
+            &claims,
+            &private_key,
+            &license.id,
+            &project.domain,
+            &device.jti,
+        )
+        .unwrap();
 
         // Revoke this specific JTI
         queries::add_revoked_jti(&conn, &license.id, &device.jti, &master_key).unwrap();

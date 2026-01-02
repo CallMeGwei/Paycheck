@@ -43,35 +43,28 @@ pub fn query_all<T: FromRow>(
 
 // ============ SQL SELECT Constants ============
 
-pub const OPERATOR_COLS: &str =
-    "id, email, name, role, api_key_hash, created_at, created_by";
+pub const OPERATOR_COLS: &str = "id, email, name, role, api_key_hash, created_at, created_by";
 
 pub const ORGANIZATION_COLS: &str =
     "id, name, stripe_config, ls_config, default_provider, created_at, updated_at";
 
-pub const ORG_MEMBER_COLS: &str =
-    "id, org_id, email, name, role, api_key_hash, created_at";
+pub const ORG_MEMBER_COLS: &str = "id, org_id, email, name, role, api_key_hash, created_at";
 
-pub const PROJECT_COLS: &str =
-    "id, org_id, name, domain, license_key_prefix, private_key, public_key, allowed_redirect_urls, created_at, updated_at";
+pub const PROJECT_COLS: &str = "id, org_id, name, domain, license_key_prefix, private_key, public_key, allowed_redirect_urls, created_at, updated_at";
 
-pub const PROJECT_MEMBER_COLS: &str =
-    "id, org_member_id, project_id, role, created_at";
+pub const PROJECT_MEMBER_COLS: &str = "id, org_member_id, project_id, role, created_at";
 
-pub const PRODUCT_COLS: &str =
-    "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at";
+pub const PRODUCT_COLS: &str = "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at";
 
 /// Columns for license_keys table.
 /// Note: encrypted_key requires decryption with MasterKey, so use LicenseKeyRow
 /// and decrypt manually rather than using the FromRow trait.
-pub const LICENSE_KEY_COLS: &str =
-    "id, key_hash, encrypted_key, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
+pub const LICENSE_KEY_COLS: &str = "id, key_hash, encrypted_key, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
 
 pub const DEVICE_COLS: &str =
     "id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at";
 
-pub const PAYMENT_SESSION_COLS: &str =
-    "id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed, license_key_id";
+pub const PAYMENT_SESSION_COLS: &str = "id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed, license_key_id";
 
 pub const REDEMPTION_CODE_COLS: &str =
     "id, code_hash, license_key_id, expires_at, used, created_at";
@@ -147,7 +140,10 @@ impl FromRow for ProjectMember {
             id: row.get(0)?,
             org_member_id: row.get(1)?,
             project_id: row.get(2)?,
-            role: row.get::<_, String>(3)?.parse::<ProjectMemberRole>().unwrap(),
+            role: row
+                .get::<_, String>(3)?
+                .parse::<ProjectMemberRole>()
+                .unwrap(),
             created_at: row.get(4)?,
         })
     }
@@ -159,7 +155,10 @@ impl FromRow for ProjectMemberWithDetails {
             id: row.get(0)?,
             org_member_id: row.get(1)?,
             project_id: row.get(2)?,
-            role: row.get::<_, String>(3)?.parse::<ProjectMemberRole>().unwrap(),
+            role: row
+                .get::<_, String>(3)?
+                .parse::<ProjectMemberRole>()
+                .unwrap(),
             created_at: row.get(4)?,
             email: row.get(5)?,
             name: row.get(6)?,

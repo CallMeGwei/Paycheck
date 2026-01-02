@@ -21,7 +21,11 @@ fn create_test_claims() -> LicenseClaims {
 fn test_keypair_generation_produces_valid_lengths() {
     let (private_key, public_key) = jwt::generate_keypair();
 
-    assert_eq!(private_key.len(), 32, "Ed25519 private key should be 32 bytes");
+    assert_eq!(
+        private_key.len(),
+        32,
+        "Ed25519 private key should be 32 bytes"
+    );
     // Base64 of 32 bytes = 44 characters (with padding)
     assert!(!public_key.is_empty(), "Public key should not be empty");
 }
@@ -45,7 +49,8 @@ fn test_sign_and_verify_roundtrip() {
     let token = jwt::sign_claims(&claims, &private_key, "license-id", "myapp.com", "jti-123")
         .expect("Signing should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key, "myapp.com").expect("Verification should succeed");
+    let verified =
+        jwt::verify_token(&token, &public_key, "myapp.com").expect("Verification should succeed");
 
     assert_eq!(verified.custom.tier, "pro");
     assert_eq!(verified.custom.device_id, "device-123");
@@ -61,7 +66,8 @@ fn test_sign_preserves_standard_claims() {
     let token = jwt::sign_claims(&claims, &private_key, "my-subject", "my-audience", "my-jti")
         .expect("Signing should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key, "my-audience").expect("Verification should succeed");
+    let verified =
+        jwt::verify_token(&token, &public_key, "my-audience").expect("Verification should succeed");
 
     assert_eq!(verified.subject, Some("my-subject".to_string()));
     assert!(verified.audiences.is_some(), "Audiences should be set");
@@ -103,7 +109,10 @@ fn test_verify_tampered_token_fails() {
     let tampered_token = format!("{}.{}.{}", parts[0], tampered_payload, parts[2]);
 
     let result = jwt::verify_token(&tampered_token, &public_key, "myapp.com");
-    assert!(result.is_err(), "Verification of tampered token should fail");
+    assert!(
+        result.is_err(),
+        "Verification of tampered token should fail"
+    );
 }
 
 #[test]
@@ -118,7 +127,10 @@ fn test_verify_truncated_token_fails() {
     let truncated = &token[..token.len() - 10];
 
     let result = jwt::verify_token(truncated, &public_key, "myapp.com");
-    assert!(result.is_err(), "Verification of truncated token should fail");
+    assert!(
+        result.is_err(),
+        "Verification of truncated token should fail"
+    );
 }
 
 // ============ Decode Unverified Tests ============
@@ -217,7 +229,10 @@ fn test_is_license_expired_future() {
         product_id: "".to_string(),
     };
 
-    assert!(!claims.is_license_expired(now), "Future expiration should not be expired");
+    assert!(
+        !claims.is_license_expired(now),
+        "Future expiration should not be expired"
+    );
 }
 
 #[test]
@@ -233,7 +248,10 @@ fn test_is_license_expired_past() {
         product_id: "".to_string(),
     };
 
-    assert!(claims.is_license_expired(now), "Past expiration should be expired");
+    assert!(
+        claims.is_license_expired(now),
+        "Past expiration should be expired"
+    );
 }
 
 #[test]
@@ -249,7 +267,10 @@ fn test_is_license_expired_perpetual() {
         product_id: "".to_string(),
     };
 
-    assert!(!claims.is_license_expired(now), "Perpetual license should not be expired");
+    assert!(
+        !claims.is_license_expired(now),
+        "Perpetual license should not be expired"
+    );
 }
 
 #[test]
@@ -266,9 +287,15 @@ fn test_covers_version_with_updates_exp() {
     };
 
     // Version released before updates expiration
-    assert!(claims.covers_version(now - 86400), "Old version should be covered");
+    assert!(
+        claims.covers_version(now - 86400),
+        "Old version should be covered"
+    );
     // Version released after updates expiration
-    assert!(!claims.covers_version(now + 86400 * 2), "New version should not be covered");
+    assert!(
+        !claims.covers_version(now + 86400 * 2),
+        "New version should not be covered"
+    );
 }
 
 #[test]
@@ -285,7 +312,10 @@ fn test_covers_version_perpetual_updates() {
     };
 
     // Should cover any version
-    assert!(claims.covers_version(now + 86400 * 365 * 10), "Should cover any version");
+    assert!(
+        claims.covers_version(now + 86400 * 365 * 10),
+        "Should cover any version"
+    );
 }
 
 #[test]
@@ -294,7 +324,11 @@ fn test_has_feature() {
         license_exp: None,
         updates_exp: None,
         tier: "pro".to_string(),
-        features: vec!["export".to_string(), "api".to_string(), "analytics".to_string()],
+        features: vec![
+            "export".to_string(),
+            "api".to_string(),
+            "analytics".to_string(),
+        ],
         device_id: "".to_string(),
         device_type: "uuid".to_string(),
         product_id: "".to_string(),
@@ -302,7 +336,10 @@ fn test_has_feature() {
 
     assert!(claims.has_feature("export"), "Should have export feature");
     assert!(claims.has_feature("api"), "Should have api feature");
-    assert!(!claims.has_feature("admin"), "Should not have admin feature");
+    assert!(
+        !claims.has_feature("admin"),
+        "Should not have admin feature"
+    );
 }
 
 #[test]
@@ -317,7 +354,10 @@ fn test_has_feature_empty() {
         product_id: "".to_string(),
     };
 
-    assert!(!claims.has_feature("anything"), "Empty features should not have any feature");
+    assert!(
+        !claims.has_feature("anything"),
+        "Empty features should not have any feature"
+    );
 }
 
 // ============ Edge Cases ============
@@ -338,7 +378,8 @@ fn test_sign_with_unicode_claims() {
     let token = jwt::sign_claims(&claims, &private_key, "ライセンス", "アプリ.com", "JTI")
         .expect("Signing with unicode should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key, "アプリ.com").expect("Verification should succeed");
+    let verified =
+        jwt::verify_token(&token, &public_key, "アプリ.com").expect("Verification should succeed");
 
     assert_eq!(verified.custom.tier, "プロ");
     assert!(verified.custom.features.contains(&"日本語".to_string()));
@@ -351,7 +392,10 @@ fn test_sign_with_special_characters() {
         license_exp: None,
         updates_exp: None,
         tier: "tier-with\"quotes'and\\slashes".to_string(),
-        features: vec!["feat:with:colons".to_string(), "feat/with/slashes".to_string()],
+        features: vec![
+            "feat:with:colons".to_string(),
+            "feat/with/slashes".to_string(),
+        ],
         device_id: "device<>&id".to_string(),
         device_type: "uuid".to_string(),
         product_id: "product@#$%".to_string(),
@@ -360,7 +404,8 @@ fn test_sign_with_special_characters() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with special chars should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
+    let verified =
+        jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
 
     assert_eq!(verified.custom.tier, claims.tier);
     assert_eq!(verified.custom.device_id, claims.device_id);
@@ -382,7 +427,8 @@ fn test_sign_with_empty_features() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with empty features should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
+    let verified =
+        jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
 
     assert!(verified.custom.features.is_empty());
 }
@@ -405,7 +451,8 @@ fn test_sign_with_many_features() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with many features should succeed");
 
-    let verified = jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
+    let verified =
+        jwt::verify_token(&token, &public_key, "aud").expect("Verification should succeed");
 
     assert_eq!(verified.custom.features.len(), 100);
 }
@@ -419,5 +466,8 @@ fn test_verify_with_wrong_audience_fails() {
         .expect("Signing should succeed");
 
     let result = jwt::verify_token(&token, &public_key, "wrongapp.com");
-    assert!(result.is_err(), "Verification with wrong audience should fail");
+    assert!(
+        result.is_err(),
+        "Verification with wrong audience should fail"
+    );
 }

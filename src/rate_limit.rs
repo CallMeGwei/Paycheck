@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::GovernorLayer;
+use tower_governor::governor::GovernorConfigBuilder;
 
 /// Rate limiter layer type alias using governor types directly
 pub type RateLimitLayer = GovernorLayer<

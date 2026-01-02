@@ -1,12 +1,12 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL, Engine};
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use jwt_simple::prelude::*;
 use rand::rngs::OsRng;
 use serde::Deserialize;
 
-use crate::error::{AppError, Result};
 use super::LicenseClaims;
+use crate::error::{AppError, Result};
 
 /// Generate a new Ed25519 key pair
 /// Returns (private_key_bytes, public_key_base64)
@@ -125,7 +125,9 @@ fn verify_token_internal(
 
     let mut options = VerificationOptions {
         allowed_issuers: Some(std::collections::HashSet::from(["paycheck".to_string()])),
-        allowed_audiences: Some(std::collections::HashSet::from([expected_audience.to_string()])),
+        allowed_audiences: Some(std::collections::HashSet::from([
+            expected_audience.to_string()
+        ])),
         ..Default::default()
     };
 

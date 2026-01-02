@@ -5,17 +5,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LicenseClaims {
     // Paycheck-specific claims
-    pub license_exp: Option<i64>,  // When license access ends (NULL = perpetual)
-    pub updates_exp: Option<i64>,  // When new version access ends
-    pub tier: String,              // Product tier
-    pub features: Vec<String>,     // Enabled features
+    pub license_exp: Option<i64>, // When license access ends (NULL = perpetual)
+    pub updates_exp: Option<i64>, // When new version access ends
+    pub tier: String,             // Product tier
+    pub features: Vec<String>,    // Enabled features
 
     // Identity
-    pub device_id: String,         // Device identifier
-    pub device_type: String,       // "uuid" or "machine"
+    pub device_id: String,   // Device identifier
+    pub device_type: String, // "uuid" or "machine"
 
     // Metadata
-    pub product_id: String,        // Product ID
+    pub product_id: String, // Product ID
 }
 
 impl LicenseClaims {
@@ -34,4 +34,3 @@ impl LicenseClaims {
         self.features.iter().any(|f| f == feature)
     }
 }
-

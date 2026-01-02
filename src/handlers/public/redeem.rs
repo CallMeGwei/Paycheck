@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::crypto::MasterKey;
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Query};
 use crate::jwt::{self, LicenseClaims};
 use crate::models::DeviceType;
-use crate::util::{extract_bearer_token, LicenseExpirations};
+use crate::util::{LicenseExpirations, extract_bearer_token};
 
 /// Query parameters for GET /redeem (using short-lived redemption code)
 #[derive(Debug, Deserialize)]
@@ -58,8 +58,13 @@ pub async fn redeem_with_code(
     let mut conn = state.db.get()?;
 
     // Validate device type
-    let device_type = query.device_type.parse::<DeviceType>()
-        .ok().ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
+    let device_type = query
+        .device_type
+        .parse::<DeviceType>()
+        .ok()
+        .ok_or_else(|| {
+            AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into())
+        })?;
 
     // Look up the redemption code
     let redemption_code = queries::get_redemption_code_by_code(&conn, &query.code)?
@@ -71,8 +76,9 @@ pub async fn redeem_with_code(
     }
 
     // Get the license key
-    let license = queries::get_license_key_by_id(&conn, &redemption_code.license_key_id, &state.master_key)?
-        .ok_or_else(|| AppError::Internal("License key not found".into()))?;
+    let license =
+        queries::get_license_key_by_id(&conn, &redemption_code.license_key_id, &state.master_key)?
+            .ok_or_else(|| AppError::Internal("License key not found".into()))?;
 
     // Mark redemption code as used
     queries::mark_redemption_code_used(&conn, &redemption_code.id)?;
@@ -112,8 +118,9 @@ pub async fn redeem_with_key(
         ))?;
 
     // Validate device type
-    let device_type = body.device_type.parse::<DeviceType>()
-        .ok().ok_or_else(|| AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into()))?;
+    let device_type = body.device_type.parse::<DeviceType>().ok().ok_or_else(|| {
+        AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into())
+    })?;
 
     // Get the license key
     let license = queries::get_license_key_by_key(&conn, &key, &state.master_key)?
@@ -142,7 +149,9 @@ fn redeem_license_internal(
     device_name: Option<&str>,
 ) -> Result<Json<RedeemResponse>> {
     // Check if revoked or expired (generic message to prevent enumeration)
-    let is_expired = license.expires_at.is_some_and(|exp| Utc::now().timestamp() > exp);
+    let is_expired = license
+        .expires_at
+        .is_some_and(|exp| Utc::now().timestamp() > exp);
     if license.revoked || is_expired {
         return Err(AppError::Forbidden("Cannot be redeemed".into()));
     }
@@ -196,13 +205,7 @@ fn redeem_license_internal(
 
     // Decrypt the private key and sign the JWT
     let private_key = master_key.decrypt_private_key(&project.id, &project.private_key)?;
-    let token = jwt::sign_claims(
-        &claims,
-        &private_key,
-        &license.id,
-        &project.domain,
-        &jti,
-    )?;
+    let token = jwt::sign_claims(&claims, &private_key, &license.id, &project.domain, &jti)?;
 
     // Create a fresh redemption code for future URL-based redemptions
     let new_redemption_code = queries::create_redemption_code(conn, &license.id)?;
@@ -255,7 +258,9 @@ pub async fn generate_redemption_code(
         .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
 
     // Check if revoked or expired (generic message to prevent enumeration)
-    let is_expired = license.expires_at.is_some_and(|exp| Utc::now().timestamp() > exp);
+    let is_expired = license
+        .expires_at
+        .is_some_and(|exp| Utc::now().timestamp() > exp);
     if license.revoked || is_expired {
         return Err(AppError::Forbidden("Cannot be redeemed".into()));
     }

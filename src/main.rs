@@ -7,12 +7,12 @@ use std::time::Duration;
 
 use paycheck::config::Config;
 use paycheck::crypto::MasterKey;
-use paycheck::db::{create_pool, init_audit_db, init_db, queries, AppState};
+use paycheck::db::{AppState, create_pool, init_audit_db, init_db, queries};
 use paycheck::handlers;
 use paycheck::jwt;
 use paycheck::models::{
-    self, ActorType, CreateOperator, CreateOrgMember, CreateProduct, CreateProject, OrgMemberRole,
-    OperatorRole,
+    self, ActorType, CreateOperator, CreateOrgMember, CreateProduct, CreateProject, OperatorRole,
+    OrgMemberRole,
 };
 
 #[derive(Parser, Debug)]
@@ -41,8 +41,14 @@ struct Cli {
 }
 
 fn bootstrap_first_operator(state: &AppState, email: &str) {
-    let conn = state.db.get().expect("Failed to get db connection for bootstrap");
-    let audit_conn = state.audit.get().expect("Failed to get audit db connection");
+    let conn = state
+        .db
+        .get()
+        .expect("Failed to get db connection for bootstrap");
+    let audit_conn = state
+        .audit
+        .get()
+        .expect("Failed to get audit db connection");
 
     let count = queries::count_operators(&conn).expect("Failed to count operators");
     if count > 0 {
@@ -93,8 +99,14 @@ fn bootstrap_first_operator(state: &AppState, email: &str) {
 /// Creates: operator, organization, org member, project, and product.
 /// Only runs in dev mode and when database is empty.
 fn seed_dev_data(state: &AppState) {
-    let conn = state.db.get().expect("Failed to get db connection for seeding");
-    let audit_conn = state.audit.get().expect("Failed to get audit db connection");
+    let conn = state
+        .db
+        .get()
+        .expect("Failed to get db connection for seeding");
+    let audit_conn = state
+        .audit
+        .get()
+        .expect("Failed to get audit db connection");
 
     // Check if already seeded (any operators exist)
     let count = queries::count_operators(&conn).expect("Failed to count operators");
@@ -290,15 +302,18 @@ fn seed_dev_data(state: &AppState) {
     println!();
 }
 
-
 /// Rotate the master encryption key.
 /// Decrypts all project private keys with the old key and re-encrypts with the new key.
 /// Uses a transaction to ensure all-or-nothing semantics.
-fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) -> Result<(), String> {
+fn rotate_master_key(
+    db_path: &str,
+    old_key: &MasterKey,
+    new_key: &MasterKey,
+) -> Result<(), String> {
     use rusqlite::Connection;
 
-    let mut conn = Connection::open(db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
+    let mut conn =
+        Connection::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
 
     // Start transaction - any error will cause automatic rollback when conn is dropped
     let tx = conn
@@ -306,8 +321,8 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
         .map_err(|e| format!("Failed to start transaction: {}", e))?;
 
     // Get all projects
-    let projects = queries::list_all_projects(&tx)
-        .map_err(|e| format!("Failed to list projects: {}", e))?;
+    let projects =
+        queries::list_all_projects(&tx).map_err(|e| format!("Failed to list projects: {}", e))?;
 
     if projects.is_empty() {
         println!("No projects found. Nothing to rotate.");
@@ -345,16 +360,26 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
 
     if !orgs_with_configs.is_empty() {
         println!();
-        println!("Found {} organization(s) with payment configs.", orgs_with_configs.len());
+        println!(
+            "Found {} organization(s) with payment configs.",
+            orgs_with_configs.len()
+        );
 
         for org in &orgs_with_configs {
             let new_stripe = if let Some(ref encrypted) = org.stripe_config_encrypted {
                 let plaintext = old_key
                     .decrypt_private_key(&org.id, encrypted)
-                    .map_err(|e| format!("Failed to decrypt Stripe config for org {}: {}", org.id, e))?;
+                    .map_err(|e| {
+                        format!("Failed to decrypt Stripe config for org {}: {}", org.id, e)
+                    })?;
                 let new_enc = new_key
                     .encrypt_private_key(&org.id, &plaintext)
-                    .map_err(|e| format!("Failed to re-encrypt Stripe config for org {}: {}", org.id, e))?;
+                    .map_err(|e| {
+                        format!(
+                            "Failed to re-encrypt Stripe config for org {}: {}",
+                            org.id, e
+                        )
+                    })?;
                 Some(new_enc)
             } else {
                 None
@@ -363,10 +388,20 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
             let new_ls = if let Some(ref encrypted) = org.ls_config_encrypted {
                 let plaintext = old_key
                     .decrypt_private_key(&org.id, encrypted)
-                    .map_err(|e| format!("Failed to decrypt LemonSqueezy config for org {}: {}", org.id, e))?;
+                    .map_err(|e| {
+                        format!(
+                            "Failed to decrypt LemonSqueezy config for org {}: {}",
+                            org.id, e
+                        )
+                    })?;
                 let new_enc = new_key
                     .encrypt_private_key(&org.id, &plaintext)
-                    .map_err(|e| format!("Failed to re-encrypt LemonSqueezy config for org {}: {}", org.id, e))?;
+                    .map_err(|e| {
+                        format!(
+                            "Failed to re-encrypt LemonSqueezy config for org {}: {}",
+                            org.id, e
+                        )
+                    })?;
                 Some(new_enc)
             } else {
                 None
@@ -419,7 +454,10 @@ fn rotate_master_key(db_path: &str, old_key: &MasterKey, new_key: &MasterKey) ->
     println!("SUCCESS: All keys rotated to new master key.");
     println!("  {} project(s)", projects.len());
     if !orgs_with_configs.is_empty() {
-        println!("  {} organization payment config(s)", orgs_with_configs.len());
+        println!(
+            "  {} organization payment config(s)",
+            orgs_with_configs.len()
+        );
     }
     if !license_rows.is_empty() {
         println!("  {} license key(s)", license_rows.len());
@@ -443,18 +481,16 @@ fn spawn_cleanup_task(state: AppState) {
             tokio::time::sleep(interval).await;
 
             match state.db.get() {
-                Ok(conn) => {
-                    match queries::cleanup_expired_redemption_codes(&conn) {
-                        Ok(count) => {
-                            if count > 0 {
-                                tracing::debug!("Cleaned up {} expired redemption codes", count);
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to cleanup redemption codes: {}", e);
+                Ok(conn) => match queries::cleanup_expired_redemption_codes(&conn) {
+                    Ok(count) => {
+                        if count > 0 {
+                            tracing::debug!("Cleaned up {} expired redemption codes", count);
                         }
                     }
-                }
+                    Err(e) => {
+                        tracing::warn!("Failed to cleanup redemption codes: {}", e);
+                    }
+                },
                 Err(e) => {
                     tracing::warn!("Failed to get db connection for cleanup: {}", e);
                 }
@@ -474,12 +510,14 @@ async fn main() {
     if cli.rotate_key {
         use paycheck::config::load_master_key_from_file;
 
-        let old_key_file = cli.old_key_file.as_ref().expect(
-            "--rotate-key requires --old-key-file"
-        );
-        let new_key_file = cli.new_key_file.as_ref().expect(
-            "--rotate-key requires --new-key-file"
-        );
+        let old_key_file = cli
+            .old_key_file
+            .as_ref()
+            .expect("--rotate-key requires --old-key-file");
+        let new_key_file = cli
+            .new_key_file
+            .as_ref()
+            .expect("--rotate-key requires --new-key-file");
 
         println!("Master Key Rotation");
         println!("===================");
@@ -503,8 +541,7 @@ async fn main() {
 
         // Get database path from env or default
         dotenvy::dotenv().ok();
-        let db_path = std::env::var("DATABASE_PATH")
-            .unwrap_or_else(|_| "paycheck.db".to_string());
+        let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "paycheck.db".to_string());
 
         println!("Using database: {}", db_path);
         println!();
@@ -562,10 +599,17 @@ async fn main() {
 
     // Purge old audit logs on startup (0 = never purge)
     if config.audit_log_retention_days > 0 {
-        let conn = state.audit.get().expect("Failed to get audit connection for purge");
+        let conn = state
+            .audit
+            .get()
+            .expect("Failed to get audit connection for purge");
         match queries::purge_old_audit_logs(&conn, config.audit_log_retention_days) {
             Ok(count) if count > 0 => {
-                tracing::info!("Purged {} audit log entries older than {} days", count, config.audit_log_retention_days);
+                tracing::info!(
+                    "Purged {} audit log entries older than {} days",
+                    count,
+                    config.audit_log_retention_days
+                );
             }
             Ok(_) => {}
             Err(e) => {
@@ -605,7 +649,10 @@ async fn main() {
     // Dev-only endpoints (only in dev mode)
     if config.dev_mode {
         use axum::routing::post;
-        app = app.route("/dev/create-license", post(handlers::dev::create_dev_license));
+        app = app.route(
+            "/dev/create-license",
+            post(handlers::dev::create_dev_license),
+        );
         tracing::info!("DEV endpoints enabled: POST /dev/create-license");
     }
 

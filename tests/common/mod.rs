@@ -22,7 +22,11 @@ pub fn setup_test_db() -> Connection {
 }
 
 /// Create a test operator with default values
-pub fn create_test_operator(conn: &Connection, email: &str, role: OperatorRole) -> (Operator, String) {
+pub fn create_test_operator(
+    conn: &Connection,
+    email: &str,
+    role: OperatorRole,
+) -> (Operator, String) {
     let api_key = queries::generate_api_key();
     let input = CreateOperator {
         email: email.to_string(),
@@ -63,7 +67,12 @@ pub fn create_test_org_member(
 }
 
 /// Create a test project with auto-generated keypair and encrypted private key
-pub fn create_test_project(conn: &Connection, org_id: &str, name: &str, master_key: &MasterKey) -> Project {
+pub fn create_test_project(
+    conn: &Connection,
+    org_id: &str,
+    name: &str,
+    master_key: &MasterKey,
+) -> Project {
     let input = CreateProject {
         name: name.to_string(),
         domain: format!("{}.example.com", name.to_lowercase().replace(' ', "-")),
@@ -119,8 +128,15 @@ pub fn create_test_device(
     device_type: DeviceType,
 ) -> Device {
     let jti = uuid::Uuid::new_v4().to_string();
-    queries::create_device(conn, license_key_id, device_id, device_type, &jti, Some("Test Device"))
-        .expect("Failed to create test device")
+    queries::create_device(
+        conn,
+        license_key_id,
+        device_id,
+        device_type,
+        &jti,
+        Some("Test Device"),
+    )
+    .expect("Failed to create test device")
 }
 
 /// Get the current timestamp

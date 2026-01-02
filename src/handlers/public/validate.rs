@@ -2,7 +2,7 @@ use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Query};
 use crate::util::LicenseExpirations;
@@ -46,10 +46,11 @@ pub async fn validate_license(
     };
 
     // Get the license
-    let license = match queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)? {
-        Some(l) => l,
-        None => return Ok(invalid_response()),
-    };
+    let license =
+        match queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)? {
+            Some(l) => l,
+            None => return Ok(invalid_response()),
+        };
 
     // Check if license is revoked
     if license.revoked {

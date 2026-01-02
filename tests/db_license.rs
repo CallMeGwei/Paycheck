@@ -14,7 +14,14 @@ fn test_create_license_key() {
     let project = create_test_project(&conn, &org.id, "My App", &master_key);
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
-    let license = create_test_license(&conn, &project.id, &product.id, "TEST", Some(future_timestamp(365)), &master_key);
+    let license = create_test_license(
+        &conn,
+        &project.id,
+        &product.id,
+        "TEST",
+        Some(future_timestamp(365)),
+        &master_key,
+    );
 
     assert!(!license.id.is_empty());
     assert!(license.key.starts_with("TEST-"));
@@ -35,7 +42,8 @@ fn test_license_key_format() {
 
     // Create a few licenses to verify format is consistent
     for _ in 0..5 {
-        let license = create_test_license(&conn, &project.id, &product.id, "MYAPP", None, &master_key);
+        let license =
+            create_test_license(&conn, &project.id, &product.id, "MYAPP", None, &master_key);
 
         // Format should be PREFIX-XXXX-XXXX-XXXX-XXXX
         assert!(license.key.starts_with("MYAPP-"));
@@ -59,7 +67,8 @@ fn test_license_key_uniqueness() {
     // Create many licenses and verify they're all unique
     let mut keys = std::collections::HashSet::new();
     for _ in 0..100 {
-        let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
+        let license =
+            create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
         assert!(keys.insert(license.key), "Duplicate license key generated");
     }
 }
@@ -82,8 +91,9 @@ fn test_create_license_with_customer_id() {
         payment_provider_order_id: None,
     };
 
-    let license = queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
-        .expect("Failed to create license");
+    let license =
+        queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
+            .expect("Failed to create license");
 
     assert_eq!(license.customer_id, Some("cust_12345".to_string()));
 }
@@ -106,12 +116,19 @@ fn test_create_license_with_payment_provider() {
         payment_provider_order_id: Some("cs_test_xxx".to_string()),
     };
 
-    let license = queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
-        .expect("Failed to create license");
+    let license =
+        queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
+            .expect("Failed to create license");
 
     assert_eq!(license.payment_provider, Some("stripe".to_string()));
-    assert_eq!(license.payment_provider_customer_id, Some("cus_xxx".to_string()));
-    assert_eq!(license.payment_provider_subscription_id, Some("sub_yyy".to_string()));
+    assert_eq!(
+        license.payment_provider_customer_id,
+        Some("cus_xxx".to_string())
+    );
+    assert_eq!(
+        license.payment_provider_subscription_id,
+        Some("sub_yyy".to_string())
+    );
 }
 
 // ============ License Key Lookup Tests ============
@@ -123,7 +140,14 @@ fn test_get_license_key_by_id() {
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App", &master_key);
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let created = create_test_license(&conn, &project.id, &product.id, "TEST", Some(future_timestamp(365)), &master_key);
+    let created = create_test_license(
+        &conn,
+        &project.id,
+        &product.id,
+        "TEST",
+        Some(future_timestamp(365)),
+        &master_key,
+    );
 
     let fetched = queries::get_license_key_by_id(&conn, &created.id, &master_key)
         .expect("Query failed")
@@ -141,7 +165,14 @@ fn test_get_license_key_by_key() {
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App", &master_key);
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let created = create_test_license(&conn, &project.id, &product.id, "TEST", Some(future_timestamp(365)), &master_key);
+    let created = create_test_license(
+        &conn,
+        &project.id,
+        &product.id,
+        "TEST",
+        Some(future_timestamp(365)),
+        &master_key,
+    );
 
     let fetched = queries::get_license_key_by_key(&conn, &created.key, &master_key)
         .expect("Query failed")
@@ -169,12 +200,14 @@ fn test_get_license_key_by_subscription() {
         payment_provider_order_id: None,
     };
 
-    let created = queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
-        .expect("Failed to create license");
+    let created =
+        queries::create_license_key(&conn, &project.id, &product.id, "TEST", &input, &master_key)
+            .expect("Failed to create license");
 
-    let fetched = queries::get_license_key_by_subscription(&conn, "stripe", "sub_unique_id", &master_key)
-        .expect("Query failed")
-        .expect("License not found");
+    let fetched =
+        queries::get_license_key_by_subscription(&conn, "stripe", "sub_unique_id", &master_key)
+            .expect("Query failed")
+            .expect("License not found");
 
     assert_eq!(fetched.id, created.id);
 }
@@ -201,8 +234,9 @@ fn test_get_license_key_by_subscription_wrong_provider() {
         .expect("Failed to create license");
 
     // Same subscription ID but different provider should return None
-    let result = queries::get_license_key_by_subscription(&conn, "lemonsqueezy", "sub_id", &master_key)
-        .expect("Query failed");
+    let result =
+        queries::get_license_key_by_subscription(&conn, "lemonsqueezy", "sub_id", &master_key)
+            .expect("Query failed");
 
     assert!(result.is_none());
 }
@@ -306,7 +340,14 @@ fn test_extend_license_expiration() {
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
     let old_exp = future_timestamp(30);
-    let license = create_test_license(&conn, &project.id, &product.id, "TEST", Some(old_exp), &master_key);
+    let license = create_test_license(
+        &conn,
+        &project.id,
+        &product.id,
+        "TEST",
+        Some(old_exp),
+        &master_key,
+    );
 
     let new_exp = future_timestamp(365);
     queries::extend_license_expiration(&conn, &license.id, Some(new_exp), Some(new_exp))
@@ -395,7 +436,14 @@ fn test_license_with_expiration() {
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
 
     let exp = future_timestamp(365);
-    let license = create_test_license(&conn, &project.id, &product.id, "TEST", Some(exp), &master_key);
+    let license = create_test_license(
+        &conn,
+        &project.id,
+        &product.id,
+        "TEST",
+        Some(exp),
+        &master_key,
+    );
 
     assert_eq!(license.expires_at, Some(exp));
 }
@@ -426,7 +474,8 @@ fn test_delete_product_cascades_to_licenses() {
 
     queries::delete_product(&conn, &product.id).expect("Delete failed");
 
-    let result = queries::get_license_key_by_id(&conn, &license.id, &master_key).expect("Query failed");
+    let result =
+        queries::get_license_key_by_id(&conn, &license.id, &master_key).expect("Query failed");
     assert!(result.is_none());
 }
 

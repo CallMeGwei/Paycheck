@@ -140,8 +140,15 @@ fn test_project_private_key_rotation_works() {
         license_key_prefix: "TEST".to_string(),
         allowed_redirect_urls: vec![],
     };
-    let project = queries::create_project(&conn, &org.id, &input, &private_key_bytes, &public_key, &old_key)
-        .expect("Failed to create project");
+    let project = queries::create_project(
+        &conn,
+        &org.id,
+        &input,
+        &private_key_bytes,
+        &public_key,
+        &old_key,
+    )
+    .expect("Failed to create project");
 
     // Verify we can decrypt with old key
     let fetched = queries::get_project_by_id(&conn, &project.id)
@@ -206,7 +213,8 @@ fn test_org_stripe_config_rotation_works() {
     let fetched = queries::get_organization_by_id(&conn, &org.id)
         .unwrap()
         .unwrap();
-    let result = old_key.decrypt_private_key(&org.id, fetched.stripe_config_encrypted.as_ref().unwrap());
+    let result =
+        old_key.decrypt_private_key(&org.id, fetched.stripe_config_encrypted.as_ref().unwrap());
     assert!(result.is_err(), "Old key should no longer decrypt");
 
     // Verify new key works
@@ -251,7 +259,8 @@ fn test_org_lemonsqueezy_config_rotation_works() {
     let fetched = queries::get_organization_by_id(&conn, &org.id)
         .unwrap()
         .unwrap();
-    let result = old_key.decrypt_private_key(&org.id, fetched.ls_config_encrypted.as_ref().unwrap());
+    let result =
+        old_key.decrypt_private_key(&org.id, fetched.ls_config_encrypted.as_ref().unwrap());
     assert!(result.is_err(), "Old key should no longer decrypt");
 
     // Verify new key works
@@ -284,8 +293,15 @@ fn test_license_key_unreadable_without_rotation() {
         license_key_prefix: "TEST".to_string(),
         allowed_redirect_urls: vec![],
     };
-    let project = queries::create_project(&conn, &org.id, &input, &private_key_bytes, &public_key, &old_key)
-        .expect("Failed to create project");
+    let project = queries::create_project(
+        &conn,
+        &org.id,
+        &input,
+        &private_key_bytes,
+        &public_key,
+        &old_key,
+    )
+    .expect("Failed to create project");
 
     let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
@@ -324,7 +340,7 @@ fn test_license_key_unreadable_without_rotation() {
             let maybe_license = queries::get_license_key_by_id(&conn, &license.id, &new_key);
             match maybe_license {
                 Ok(Some(l)) => l.key != original_key, // Key is corrupted
-                _ => true, // Error or not found
+                _ => true,                            // Error or not found
             }
         },
         "License key should not be readable with new key when not rotated"
@@ -356,8 +372,15 @@ fn test_license_key_should_be_readable_after_rotation() {
         license_key_prefix: "TEST".to_string(),
         allowed_redirect_urls: vec![],
     };
-    let project = queries::create_project(&conn, &org.id, &input, &private_key_bytes, &public_key, &old_key)
-        .unwrap();
+    let project = queries::create_project(
+        &conn,
+        &org.id,
+        &input,
+        &private_key_bytes,
+        &public_key,
+        &old_key,
+    )
+    .unwrap();
 
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
     let license = create_test_license(

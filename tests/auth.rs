@@ -7,9 +7,9 @@
 //! 4. Project-level permissions (can_write_project) work correctly
 
 use axum::{
+    Router,
     body::Body,
     http::{Request, StatusCode},
-    Router,
 };
 use tower::ServiceExt;
 
@@ -18,9 +18,7 @@ use common::*;
 
 use paycheck::db::AppState;
 use paycheck::handlers;
-use paycheck::models::{
-    CreateProjectMember, OrgMemberRole, OperatorRole, ProjectMemberRole,
-};
+use paycheck::models::{CreateProjectMember, OperatorRole, OrgMemberRole, ProjectMemberRole};
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -890,10 +888,7 @@ mod project_permissions {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/products",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/products", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -962,10 +957,7 @@ mod project_permissions {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/products",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/products", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -1303,7 +1295,14 @@ mod cross_project_boundaries {
         let project2 = create_test_project(&conn, &org.id, "Project 2", &state.master_key);
 
         let product = create_test_product(&conn, &project1.id, "Product 1", "pro");
-        let license = create_test_license(&conn, &project1.id, &product.id, &project1.license_key_prefix, None, &state.master_key);
+        let license = create_test_license(
+            &conn,
+            &project1.id,
+            &product.id,
+            &project1.license_key_prefix,
+            None,
+            &state.master_key,
+        );
 
         let (_owner, owner_key) =
             create_test_org_member(&conn, &org.id, "owner@org.com", OrgMemberRole::Owner);
@@ -1406,10 +1405,7 @@ mod license_permissions {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/licenses",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/licenses", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .header("Content-Type", "application/json")
                     .body(Body::from(r#"{"product_id": "some-id"}"#))
@@ -1442,10 +1438,7 @@ mod license_permissions {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/licenses",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/licenses", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -1464,7 +1457,14 @@ mod license_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
+        let license = create_test_license(
+            &conn,
+            &project.id,
+            &product.id,
+            &project.license_key_prefix,
+            None,
+            &state.master_key,
+        );
 
         let (member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
@@ -1501,7 +1501,14 @@ mod license_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
+        let license = create_test_license(
+            &conn,
+            &project.id,
+            &product.id,
+            &project.license_key_prefix,
+            None,
+            &state.master_key,
+        );
 
         let (member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
@@ -1547,7 +1554,14 @@ mod device_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
+        let license = create_test_license(
+            &conn,
+            &project.id,
+            &product.id,
+            &project.license_key_prefix,
+            None,
+            &state.master_key,
+        );
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
         let (member, member_key) =
@@ -1585,7 +1599,14 @@ mod device_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
         let product = create_test_product(&conn, &project.id, "Pro", "pro");
-        let license = create_test_license(&conn, &project.id, &product.id, &project.license_key_prefix, None, &state.master_key);
+        let license = create_test_license(
+            &conn,
+            &project.id,
+            &product.id,
+            &project.license_key_prefix,
+            None,
+            &state.master_key,
+        );
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
         let (member, member_key) =
@@ -1646,10 +1667,7 @@ mod project_member_management {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/members",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/members", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .header("Content-Type", "application/json")
                     .body(Body::from(format!(
@@ -1687,10 +1705,7 @@ mod project_member_management {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/members",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/members", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .header("Content-Type", "application/json")
                     .body(Body::from(format!(
@@ -1726,10 +1741,7 @@ mod project_member_management {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/members",
-                        org.id, project.id
-                    ))
+                    .uri(format!("/orgs/{}/projects/{}/members", org.id, project.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
                     .unwrap(),

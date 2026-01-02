@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
@@ -32,10 +32,17 @@ pub async fn create_org_member(
     let member = queries::create_org_member(&conn, &org_id, &input, &api_key)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "create_org_member", "org_member", &member.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "create_org_member",
+        "org_member",
+        &member.id,
         Some(&serde_json::json!({ "email": input.email, "role": input.role })),
-        Some(&org_id), None,
+        Some(&org_id),
+        None,
     )?;
 
     Ok(Json(OrgMemberCreated { member, api_key }))
@@ -98,10 +105,17 @@ pub async fn update_org_member(
     queries::update_org_member(&conn, &path.id, &input)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "update_org_member", "org_member", &path.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "update_org_member",
+        "org_member",
+        &path.id,
         Some(&serde_json::json!({ "name": input.name, "role": input.role })),
-        Some(&path.org_id), None,
+        Some(&path.org_id),
+        None,
     )?;
 
     let member = queries::get_org_member_by_id(&conn, &path.id)?
@@ -136,10 +150,17 @@ pub async fn delete_org_member(
     queries::delete_org_member(&conn, &path.id)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "delete_org_member", "org_member", &path.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "delete_org_member",
+        "org_member",
+        &path.id,
         Some(&serde_json::json!({ "email": existing.email })),
-        Some(&path.org_id), None,
+        Some(&path.org_id),
+        None,
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

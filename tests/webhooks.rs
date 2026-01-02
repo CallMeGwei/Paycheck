@@ -103,7 +103,10 @@ fn test_stripe_old_timestamp_rejected() {
         .verify_webhook_signature(payload, &signature_header)
         .expect("Verification should not error");
 
-    assert!(!result, "Old timestamp should be rejected (replay attack prevention)");
+    assert!(
+        !result,
+        "Old timestamp should be rejected (replay attack prevention)"
+    );
 }
 
 #[test]
@@ -257,7 +260,10 @@ fn test_stripe_large_payload() {
         .verify_webhook_signature(payload_bytes, &signature_header)
         .expect("Verification should not error");
 
-    assert!(result, "Large payload with valid signature should be accepted");
+    assert!(
+        result,
+        "Large payload with valid signature should be accepted"
+    );
 }
 
 #[test]
@@ -273,7 +279,10 @@ fn test_lemonsqueezy_large_payload() {
         .verify_webhook_signature(payload_bytes, &signature)
         .expect("Verification should not error");
 
-    assert!(result, "Large payload with valid signature should be accepted");
+    assert!(
+        result,
+        "Large payload with valid signature should be accepted"
+    );
 }
 
 #[test]
@@ -289,7 +298,10 @@ fn test_stripe_binary_payload() {
         .verify_webhook_signature(payload, &signature_header)
         .expect("Verification should not error");
 
-    assert!(result, "Binary payload with valid signature should be accepted");
+    assert!(
+        result,
+        "Binary payload with valid signature should be accepted"
+    );
 }
 
 #[test]
@@ -302,7 +314,10 @@ fn test_lemonsqueezy_binary_payload() {
         .verify_webhook_signature(payload, &signature)
         .expect("Verification should not error");
 
-    assert!(result, "Binary payload with valid signature should be accepted");
+    assert!(
+        result,
+        "Binary payload with valid signature should be accepted"
+    );
 }
 
 #[test]
@@ -317,7 +332,10 @@ fn test_stripe_unicode_in_payload() {
         .verify_webhook_signature(payload, &signature_header)
         .expect("Verification should not error");
 
-    assert!(result, "Unicode payload with valid signature should be accepted");
+    assert!(
+        result,
+        "Unicode payload with valid signature should be accepted"
+    );
 }
 
 // ============ Webhook Replay Attack Prevention Tests ============

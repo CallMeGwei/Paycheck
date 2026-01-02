@@ -1,6 +1,6 @@
 use axum::extract::State;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::Result;
 use crate::extractors::{Json, Path, Query};
 use crate::models::{AuditLog, AuditLogQuery};

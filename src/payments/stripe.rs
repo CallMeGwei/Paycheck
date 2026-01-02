@@ -1,7 +1,7 @@
+use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use hmac::{Hmac, Mac};
 use subtle::ConstantTimeEq;
 
 use crate::error::{AppError, Result};
@@ -105,8 +105,14 @@ impl StripeClient {
                 ("success_url", request.success_url),
                 ("cancel_url", request.cancel_url),
                 ("line_items[0][price_data][currency]", currency),
-                ("line_items[0][price_data][unit_amount]", &price_cents.to_string()),
-                ("line_items[0][price_data][product_data][name]", product_name),
+                (
+                    "line_items[0][price_data][unit_amount]",
+                    &price_cents.to_string(),
+                ),
+                (
+                    "line_items[0][price_data][product_data][name]",
+                    product_name,
+                ),
                 ("line_items[0][quantity]", "1"),
                 ("metadata[paycheck_session_id]", session_id),
                 ("metadata[project_id]", project_id),
@@ -118,7 +124,10 @@ impl StripeClient {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Stripe API error: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Stripe API error: {}",
+                error_text
+            )));
         }
 
         let session: CreateCheckoutSessionResponse = response
@@ -148,8 +157,10 @@ impl StripeClient {
             }
         }
 
-        let timestamp_str = timestamp.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
-        let sig_v1 = sig_v1.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
+        let timestamp_str =
+            timestamp.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
+        let sig_v1 =
+            sig_v1.ok_or_else(|| AppError::BadRequest("Invalid signature format".into()))?;
 
         // Parse and validate timestamp to prevent replay attacks.
         // Reject webhooks older than WEBHOOK_TIMESTAMP_TOLERANCE_SECS.
@@ -171,7 +182,10 @@ impl StripeClient {
 
         // Also reject timestamps from the future (clock skew tolerance: 60 seconds)
         if age < -60 {
-            tracing::warn!("Stripe webhook rejected: timestamp in the future (age={}s)", age);
+            tracing::warn!(
+                "Stripe webhook rejected: timestamp in the future (age={}s)",
+                age
+            );
             return Ok(false);
         }
 
@@ -241,7 +255,7 @@ pub struct StripeInvoice {
     pub customer: Option<String>,
     pub subscription: Option<String>,
     pub billing_reason: Option<String>, // "subscription_create", "subscription_cycle", etc.
-    pub status: String, // "paid", "open", etc.
+    pub status: String,                 // "paid", "open", etc.
 }
 
 // ============ customer.subscription.deleted ============

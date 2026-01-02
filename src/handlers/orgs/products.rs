@@ -3,7 +3,7 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
@@ -33,10 +33,17 @@ pub async fn create_product(
     let product = queries::create_product(&conn, &path.project_id, &input)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "create_product", "product", &product.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "create_product",
+        "product",
+        &product.id,
         Some(&serde_json::json!({ "name": input.name, "tier": input.tier })),
-        Some(&path.org_id), Some(&path.project_id),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     Ok(Json(product))
@@ -90,10 +97,17 @@ pub async fn update_product(
     queries::update_product(&conn, &path.id, &input)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "update_product", "product", &path.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "update_product",
+        "product",
+        &path.id,
         Some(&serde_json::json!({ "name": input.name, "tier": input.tier })),
-        Some(&path.org_id), Some(&path.project_id),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     let product = queries::get_product_by_id(&conn, &path.id)?
@@ -125,10 +139,17 @@ pub async fn delete_product(
     queries::delete_product(&conn, &path.id)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "delete_product", "product", &path.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "delete_product",
+        "product",
+        &path.id,
         Some(&serde_json::json!({ "name": existing.name })),
-        Some(&path.org_id), Some(&path.project_id),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

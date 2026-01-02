@@ -99,8 +99,7 @@ fn test_get_device_by_jti() {
 fn test_get_device_by_jti_not_found() {
     let conn = setup_test_db();
 
-    let result = queries::get_device_by_jti(&conn, "nonexistent-jti")
-        .expect("Query failed");
+    let result = queries::get_device_by_jti(&conn, "nonexistent-jti").expect("Query failed");
 
     assert!(result.is_none());
 }
@@ -135,8 +134,8 @@ fn test_get_device_for_license_wrong_device_id() {
     create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
     // Look up with wrong device_id
-    let result = queries::get_device_for_license(&conn, &license.id, "wrong-device")
-        .expect("Query failed");
+    let result =
+        queries::get_device_for_license(&conn, &license.id, "wrong-device").expect("Query failed");
 
     assert!(result.is_none());
 }
@@ -153,8 +152,8 @@ fn test_get_device_for_license_wrong_license() {
     create_test_device(&conn, &license1.id, "device-123", DeviceType::Uuid);
 
     // Look up with wrong license_id
-    let result = queries::get_device_for_license(&conn, &license2.id, "device-123")
-        .expect("Query failed");
+    let result =
+        queries::get_device_for_license(&conn, &license2.id, "device-123").expect("Query failed");
 
     assert!(result.is_none());
 }
@@ -172,8 +171,7 @@ fn test_list_devices_for_license() {
     create_test_device(&conn, &license.id, "device-2", DeviceType::Machine);
     create_test_device(&conn, &license.id, "device-3", DeviceType::Uuid);
 
-    let devices = queries::list_devices_for_license(&conn, &license.id)
-        .expect("Query failed");
+    let devices = queries::list_devices_for_license(&conn, &license.id).expect("Query failed");
 
     assert_eq!(devices.len(), 3);
 }
@@ -187,8 +185,7 @@ fn test_list_devices_for_license_empty() {
     let product = create_test_product(&conn, &project.id, "Pro", "pro");
     let license = create_test_license(&conn, &project.id, &product.id, "TEST", None, &master_key);
 
-    let devices = queries::list_devices_for_license(&conn, &license.id)
-        .expect("Query failed");
+    let devices = queries::list_devices_for_license(&conn, &license.id).expect("Query failed");
 
     assert!(devices.is_empty());
 }
@@ -254,7 +251,12 @@ fn test_jti_unique_across_devices() {
     // Create multiple devices and ensure JTIs are unique
     let mut jtis = std::collections::HashSet::new();
     for i in 0..10 {
-        let device = create_test_device(&conn, &license.id, &format!("device-{}", i), DeviceType::Uuid);
+        let device = create_test_device(
+            &conn,
+            &license.id,
+            &format!("device-{}", i),
+            DeviceType::Uuid,
+        );
         assert!(jtis.insert(device.jti), "Duplicate JTI generated");
     }
 }

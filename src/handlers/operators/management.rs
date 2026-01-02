@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
@@ -29,10 +29,17 @@ pub async fn create_operator(
     let operator = queries::create_operator(&conn, &input, &api_key, Some(&ctx.operator.id))?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
-        "create_operator", "operator", &operator.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::Operator,
+        Some(&ctx.operator.id),
+        &headers,
+        "create_operator",
+        "operator",
+        &operator.id,
         Some(&serde_json::json!({ "email": input.email, "role": input.role })),
-        None, None,
+        None,
+        None,
     )?;
 
     Ok(Json(OperatorCreated { operator, api_key }))
@@ -66,9 +73,7 @@ pub async fn update_operator(
 
     // Prevent self-demotion
     if id == ctx.operator.id && input.role.is_some() {
-        return Err(AppError::BadRequest(
-            "Cannot change your own role".into(),
-        ));
+        return Err(AppError::BadRequest("Cannot change your own role".into()));
     }
 
     let _existing = queries::get_operator_by_id(&conn, &id)?
@@ -77,10 +82,17 @@ pub async fn update_operator(
     queries::update_operator(&conn, &id, &input)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
-        "update_operator", "operator", &id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::Operator,
+        Some(&ctx.operator.id),
+        &headers,
+        "update_operator",
+        "operator",
+        &id,
         Some(&serde_json::json!({ "name": input.name, "role": input.role })),
-        None, None,
+        None,
+        None,
     )?;
 
     let operator = queries::get_operator_by_id(&conn, &id)?
@@ -109,10 +121,17 @@ pub async fn delete_operator(
     queries::delete_operator(&conn, &id)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::Operator, Some(&ctx.operator.id), &headers,
-        "delete_operator", "operator", &id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::Operator,
+        Some(&ctx.operator.id),
+        &headers,
+        "delete_operator",
+        "operator",
+        &id,
         Some(&serde_json::json!({ "email": existing.email })),
-        None, None,
+        None,
+        None,
     )?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))

@@ -1,8 +1,8 @@
 use axum::{
+    Json,
     extract::rejection::{JsonRejection, PathRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use axum_extra::typed_header::TypedHeaderRejection;
 use serde::Serialize;
@@ -72,41 +72,63 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error, details) = match &self {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "Not found", Some(msg.clone())),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "Bad request", Some(msg.clone())),
+            AppError::BadRequest(msg) => {
+                (StatusCode::BAD_REQUEST, "Bad request", Some(msg.clone()))
+            }
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized", None),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, "Forbidden", Some(msg.clone())),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, "Conflict", Some(msg.clone())),
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error", None)
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error",
+                    None,
+                )
             }
             AppError::Pool(e) => {
                 tracing::error!("Pool error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error", None)
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error",
+                    None,
+                )
             }
-            AppError::Json(e) => {
-                (StatusCode::BAD_REQUEST, "Invalid JSON", Some(e.to_string()))
-            }
-            AppError::JsonBody(e) => {
-                (StatusCode::BAD_REQUEST, "Invalid request body", Some(e.body_text()))
-            }
-            AppError::Query(e) => {
-                (StatusCode::BAD_REQUEST, "Invalid query parameters", Some(e.body_text()))
-            }
-            AppError::Path(e) => {
-                (StatusCode::BAD_REQUEST, "Invalid path parameters", Some(e.body_text()))
-            }
+            AppError::Json(e) => (StatusCode::BAD_REQUEST, "Invalid JSON", Some(e.to_string())),
+            AppError::JsonBody(e) => (
+                StatusCode::BAD_REQUEST,
+                "Invalid request body",
+                Some(e.body_text()),
+            ),
+            AppError::Query(e) => (
+                StatusCode::BAD_REQUEST,
+                "Invalid query parameters",
+                Some(e.body_text()),
+            ),
+            AppError::Path(e) => (
+                StatusCode::BAD_REQUEST,
+                "Invalid path parameters",
+                Some(e.body_text()),
+            ),
             AppError::Header(e) => {
                 let msg = e.to_string();
                 if msg.contains("missing") {
-                    (StatusCode::UNAUTHORIZED, "Missing authorization header", None)
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        "Missing authorization header",
+                        None,
+                    )
                 } else {
                     (StatusCode::BAD_REQUEST, "Invalid header", Some(msg))
                 }
             }
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error", None)
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error",
+                    None,
+                )
             }
         };
 

@@ -2,7 +2,7 @@ use axum::{extract::State, response::Redirect};
 use chrono::Utc;
 use serde::Deserialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::Query;
 use crate::jwt::{self, LicenseClaims};
@@ -33,16 +33,18 @@ pub async fn payment_callback(
         .ok_or_else(|| AppError::NotFound("Session not found".into()))?;
 
     // Determine base redirect URL
-    let base_redirect = session.redirect_url.as_ref()
+    let base_redirect = session
+        .redirect_url
+        .as_ref()
         .unwrap_or(&state.success_page_url);
 
     // Check if session was completed by webhook
     if !session.completed {
         // Payment might still be processing - redirect to success page with pending flag
-        let redirect_url = append_query_params(base_redirect, &[
-            ("session", &query.session),
-            ("status", "pending"),
-        ]);
+        let redirect_url = append_query_params(
+            base_redirect,
+            &[("session", &query.session), ("status", "pending")],
+        );
         return Ok(Redirect::temporary(&redirect_url));
     }
 
@@ -51,8 +53,9 @@ pub async fn payment_callback(
         .ok_or_else(|| AppError::Internal("Product not found".into()))?;
 
     // Get license directly via stored ID (set by webhook when license was created)
-    let license_id = session.license_key_id
-        .ok_or_else(|| AppError::Internal("License not found - payment may still be processing".into()))?;
+    let license_id = session.license_key_id.ok_or_else(|| {
+        AppError::Internal("License not found - payment may still be processing".into())
+    })?;
 
     let license = queries::get_license_key_by_id(&conn, &license_id, &state.master_key)?
         .ok_or_else(|| AppError::Internal("License not found".into()))?;
@@ -83,7 +86,9 @@ pub async fn payment_callback(
     };
 
     // Decrypt the private key and sign the JWT
-    let private_key = state.master_key.decrypt_private_key(&project.id, &project.private_key)?;
+    let private_key = state
+        .master_key
+        .decrypt_private_key(&project.id, &project.private_key)?;
     let token = jwt::sign_claims(
         &claims,
         &private_key,
@@ -100,19 +105,25 @@ pub async fn payment_callback(
     // For the success page, we include it so it can be displayed
     let redirect_url = if session.redirect_url.is_some() {
         // Third-party redirect: token + redemption code only
-        append_query_params(base_redirect, &[
-            ("token", &token),
-            ("code", &redemption_code.code),
-            ("status", "success"),
-        ])
+        append_query_params(
+            base_redirect,
+            &[
+                ("token", &token),
+                ("code", &redemption_code.code),
+                ("status", "success"),
+            ],
+        )
     } else {
         // Success page: include license key for display
-        append_query_params(base_redirect, &[
-            ("token", &token),
-            ("code", &redemption_code.code),
-            ("license_key", &license.key),
-            ("status", "success"),
-        ])
+        append_query_params(
+            base_redirect,
+            &[
+                ("token", &token),
+                ("code", &redemption_code.code),
+                ("license_key", &license.key),
+                ("status", "success"),
+            ],
+        )
     };
 
     Ok(Redirect::temporary(&redirect_url))

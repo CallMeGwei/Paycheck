@@ -10,7 +10,7 @@ use axum::{
 use rusqlite::Connection;
 
 use crate::crypto::MasterKey;
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::AppError;
 use crate::models::{CreateLicenseKey, LicenseKey, Organization, PaymentSession, Product, Project};
 use crate::util::LicenseExpirations;
@@ -37,10 +37,19 @@ fn lookup_license_by_subscription<P: WebhookProvider>(
     subscription_id: &str,
     master_key: &MasterKey,
 ) -> Result<LicenseKey, WebhookResult> {
-    match queries::get_license_key_by_subscription(conn, provider.provider_name(), subscription_id, master_key) {
+    match queries::get_license_key_by_subscription(
+        conn,
+        provider.provider_name(),
+        subscription_id,
+        master_key,
+    ) {
         Ok(Some(l)) => Ok(l),
         Ok(None) => {
-            tracing::warn!("No license found for {} subscription: {}", provider.provider_name(), subscription_id);
+            tracing::warn!(
+                "No license found for {} subscription: {}",
+                provider.provider_name(),
+                subscription_id
+            );
             Err((StatusCode::OK, "License not found for subscription"))
         }
         Err(e) => {
@@ -171,7 +180,10 @@ pub fn process_checkout(
         Ok(l) => l,
         Err(e) => {
             tracing::error!("Failed to create license: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create license");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to create license",
+            );
         }
     };
 
@@ -240,9 +252,14 @@ pub fn process_renewal(
     let now = chrono::Utc::now().timestamp();
     let exps = LicenseExpirations::from_product(product, now);
 
-    if let Err(e) = queries::extend_license_expiration(conn, license_id, exps.license_exp, exps.updates_exp) {
+    if let Err(e) =
+        queries::extend_license_expiration(conn, license_id, exps.license_exp, exps.updates_exp)
+    {
         tracing::error!("Failed to extend license: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to extend license");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to extend license",
+        );
     }
 
     tracing::info!(
@@ -296,13 +313,19 @@ pub async fn handle_webhook<P: WebhookProvider>(
     // Handle based on event type
     match event {
         WebhookEvent::CheckoutCompleted(data) => {
-            handle_checkout(provider, state, &body, &signature, data).await.unwrap_or_else(|e| e)
+            handle_checkout(provider, state, &body, &signature, data)
+                .await
+                .unwrap_or_else(|e| e)
         }
         WebhookEvent::SubscriptionRenewed(data) => {
-            handle_renewal(provider, state, &body, &signature, data).await.unwrap_or_else(|e| e)
+            handle_renewal(provider, state, &body, &signature, data)
+                .await
+                .unwrap_or_else(|e| e)
         }
         WebhookEvent::SubscriptionCancelled(data) => {
-            handle_cancellation(provider, state, &body, &signature, data).await.unwrap_or_else(|e| e)
+            handle_cancellation(provider, state, &body, &signature, data)
+                .await
+                .unwrap_or_else(|e| e)
         }
         WebhookEvent::Ignored => (StatusCode::OK, "Event ignored"),
     }
@@ -347,7 +370,15 @@ async fn handle_checkout<P: WebhookProvider>(
         "Product not found",
     )?;
 
-    Ok(process_checkout(&mut conn, provider.provider_name(), &project, &payment_session, &product, &data, &state.master_key))
+    Ok(process_checkout(
+        &mut conn,
+        provider.provider_name(),
+        &project,
+        &payment_session,
+        &product,
+        &data,
+        &state.master_key,
+    ))
 }
 
 async fn handle_renewal<P: WebhookProvider>(
@@ -371,10 +402,20 @@ async fn handle_renewal<P: WebhookProvider>(
         (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    let license = lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
-    let product = db_lookup(queries::get_product_by_id(&conn, &license.product_id), "Product not found")?;
-    let project = db_lookup(queries::get_project_by_id(&conn, &product.project_id), "Project not found")?;
-    let org = db_lookup(queries::get_organization_by_id(&conn, &project.org_id), "Organization not found")?;
+    let license =
+        lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
+    let product = db_lookup(
+        queries::get_product_by_id(&conn, &license.product_id),
+        "Product not found",
+    )?;
+    let project = db_lookup(
+        queries::get_project_by_id(&conn, &product.project_id),
+        "Project not found",
+    )?;
+    let org = db_lookup(
+        queries::get_organization_by_id(&conn, &project.org_id),
+        "Organization not found",
+    )?;
 
     // Verify signature
     match provider.verify_signature(&org, &state.master_key, body, signature) {
@@ -406,10 +447,20 @@ async fn handle_cancellation<P: WebhookProvider>(
         (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    let license = lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
-    let product = db_lookup(queries::get_product_by_id(&conn, &license.product_id), "Product not found")?;
-    let project = db_lookup(queries::get_project_by_id(&conn, &product.project_id), "Project not found")?;
-    let org = db_lookup(queries::get_organization_by_id(&conn, &project.org_id), "Organization not found")?;
+    let license =
+        lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
+    let product = db_lookup(
+        queries::get_product_by_id(&conn, &license.product_id),
+        "Product not found",
+    )?;
+    let project = db_lookup(
+        queries::get_project_by_id(&conn, &product.project_id),
+        "Project not found",
+    )?;
+    let org = db_lookup(
+        queries::get_organization_by_id(&conn, &project.org_id),
+        "Organization not found",
+    )?;
 
     // Verify signature
     match provider.verify_signature(&org, &state.master_key, body, signature) {

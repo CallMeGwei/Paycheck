@@ -1,8 +1,8 @@
 //! Crypto module tests (envelope encryption, secret hashing)
 
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use paycheck::crypto::{hash_secret, MasterKey};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use paycheck::crypto::{MasterKey, hash_secret};
 
 #[test]
 fn test_generate_master_key() {

@@ -14,8 +14,8 @@ use crate::payments::{
 };
 
 use super::common::{
-    handle_webhook, CancellationData, CheckoutData, RenewalData, WebhookEvent, WebhookProvider,
-    WebhookResult,
+    CancellationData, CheckoutData, RenewalData, WebhookEvent, WebhookProvider, WebhookResult,
+    handle_webhook,
 };
 
 /// LemonSqueezy webhook provider implementation.
@@ -46,15 +46,23 @@ impl WebhookProvider for LemonSqueezyWebhookProvider {
             .decrypt_ls_config(master_key)
             .map_err(|e| {
                 tracing::error!("Failed to decrypt LemonSqueezy config: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Config decryption failed")
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Config decryption failed",
+                )
             })?
             .ok_or((StatusCode::OK, "LemonSqueezy not configured"))?;
 
         let client = LemonSqueezyClient::new(&ls_config);
-        client.verify_webhook_signature(body, signature).map_err(|e| {
-            tracing::error!("Signature verification error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Signature verification failed")
-        })
+        client
+            .verify_webhook_signature(body, signature)
+            .map_err(|e| {
+                tracing::error!("Signature verification error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Signature verification failed",
+                )
+            })
     }
 
     fn parse_event(&self, body: &Bytes) -> Result<WebhookEvent, WebhookResult> {
@@ -73,8 +81,8 @@ impl WebhookProvider for LemonSqueezyWebhookProvider {
 }
 
 fn parse_order_created(event: &LemonSqueezyWebhookEvent) -> Result<WebhookEvent, WebhookResult> {
-    let order: LemonSqueezyOrderAttributes =
-        serde_json::from_value(event.data.attributes.clone()).map_err(|e| {
+    let order: LemonSqueezyOrderAttributes = serde_json::from_value(event.data.attributes.clone())
+        .map_err(|e| {
             tracing::error!("Failed to parse order attributes: {}", e);
             (StatusCode::BAD_REQUEST, "Invalid order attributes")
         })?;

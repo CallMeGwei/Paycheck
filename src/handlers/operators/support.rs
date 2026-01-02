@@ -3,7 +3,7 @@
 use axum::extract::State;
 use serde::Serialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::models::{LemonSqueezyConfig, StripeConfig};

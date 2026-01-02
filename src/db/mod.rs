@@ -1,9 +1,9 @@
-mod schema;
 mod from_row;
 pub mod queries;
+mod schema;
 
-pub use schema::{init_audit_db, init_db};
 pub use from_row::LicenseKeyRow;
+pub use schema::{init_audit_db, init_db};
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;

@@ -1,17 +1,16 @@
+mod audit_logs;
 mod management;
 mod organizations;
-mod audit_logs;
 mod support;
 
+pub use audit_logs::*;
 pub use management::*;
 pub use organizations::*;
-pub use audit_logs::*;
 pub use support::*;
 
 use axum::{
-    middleware,
+    Router, middleware,
     routing::{delete, get, post, put},
-    Router,
 };
 
 use crate::db::AppState;
@@ -25,7 +24,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/operators/{id}", get(get_operator))
         .route("/operators/{id}", put(update_operator))
         .route("/operators/{id}", delete(delete_operator))
-        .layer(middleware::from_fn_with_state(state.clone(), require_owner_role))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_owner_role,
+        ))
         .merge(
             Router::new()
                 // Organization management (admin+)
@@ -39,7 +41,10 @@ pub fn router(state: AppState) -> Router<AppState> {
                     "/operators/organizations/{org_id}/payment-config",
                     get(get_org_payment_config),
                 )
-                .layer(middleware::from_fn_with_state(state.clone(), require_admin_role)),
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    require_admin_role,
+                )),
         )
         .merge(
             Router::new()

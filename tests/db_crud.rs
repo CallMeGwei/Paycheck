@@ -49,8 +49,7 @@ fn test_get_operator_with_invalid_api_key_returns_none() {
     let conn = setup_test_db();
     let _ = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
 
-    let result = queries::get_operator_by_api_key(&conn, "invalid_key")
-        .expect("Query failed");
+    let result = queries::get_operator_by_api_key(&conn, "invalid_key").expect("Query failed");
 
     assert!(result.is_none());
 }
@@ -172,7 +171,8 @@ fn test_delete_organization() {
 fn test_create_org_member() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Org");
-    let (member, api_key) = create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
+    let (member, api_key) =
+        create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
 
     assert!(!member.id.is_empty());
     assert_eq!(member.org_id, org.id);
@@ -185,7 +185,8 @@ fn test_create_org_member() {
 fn test_get_org_member_by_api_key() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Org");
-    let (created, api_key) = create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Admin);
+    let (created, api_key) =
+        create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Admin);
 
     let fetched = queries::get_org_member_by_api_key(&conn, &api_key)
         .expect("Query failed")
@@ -310,7 +311,8 @@ fn test_update_org_stripe_config() {
         .expect("Organization not found");
 
     assert!(updated.has_stripe_config());
-    let decrypted = updated.decrypt_stripe_config(&master_key)
+    let decrypted = updated
+        .decrypt_stripe_config(&master_key)
         .expect("Decryption failed")
         .expect("Config not found");
     assert_eq!(decrypted.secret_key, "sk_test_xxx");
@@ -318,7 +320,10 @@ fn test_update_org_stripe_config() {
     // Verify the raw data is actually encrypted (has magic bytes)
     assert!(updated.stripe_config_encrypted.is_some());
     let raw = updated.stripe_config_encrypted.as_ref().unwrap();
-    assert!(raw.starts_with(b"ENC1"), "Config should be encrypted with ENC1 magic bytes");
+    assert!(
+        raw.starts_with(b"ENC1"),
+        "Config should be encrypted with ENC1 magic bytes"
+    );
 }
 
 #[test]
@@ -347,7 +352,8 @@ fn test_update_org_lemonsqueezy_config() {
         .expect("Organization not found");
 
     assert!(updated.has_ls_config());
-    let decrypted = updated.decrypt_ls_config(&master_key)
+    let decrypted = updated
+        .decrypt_ls_config(&master_key)
         .expect("Decryption failed")
         .expect("Config not found");
     assert_eq!(decrypted.api_key, "ls_test_api_key");
@@ -393,12 +399,14 @@ fn test_update_org_both_payment_configs() {
     assert!(updated.has_stripe_config());
     assert!(updated.has_ls_config());
 
-    let stripe = updated.decrypt_stripe_config(&master_key)
+    let stripe = updated
+        .decrypt_stripe_config(&master_key)
         .expect("Stripe decryption failed")
         .expect("Stripe config not found");
     assert_eq!(stripe.secret_key, "sk_test_both");
 
-    let ls = updated.decrypt_ls_config(&master_key)
+    let ls = updated
+        .decrypt_ls_config(&master_key)
         .expect("LS decryption failed")
         .expect("LS config not found");
     assert_eq!(ls.api_key, "ls_both_key");
@@ -502,7 +510,11 @@ fn test_update_product() {
         updates_exp_days: None,
         activation_limit: Some(10),
         device_limit: Some(5),
-        features: Some(vec!["feature1".to_string(), "feature2".to_string(), "feature3".to_string()]),
+        features: Some(vec![
+            "feature1".to_string(),
+            "feature2".to_string(),
+            "feature3".to_string(),
+        ]),
     };
 
     queries::update_product(&conn, &product.id, &update).expect("Update failed");
@@ -540,7 +552,8 @@ fn test_delete_product() {
 fn test_delete_org_cascades_to_members() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Org");
-    let (member, _) = create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
+    let (member, _) =
+        create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
 
     queries::delete_organization(&conn, &org.id).expect("Delete failed");
 

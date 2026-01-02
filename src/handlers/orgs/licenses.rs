@@ -4,12 +4,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{ActorType, CreateLicenseKey, Device, LicenseKeyWithProduct};
-use crate::util::{audit_log, LicenseExpirations};
+use crate::util::{LicenseExpirations, audit_log};
 
 #[derive(serde::Deserialize)]
 pub struct LicensePath {
@@ -38,7 +38,8 @@ pub async fn list_licenses(
     Path(path): Path<crate::middleware::OrgProjectPath>,
 ) -> Result<Json<Vec<LicenseKeyWithProduct>>> {
     let conn = state.db.get()?;
-    let licenses = queries::list_license_keys_for_project(&conn, &path.project_id, &state.master_key)?;
+    let licenses =
+        queries::list_license_keys_for_project(&conn, &path.project_id, &state.master_key)?;
     Ok(Json(licenses))
 }
 
@@ -97,7 +98,9 @@ pub async fn create_license(
 
     // Validate count
     if body.count < 1 || body.count > 100 {
-        return Err(AppError::BadRequest("Count must be between 1 and 100".into()));
+        return Err(AppError::BadRequest(
+            "Count must be between 1 and 100".into(),
+        ));
     }
 
     let conn = state.db.get()?;
@@ -108,7 +111,9 @@ pub async fn create_license(
         .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
 
     if product.project_id != path.project_id {
-        return Err(AppError::NotFound("Product not found in this project".into()));
+        return Err(AppError::NotFound(
+            "Product not found in this project".into(),
+        ));
     }
 
     // Get project for license key prefix
@@ -150,10 +155,19 @@ pub async fn create_license(
 
         // Audit log for each license
         audit_log(
-            &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-            "create_license", "license_key", &license.id,
-            Some(&serde_json::json!({ "key": license.key, "product_id": body.product_id, "expires_at": exps.license_exp })),
-            Some(&path.org_id), Some(&path.project_id),
+            &audit_conn,
+            state.audit_log_enabled,
+            ActorType::OrgMember,
+            Some(&ctx.member.id),
+            &headers,
+            "create_license",
+            "license_key",
+            &license.id,
+            Some(
+                &serde_json::json!({ "key": license.key, "product_id": body.product_id, "expires_at": exps.license_exp }),
+            ),
+            Some(&path.org_id),
+            Some(&path.project_id),
         )?;
     }
 
@@ -228,10 +242,17 @@ pub async fn revoke_license(
     queries::revoke_license_key(&conn, &license.id)?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "revoke_license", "license_key", &license.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "revoke_license",
+        "license_key",
+        &license.id,
         Some(&serde_json::json!({ "key": license.key })),
-        Some(&path.org_id), Some(&path.project_id),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     Ok(Json(serde_json::json!({ "revoked": true })))
@@ -299,10 +320,19 @@ pub async fn replace_license(
     )?;
 
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "replace_license", "license_key", &new_license.id,
-        Some(&serde_json::json!({ "old_key": old_license.key, "old_license_id": old_license.id, "new_key": new_license.key, "reason": "key_replacement" })),
-        Some(&path.org_id), Some(&path.project_id),
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "replace_license",
+        "license_key",
+        &new_license.id,
+        Some(
+            &serde_json::json!({ "old_key": old_license.key, "old_license_id": old_license.id, "new_key": new_license.key, "reason": "key_replacement" }),
+        ),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     tracing::info!(
@@ -368,10 +398,19 @@ pub async fn deactivate_device_admin(
 
     // Audit log
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::OrgMember, Some(&ctx.member.id), &headers,
-        "deactivate_device", "device", &device.id,
-        Some(&serde_json::json!({ "license_key": license.key, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" })),
-        Some(&path.org_id), Some(&path.project_id),
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::OrgMember,
+        Some(&ctx.member.id),
+        &headers,
+        "deactivate_device",
+        "device",
+        &device.id,
+        Some(
+            &serde_json::json!({ "license_key": license.key, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" }),
+        ),
+        Some(&path.org_id),
+        Some(&path.project_id),
     )?;
 
     tracing::info!(

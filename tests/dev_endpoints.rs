@@ -4,12 +4,12 @@
 //! - Operator endpoint: GET /operators/organizations/{org_id}/payment-config (full, for support)
 
 use axum::{
+    Router,
     body::Body,
     http::{Request, StatusCode},
-    Router,
 };
-use tower::ServiceExt;
 use serde_json::Value;
+use tower::ServiceExt;
 
 mod common;
 use common::*;
@@ -78,7 +78,10 @@ fn operator_app_with_payment_configs() -> (Router, String) {
 
     // Note: Testing without auth middleware - auth is tested separately
     let app = Router::new()
-        .route("/operators/organizations/{org_id}/payment-config", get(get_org_payment_config))
+        .route(
+            "/operators/organizations/{org_id}/payment-config",
+            get(get_org_payment_config),
+        )
         .with_state(state);
 
     (app, org_id)
@@ -92,7 +95,10 @@ async fn test_operator_get_payment_config_full_unmasked() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/operators/organizations/{}/payment-config", org_id))
+                .uri(format!(
+                    "/operators/organizations/{}/payment-config",
+                    org_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -101,7 +107,9 @@ async fn test_operator_get_payment_config_full_unmasked() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
     assert_eq!(json["org_id"], org_id);
@@ -177,14 +185,20 @@ async fn test_operator_get_payment_config_no_configs() {
     };
 
     let app = Router::new()
-        .route("/operators/organizations/{org_id}/payment-config", get(get_org_payment_config))
+        .route(
+            "/operators/organizations/{org_id}/payment-config",
+            get(get_org_payment_config),
+        )
         .with_state(state);
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/operators/organizations/{}/payment-config", org_id))
+                .uri(format!(
+                    "/operators/organizations/{}/payment-config",
+                    org_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -193,7 +207,9 @@ async fn test_operator_get_payment_config_no_configs() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
     assert!(json["stripe_config"].is_null());
@@ -215,15 +231,27 @@ fn test_stripe_config_masking() {
     let masked: StripeConfigMasked = (&config).into();
 
     // secret_key should be masked
-    assert!(masked.secret_key.contains("..."), "Secret key should be masked");
-    assert!(masked.secret_key.starts_with("sk_test_"), "Should preserve prefix");
-    assert!(!masked.secret_key.contains("abc123xyz789"), "Should not contain full key");
+    assert!(
+        masked.secret_key.contains("..."),
+        "Secret key should be masked"
+    );
+    assert!(
+        masked.secret_key.starts_with("sk_test_"),
+        "Should preserve prefix"
+    );
+    assert!(
+        !masked.secret_key.contains("abc123xyz789"),
+        "Should not contain full key"
+    );
 
     // publishable_key should NOT be masked (it's public)
     assert_eq!(masked.publishable_key, "pk_test_abc123xyz789");
 
     // webhook_secret should be masked
-    assert!(masked.webhook_secret.contains("..."), "Webhook secret should be masked");
+    assert!(
+        masked.webhook_secret.contains("..."),
+        "Webhook secret should be masked"
+    );
 }
 
 #[test]
@@ -245,7 +273,10 @@ fn test_lemonsqueezy_config_masking() {
     assert_eq!(masked.store_id, "store_123");
 
     // webhook_secret should be masked
-    assert!(masked.webhook_secret.contains("..."), "Webhook secret should be masked");
+    assert!(
+        masked.webhook_secret.contains("..."),
+        "Webhook secret should be masked"
+    );
 }
 
 #[test]
@@ -261,6 +292,12 @@ fn test_masking_short_secrets() {
     let masked: StripeConfigMasked = (&config).into();
 
     // Short secrets should be fully replaced with asterisks
-    assert!(!masked.secret_key.contains("short"), "Short secret should be fully masked");
-    assert!(masked.secret_key.contains("*"), "Should use asterisks for short secrets");
+    assert!(
+        !masked.secret_key.contains("short"),
+        "Short secret should be fully masked"
+    );
+    assert!(
+        masked.secret_key.contains("*"),
+        "Should use asterisks for short secrets"
+    );
 }

@@ -13,8 +13,8 @@ use crate::payments::{
 };
 
 use super::common::{
-    handle_webhook, CancellationData, CheckoutData, RenewalData, WebhookEvent, WebhookProvider,
-    WebhookResult,
+    CancellationData, CheckoutData, RenewalData, WebhookEvent, WebhookProvider, WebhookResult,
+    handle_webhook,
 };
 
 /// Stripe webhook provider implementation.
@@ -45,15 +45,23 @@ impl WebhookProvider for StripeWebhookProvider {
             .decrypt_stripe_config(master_key)
             .map_err(|e| {
                 tracing::error!("Failed to decrypt Stripe config: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Config decryption failed")
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Config decryption failed",
+                )
             })?
             .ok_or((StatusCode::OK, "Stripe not configured"))?;
 
         let client = StripeClient::new(&stripe_config);
-        client.verify_webhook_signature(body, signature).map_err(|e| {
-            tracing::error!("Signature verification error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Signature verification failed")
-        })
+        client
+            .verify_webhook_signature(body, signature)
+            .map_err(|e| {
+                tracing::error!("Signature verification error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Signature verification failed",
+                )
+            })
     }
 
     fn parse_event(&self, body: &Bytes) -> Result<WebhookEvent, WebhookResult> {
@@ -72,8 +80,8 @@ impl WebhookProvider for StripeWebhookProvider {
 }
 
 fn parse_checkout_completed(event: &StripeWebhookEvent) -> Result<WebhookEvent, WebhookResult> {
-    let session: StripeCheckoutSession =
-        serde_json::from_value(event.data.object.clone()).map_err(|e| {
+    let session: StripeCheckoutSession = serde_json::from_value(event.data.object.clone())
+        .map_err(|e| {
             tracing::error!("Failed to parse checkout session: {}", e);
             (StatusCode::BAD_REQUEST, "Invalid checkout session")
         })?;
@@ -130,8 +138,8 @@ fn parse_invoice_paid(event: &StripeWebhookEvent) -> Result<WebhookEvent, Webhoo
 }
 
 fn parse_subscription_deleted(event: &StripeWebhookEvent) -> Result<WebhookEvent, WebhookResult> {
-    let subscription: StripeSubscription =
-        serde_json::from_value(event.data.object.clone()).map_err(|e| {
+    let subscription: StripeSubscription = serde_json::from_value(event.data.object.clone())
+        .map_err(|e| {
             tracing::error!("Failed to parse subscription: {}", e);
             (StatusCode::BAD_REQUEST, "Invalid subscription")
         })?;

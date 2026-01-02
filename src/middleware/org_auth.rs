@@ -7,7 +7,7 @@ use axum::{
     response::Response,
 };
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::models::{OrgMember, OrgMemberRole, ProjectMemberRole};
 use crate::util::extract_bearer_token;
 
@@ -27,7 +27,10 @@ impl OrgMemberContext {
     }
 
     pub fn require_admin(&self) -> Result<(), StatusCode> {
-        if matches!(self.member.role, OrgMemberRole::Owner | OrgMemberRole::Admin) {
+        if matches!(
+            self.member.role,
+            OrgMemberRole::Owner | OrgMemberRole::Admin
+        ) {
             Ok(())
         } else {
             Err(StatusCode::FORBIDDEN)
@@ -35,8 +38,10 @@ impl OrgMemberContext {
     }
 
     pub fn can_write_project(&self) -> bool {
-        matches!(self.member.role, OrgMemberRole::Owner | OrgMemberRole::Admin)
-            || matches!(self.project_role, Some(ProjectMemberRole::Admin))
+        matches!(
+            self.member.role,
+            OrgMemberRole::Owner | OrgMemberRole::Admin
+        ) || matches!(self.project_role, Some(ProjectMemberRole::Admin))
     }
 }
 
@@ -48,10 +53,12 @@ pub async fn org_member_auth(
 ) -> Result<Response, StatusCode> {
     let org_id = params.get("org_id").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let api_key = extract_bearer_token(request.headers())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let api_key = extract_bearer_token(request.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let member = queries::get_org_member_by_api_key(&conn, api_key)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -86,10 +93,12 @@ pub async fn org_member_project_auth(
     let org_id = params.get("org_id").ok_or(StatusCode::BAD_REQUEST)?;
     let project_id = params.get("project_id").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let api_key = extract_bearer_token(request.headers())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let api_key = extract_bearer_token(request.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let conn = state.db.get().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let member = queries::get_org_member_by_api_key(&conn, api_key)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?

@@ -1,7 +1,7 @@
+use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use hmac::{Hmac, Mac};
 use subtle::ConstantTimeEq;
 
 use crate::error::{AppError, Result};
@@ -161,13 +161,15 @@ impl LemonSqueezyClient {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("LemonSqueezy API error: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "LemonSqueezy API error: {}",
+                error_text
+            )));
         }
 
-        let checkout: CreateCheckoutResponse = response
-            .json()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to parse LemonSqueezy response: {}", e)))?;
+        let checkout: CreateCheckoutResponse = response.json().await.map_err(|e| {
+            AppError::Internal(format!("Failed to parse LemonSqueezy response: {}", e))
+        })?;
 
         Ok((checkout.data.id, checkout.data.attributes.url))
     }

@@ -4,12 +4,12 @@
 //! plain text rejections into JSON error responses.
 
 use axum::{
+    Router,
     body::Body,
     http::{Request, StatusCode},
-    Router,
 };
-use tower::ServiceExt;
 use serde_json::Value;
+use tower::ServiceExt;
 
 mod common;
 use common::*;
@@ -18,7 +18,7 @@ use common::*;
 fn test_app() -> Router {
     use axum::routing::{get, post};
     use paycheck::handlers::dev::create_dev_license;
-    use paycheck::handlers::public::{validate_license, get_license_info};
+    use paycheck::handlers::public::{get_license_info, validate_license};
 
     let master_key = test_master_key();
     let conn = setup_test_db();
@@ -87,10 +87,15 @@ async fn test_invalid_json_body_returns_json_error() {
     assert!(content_type.to_str().unwrap().contains("application/json"));
 
     // Parse and verify structure
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert!(json.get("error").is_some(), "Response should have 'error' field");
+    assert!(
+        json.get("error").is_some(),
+        "Response should have 'error' field"
+    );
     assert_eq!(json["error"], "Invalid request body");
 }
 
@@ -114,11 +119,16 @@ async fn test_missing_json_fields_returns_json_error() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
     assert!(json.get("error").is_some());
-    assert!(json.get("details").is_some(), "Should include details about missing field");
+    assert!(
+        json.get("details").is_some(),
+        "Should include details about missing field"
+    );
 }
 
 /// Verify invalid query parameters return JSON error
@@ -144,7 +154,9 @@ async fn test_invalid_query_params_returns_json_error() {
     let content_type = response.headers().get("content-type").unwrap();
     assert!(content_type.to_str().unwrap().contains("application/json"));
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
     assert!(json.get("error").is_some());
@@ -179,7 +191,9 @@ async fn test_application_error_returns_json() {
     let content_type = response.headers().get("content-type").unwrap();
     assert!(content_type.to_str().unwrap().contains("application/json"));
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
     assert!(json.get("error").is_some());

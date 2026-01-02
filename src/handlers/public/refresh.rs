@@ -3,12 +3,12 @@ use axum::http::HeaderMap;
 use chrono::Utc;
 use serde::Serialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::Json;
 use crate::jwt::{self, LicenseClaims};
 use crate::models::ActorType;
-use crate::util::{audit_log, extract_bearer_token, LicenseExpirations};
+use crate::util::{LicenseExpirations, audit_log, extract_bearer_token};
 
 /// Validate that a string is a valid UUID format.
 /// This is a cheap check to reject garbage before hitting the database.
@@ -32,8 +32,7 @@ pub async fn refresh_token(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<RefreshResponse>> {
-    let token = extract_bearer_token(&headers)
-        .ok_or(AppError::Unauthorized)?;
+    let token = extract_bearer_token(&headers).ok_or(AppError::Unauthorized)?;
 
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
@@ -50,15 +49,14 @@ pub async fn refresh_token(
     let product = queries::get_product_by_id(&conn, &unverified_claims.product_id)?
         .ok_or(AppError::Unauthorized)?;
 
-    let project = queries::get_project_by_id(&conn, &product.project_id)?
-        .ok_or(AppError::Unauthorized)?;
+    let project =
+        queries::get_project_by_id(&conn, &product.project_id)?.ok_or(AppError::Unauthorized)?;
 
     // Now verify the token signature (allowing expired tokens)
     let verified = jwt::verify_token_allow_expired(token, &project.public_key, &project.domain)
         .map_err(|_| AppError::Unauthorized)?;
 
-    let jti = verified.jwt_id
-        .ok_or(AppError::Unauthorized)?;
+    let jti = verified.jwt_id.ok_or(AppError::Unauthorized)?;
 
     // Validate JTI format before DB lookup (cheap DDoS protection)
     if !is_valid_uuid(&jti) {
@@ -66,8 +64,7 @@ pub async fn refresh_token(
     }
 
     // Look up the device by JTI
-    let device = queries::get_device_by_jti(&conn, &jti)?
-        .ok_or(AppError::Unauthorized)?;
+    let device = queries::get_device_by_jti(&conn, &jti)?.ok_or(AppError::Unauthorized)?;
 
     // Get the license
     let license = queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)?
@@ -119,21 +116,24 @@ pub async fn refresh_token(
     };
 
     // Sign new JWT
-    let private_key = state.master_key.decrypt_private_key(&project.id, &project.private_key)?;
-    let new_token = jwt::sign_claims(
-        &claims,
-        &private_key,
-        &license.id,
-        &project.domain,
-        &jti,
-    )?;
+    let private_key = state
+        .master_key
+        .decrypt_private_key(&project.id, &project.private_key)?;
+    let new_token = jwt::sign_claims(&claims, &private_key, &license.id, &project.domain, &jti)?;
 
     // Audit log the refresh
     audit_log(
-        &audit_conn, state.audit_log_enabled, ActorType::Public, Some(&jti), &headers,
-        "refresh_token", "device", &device.id,
+        &audit_conn,
+        state.audit_log_enabled,
+        ActorType::Public,
+        Some(&jti),
+        &headers,
+        "refresh_token",
+        "device",
+        &device.id,
         Some(&serde_json::json!({ "license_id": license.id, "product_id": product.id })),
-        Some(&project.org_id), Some(&project.id),
+        Some(&project.org_id),
+        Some(&project.id),
     )?;
 
     Ok(Json(RefreshResponse { token: new_token }))

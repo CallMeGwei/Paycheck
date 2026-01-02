@@ -1,16 +1,15 @@
 use chrono::Utc;
-use rusqlite::{params, types::Value, Connection};
+use rusqlite::{Connection, params, types::Value};
 use uuid::Uuid;
 
-use crate::crypto::{hash_secret, MasterKey};
+use crate::crypto::{MasterKey, hash_secret};
 use crate::error::{AppError, Result};
 use crate::models::*;
 
 use super::from_row::{
-    query_all, query_one, LicenseKeyRow,
-    DEVICE_COLS, LICENSE_KEY_COLS, OPERATOR_COLS, ORG_MEMBER_COLS,
-    ORGANIZATION_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS,
-    PROJECT_MEMBER_COLS, REDEMPTION_CODE_COLS,
+    DEVICE_COLS, LICENSE_KEY_COLS, LicenseKeyRow, OPERATOR_COLS, ORG_MEMBER_COLS,
+    ORGANIZATION_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS, PROJECT_MEMBER_COLS,
+    REDEMPTION_CODE_COLS, query_all, query_one,
 };
 
 fn now() -> i64 {
@@ -25,8 +24,9 @@ fn gen_id() -> String {
 /// Uses the project DEK (derived from project_id) for decryption.
 fn decrypt_license_key_row(row: LicenseKeyRow, master_key: &MasterKey) -> Result<LicenseKey> {
     let key_bytes = master_key.decrypt_private_key(&row.project_id, &row.encrypted_key)?;
-    let key = String::from_utf8(key_bytes)
-        .map_err(|e| AppError::Internal(format!("Invalid UTF-8 in decrypted license key: {}", e)))?;
+    let key = String::from_utf8(key_bytes).map_err(|e| {
+        AppError::Internal(format!("Invalid UTF-8 in decrypted license key: {}", e))
+    })?;
 
     Ok(LicenseKey {
         id: row.id,
@@ -58,7 +58,12 @@ struct UpdateBuilder {
 
 impl UpdateBuilder {
     fn new(table: &'static str, id: &str) -> Self {
-        Self { table, id: id.to_string(), fields: Vec::new(), track_updated_at: false }
+        Self {
+            table,
+            id: id.to_string(),
+            fields: Vec::new(),
+            track_updated_at: false,
+        }
     }
 
     fn with_updated_at(mut self) -> Self {
@@ -85,7 +90,11 @@ impl UpdateBuilder {
         if self.track_updated_at {
             self.fields.push(("updated_at", now().into()));
         }
-        let sets: Vec<String> = self.fields.iter().map(|(col, _)| format!("{} = ?", col)).collect();
+        let sets: Vec<String> = self
+            .fields
+            .iter()
+            .map(|(col, _)| format!("{} = ?", col))
+            .collect();
         let mut values: Vec<Value> = self.fields.into_iter().map(|(_, v)| v).collect();
         values.push(self.id.into());
         let sql = format!("UPDATE {} SET {} WHERE id = ?", self.table, sets.join(", "));
@@ -147,7 +156,10 @@ pub fn get_operator_by_api_key(conn: &Connection, api_key: &str) -> Result<Optio
     let hash = hash_secret(api_key);
     query_one(
         conn,
-        &format!("SELECT {} FROM operators WHERE api_key_hash = ?1", OPERATOR_COLS),
+        &format!(
+            "SELECT {} FROM operators WHERE api_key_hash = ?1",
+            OPERATOR_COLS
+        ),
         &[&hash],
     )
 }
@@ -155,7 +167,10 @@ pub fn get_operator_by_api_key(conn: &Connection, api_key: &str) -> Result<Optio
 pub fn list_operators(conn: &Connection) -> Result<Vec<Operator>> {
     query_all(
         conn,
-        &format!("SELECT {} FROM operators ORDER BY created_at DESC", OPERATOR_COLS),
+        &format!(
+            "SELECT {} FROM operators ORDER BY created_at DESC",
+            OPERATOR_COLS
+        ),
         &[],
     )
 }
@@ -360,7 +375,10 @@ pub fn create_organization(conn: &Connection, input: &CreateOrganization) -> Res
 pub fn get_organization_by_id(conn: &Connection, id: &str) -> Result<Option<Organization>> {
     query_one(
         conn,
-        &format!("SELECT {} FROM organizations WHERE id = ?1", ORGANIZATION_COLS),
+        &format!(
+            "SELECT {} FROM organizations WHERE id = ?1",
+            ORGANIZATION_COLS
+        ),
         &[&id],
     )
 }
@@ -368,7 +386,10 @@ pub fn get_organization_by_id(conn: &Connection, id: &str) -> Result<Option<Orga
 pub fn list_organizations(conn: &Connection) -> Result<Vec<Organization>> {
     query_all(
         conn,
-        &format!("SELECT {} FROM organizations ORDER BY created_at DESC", ORGANIZATION_COLS),
+        &format!(
+            "SELECT {} FROM organizations ORDER BY created_at DESC",
+            ORGANIZATION_COLS
+        ),
         &[],
     )
 }
@@ -488,7 +509,10 @@ pub fn get_org_member_by_api_key(conn: &Connection, api_key: &str) -> Result<Opt
     let hash = hash_secret(api_key);
     query_one(
         conn,
-        &format!("SELECT {} FROM org_members WHERE api_key_hash = ?1", ORG_MEMBER_COLS),
+        &format!(
+            "SELECT {} FROM org_members WHERE api_key_hash = ?1",
+            ORG_MEMBER_COLS
+        ),
         &[&hash],
     )
 }
@@ -496,7 +520,10 @@ pub fn get_org_member_by_api_key(conn: &Connection, api_key: &str) -> Result<Opt
 pub fn list_org_members(conn: &Connection, org_id: &str) -> Result<Vec<OrgMember>> {
     query_all(
         conn,
-        &format!("SELECT {} FROM org_members WHERE org_id = ?1 ORDER BY created_at DESC", ORG_MEMBER_COLS),
+        &format!(
+            "SELECT {} FROM org_members WHERE org_id = ?1 ORDER BY created_at DESC",
+            ORG_MEMBER_COLS
+        ),
         &[&org_id],
     )
 }
@@ -562,7 +589,10 @@ pub fn get_project_by_id(conn: &Connection, id: &str) -> Result<Option<Project>>
 pub fn list_projects_for_org(conn: &Connection, org_id: &str) -> Result<Vec<Project>> {
     query_all(
         conn,
-        &format!("SELECT {} FROM projects WHERE org_id = ?1 ORDER BY created_at DESC", PROJECT_COLS),
+        &format!(
+            "SELECT {} FROM projects WHERE org_id = ?1 ORDER BY created_at DESC",
+            PROJECT_COLS
+        ),
         &[&org_id],
     )
 }
@@ -586,7 +616,9 @@ pub fn update_project_private_key(conn: &Connection, id: &str, private_key: &[u8
 }
 
 pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Result<()> {
-    let redirect_json = input.allowed_redirect_urls.as_ref()
+    let redirect_json = input
+        .allowed_redirect_urls
+        .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
 
@@ -618,7 +650,13 @@ pub fn create_project_member(
     conn.execute(
         "INSERT INTO project_members (id, org_member_id, project_id, role, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![&id, &input.org_member_id, project_id, input.role.as_ref(), now],
+        params![
+            &id,
+            &input.org_member_id,
+            project_id,
+            input.role.as_ref(),
+            now
+        ],
     )?;
 
     Ok(ProjectMember {
@@ -637,12 +675,18 @@ pub fn get_project_member(
 ) -> Result<Option<ProjectMember>> {
     query_one(
         conn,
-        &format!("SELECT {} FROM project_members WHERE org_member_id = ?1 AND project_id = ?2", PROJECT_MEMBER_COLS),
+        &format!(
+            "SELECT {} FROM project_members WHERE org_member_id = ?1 AND project_id = ?2",
+            PROJECT_MEMBER_COLS
+        ),
         &[&org_member_id, &project_id],
     )
 }
 
-pub fn list_project_members(conn: &Connection, project_id: &str) -> Result<Vec<ProjectMemberWithDetails>> {
+pub fn list_project_members(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProjectMemberWithDetails>> {
     query_all(
         conn,
         "SELECT pm.id, pm.org_member_id, pm.project_id, pm.role, pm.created_at, om.email, om.name
@@ -654,7 +698,12 @@ pub fn list_project_members(conn: &Connection, project_id: &str) -> Result<Vec<P
     )
 }
 
-pub fn update_project_member(conn: &Connection, id: &str, project_id: &str, input: &UpdateProjectMember) -> Result<bool> {
+pub fn update_project_member(
+    conn: &Connection,
+    id: &str,
+    project_id: &str,
+    input: &UpdateProjectMember,
+) -> Result<bool> {
     let affected = conn.execute(
         "UPDATE project_members SET role = ?1 WHERE id = ?2 AND project_id = ?3",
         params![input.role.as_ref(), id, project_id],
@@ -672,7 +721,11 @@ pub fn delete_project_member(conn: &Connection, id: &str, project_id: &str) -> R
 
 // ============ Products ============
 
-pub fn create_product(conn: &Connection, project_id: &str, input: &CreateProduct) -> Result<Product> {
+pub fn create_product(
+    conn: &Connection,
+    project_id: &str,
+    input: &CreateProduct,
+) -> Result<Product> {
     let id = gen_id();
     let now = now();
     let features_json = serde_json::to_string(&input.features)?;
@@ -719,13 +772,18 @@ pub fn get_product_by_id(conn: &Connection, id: &str) -> Result<Option<Product>>
 pub fn list_products_for_project(conn: &Connection, project_id: &str) -> Result<Vec<Product>> {
     query_all(
         conn,
-        &format!("SELECT {} FROM products WHERE project_id = ?1 ORDER BY created_at DESC", PRODUCT_COLS),
+        &format!(
+            "SELECT {} FROM products WHERE project_id = ?1 ORDER BY created_at DESC",
+            PRODUCT_COLS
+        ),
         &[&project_id],
     )
 }
 
 pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Result<()> {
-    let features_json = input.features.as_ref()
+    let features_json = input
+        .features
+        .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
 
@@ -754,7 +812,9 @@ pub fn generate_license_key_string(prefix: &str) -> String {
     let chars: Vec<char> = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".chars().collect();
 
     let mut part = || -> String {
-        (0..4).map(|_| chars[rng.gen_range(0..chars.len())]).collect()
+        (0..4)
+            .map(|_| chars[rng.gen_range(0..chars.len())])
+            .collect()
     };
 
     format!("{}-{}-{}-{}-{}", prefix, part(), part(), part(), part())
@@ -809,10 +869,14 @@ pub fn get_license_key_by_id(
 ) -> Result<Option<LicenseKey>> {
     let row: Option<LicenseKeyRow> = query_one(
         conn,
-        &format!("SELECT {} FROM license_keys WHERE id = ?1", LICENSE_KEY_COLS),
+        &format!(
+            "SELECT {} FROM license_keys WHERE id = ?1",
+            LICENSE_KEY_COLS
+        ),
         &[&id],
     )?;
-    row.map(|r| decrypt_license_key_row(r, master_key)).transpose()
+    row.map(|r| decrypt_license_key_row(r, master_key))
+        .transpose()
 }
 
 pub fn get_license_key_by_key(
@@ -824,10 +888,14 @@ pub fn get_license_key_by_key(
     let key_hash = hash_secret(key);
     let row: Option<LicenseKeyRow> = query_one(
         conn,
-        &format!("SELECT {} FROM license_keys WHERE key_hash = ?1", LICENSE_KEY_COLS),
+        &format!(
+            "SELECT {} FROM license_keys WHERE key_hash = ?1",
+            LICENSE_KEY_COLS
+        ),
         &[&key_hash],
     )?;
-    row.map(|r| decrypt_license_key_row(r, master_key)).transpose()
+    row.map(|r| decrypt_license_key_row(r, master_key))
+        .transpose()
 }
 
 pub fn list_license_keys_for_project(
@@ -893,7 +961,10 @@ pub fn increment_activation_count(conn: &Connection, id: &str) -> Result<()> {
 }
 
 pub fn revoke_license_key(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("UPDATE license_keys SET revoked = 1 WHERE id = ?1", params![id])?;
+    conn.execute(
+        "UPDATE license_keys SET revoked = 1 WHERE id = ?1",
+        params![id],
+    )?;
     Ok(())
 }
 
@@ -932,7 +1003,8 @@ pub fn get_license_key_by_subscription(
         ),
         &[&provider, &subscription_id],
     )?;
-    row.map(|r| decrypt_license_key_row(r, master_key)).transpose()
+    row.map(|r| decrypt_license_key_row(r, master_key))
+        .transpose()
 }
 
 /// Extend license expiration dates (for subscription renewals)
@@ -954,7 +1026,10 @@ pub fn extend_license_expiration(
 pub fn list_all_license_key_rows(conn: &Connection) -> Result<Vec<LicenseKeyRow>> {
     query_all(
         conn,
-        &format!("SELECT {} FROM license_keys ORDER BY created_at", LICENSE_KEY_COLS),
+        &format!(
+            "SELECT {} FROM license_keys ORDER BY created_at",
+            LICENSE_KEY_COLS
+        ),
         &[],
     )
 }
@@ -989,10 +1064,7 @@ pub fn generate_redemption_code_string() -> String {
         .collect()
 }
 
-pub fn create_redemption_code(
-    conn: &Connection,
-    license_key_id: &str,
-) -> Result<RedemptionCode> {
+pub fn create_redemption_code(conn: &Connection, license_key_id: &str) -> Result<RedemptionCode> {
     let id = gen_id();
     let code = generate_redemption_code_string();
     let code_hash = hash_secret(&code);
@@ -1016,11 +1088,17 @@ pub fn create_redemption_code(
     })
 }
 
-pub fn get_redemption_code_by_code(conn: &Connection, code: &str) -> Result<Option<RedemptionCode>> {
+pub fn get_redemption_code_by_code(
+    conn: &Connection,
+    code: &str,
+) -> Result<Option<RedemptionCode>> {
     let code_hash = hash_secret(code);
     query_one(
         conn,
-        &format!("SELECT {} FROM redemption_codes WHERE code_hash = ?1", REDEMPTION_CODE_COLS),
+        &format!(
+            "SELECT {} FROM redemption_codes WHERE code_hash = ?1",
+            REDEMPTION_CODE_COLS
+        ),
         &[&code_hash],
     )
 }
@@ -1255,7 +1333,10 @@ pub fn delete_device(conn: &Connection, id: &str) -> Result<bool> {
 
 // ============ Payment Sessions ============
 
-pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -> Result<PaymentSession> {
+pub fn create_payment_session(
+    conn: &Connection,
+    input: &CreatePaymentSession,
+) -> Result<PaymentSession> {
     let id = gen_id();
     let now = now();
 
@@ -1281,7 +1362,10 @@ pub fn create_payment_session(conn: &Connection, input: &CreatePaymentSession) -
 pub fn get_payment_session(conn: &Connection, id: &str) -> Result<Option<PaymentSession>> {
     query_one(
         conn,
-        &format!("SELECT {} FROM payment_sessions WHERE id = ?1", PAYMENT_SESSION_COLS),
+        &format!(
+            "SELECT {} FROM payment_sessions WHERE id = ?1",
+            PAYMENT_SESSION_COLS
+        ),
         &[&id],
     )
 }
@@ -1305,7 +1389,11 @@ pub fn try_claim_payment_session(conn: &Connection, id: &str) -> Result<bool> {
 
 /// Set the license_key_id on a payment session after license creation.
 /// Called after try_claim_payment_session succeeds and license is created.
-pub fn set_payment_session_license(conn: &Connection, session_id: &str, license_key_id: &str) -> Result<()> {
+pub fn set_payment_session_license(
+    conn: &Connection,
+    session_id: &str,
+    license_key_id: &str,
+) -> Result<()> {
     conn.execute(
         "UPDATE payment_sessions SET license_key_id = ?1 WHERE id = ?2",
         params![license_key_id, session_id],

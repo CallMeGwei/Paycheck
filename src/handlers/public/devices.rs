@@ -1,11 +1,11 @@
 use axum::extract::State;
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 use serde::Serialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::Json;
 use crate::jwt;
@@ -57,7 +57,9 @@ pub async fn deactivate_device(
 
     // Check if this JTI is already revoked
     if license.revoked_jtis.contains(&jti) {
-        return Err(AppError::Forbidden("This device has already been deactivated".into()));
+        return Err(AppError::Forbidden(
+            "This device has already been deactivated".into(),
+        ));
     }
 
     // Add the device's JTI to revoked list so the token can't be used anymore

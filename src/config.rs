@@ -54,8 +54,8 @@ pub struct Config {
 fn check_file_permissions(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
-    let metadata = fs::metadata(path)
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let metadata =
+        fs::metadata(path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
     let mode = metadata.permissions().mode() & 0o777;
 
@@ -97,8 +97,8 @@ pub fn load_master_key_from_file(path: &str) -> Result<MasterKey, String> {
     check_file_permissions(path)?;
 
     // Read the file
-    let contents = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read master key file: {}", e))?;
+    let contents =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read master key file: {}", e))?;
 
     // Parse the key (trim whitespace/newlines)
     MasterKey::from_base64(contents.trim())
@@ -119,8 +119,7 @@ impl Config {
             .and_then(|p| p.parse().ok())
             .unwrap_or(3000);
 
-        let base_url = env::var("BASE_URL")
-            .unwrap_or_else(|_| format!("http://{}:{}", host, port));
+        let base_url = env::var("BASE_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
         let audit_log_enabled = env::var("AUDIT_LOG_ENABLED")
             .map(|v| v != "false" && v != "0")
@@ -186,8 +185,7 @@ impl Config {
         Self {
             host,
             port,
-            database_path: env::var("DATABASE_PATH")
-                .unwrap_or_else(|_| "paycheck.db".to_string()),
+            database_path: env::var("DATABASE_PATH").unwrap_or_else(|_| "paycheck.db".to_string()),
             audit_database_path: env::var("AUDIT_DATABASE_PATH")
                 .unwrap_or_else(|_| "paycheck_audit.db".to_string()),
             base_url,

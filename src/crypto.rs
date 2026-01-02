@@ -11,11 +11,11 @@
 //! - License keys (DEK derived from project_id)
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 
@@ -61,8 +61,8 @@ impl MasterKey {
     /// Generate a new random master key (for initial setup).
     /// Returns the key as a base64-encoded string.
     pub fn generate() -> String {
-        use rand::rngs::OsRng;
         use rand::RngCore;
+        use rand::rngs::OsRng;
         let mut key = [0u8; MASTER_KEY_SIZE];
         OsRng.fill_bytes(&mut key);
         BASE64.encode(key)

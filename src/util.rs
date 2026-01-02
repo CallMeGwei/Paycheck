@@ -24,7 +24,11 @@ impl LicenseExpirations {
     /// `base_time` is typically `Utc::now().timestamp()` for new licenses,
     /// or `device.activated_at` for validation.
     pub fn from_product(product: &Product, base_time: i64) -> Self {
-        Self::from_days(product.license_exp_days, product.updates_exp_days, base_time)
+        Self::from_days(
+            product.license_exp_days,
+            product.updates_exp_days,
+            base_time,
+        )
     }
 
     /// Calculate expirations from explicit day values.
