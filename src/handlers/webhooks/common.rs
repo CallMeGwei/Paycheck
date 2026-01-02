@@ -10,9 +10,45 @@ use axum::{
 use rusqlite::Connection;
 
 use crate::crypto::MasterKey;
-use crate::db::queries;
-use crate::models::{CreateLicenseKey, Organization, PaymentSession, Product, Project};
+use crate::db::{queries, AppState};
+use crate::error::AppError;
+use crate::models::{CreateLicenseKey, LicenseKey, Organization, PaymentSession, Product, Project};
 use crate::util::LicenseExpirations;
+
+/// Helper to unwrap DB query results with consistent error handling.
+fn db_lookup<T>(
+    result: Result<Option<T>, AppError>,
+    not_found_msg: &'static str,
+) -> Result<T, WebhookResult> {
+    match result {
+        Ok(Some(v)) => Ok(v),
+        Ok(None) => Err((StatusCode::OK, not_found_msg)),
+        Err(e) => {
+            tracing::error!("DB error: {}", e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "Database error"))
+        }
+    }
+}
+
+/// Helper for subscription lookup with warning log on not found.
+fn lookup_license_by_subscription<P: WebhookProvider>(
+    provider: &P,
+    conn: &Connection,
+    subscription_id: &str,
+    master_key: &MasterKey,
+) -> Result<LicenseKey, WebhookResult> {
+    match queries::get_license_key_by_subscription(conn, provider.provider_name(), subscription_id, master_key) {
+        Ok(Some(l)) => Ok(l),
+        Ok(None) => {
+            tracing::warn!("No license found for {} subscription: {}", provider.provider_name(), subscription_id);
+            Err((StatusCode::OK, "License not found for subscription"))
+        }
+        Err(e) => {
+            tracing::error!("DB error: {}", e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "Database error"))
+        }
+    }
+}
 
 /// Result type for webhook operations.
 pub type WebhookResult = (StatusCode, &'static str);
@@ -241,7 +277,7 @@ pub fn process_cancellation(
 /// Generic webhook handler that delegates to provider-specific implementations.
 pub async fn handle_webhook<P: WebhookProvider>(
     provider: &P,
-    state: &crate::db::AppState,
+    state: &AppState,
     headers: HeaderMap,
     body: Bytes,
 ) -> WebhookResult {
@@ -260,13 +296,13 @@ pub async fn handle_webhook<P: WebhookProvider>(
     // Handle based on event type
     match event {
         WebhookEvent::CheckoutCompleted(data) => {
-            handle_checkout(provider, state, &body, &signature, data).await
+            handle_checkout(provider, state, &body, &signature, data).await.unwrap_or_else(|e| e)
         }
         WebhookEvent::SubscriptionRenewed(data) => {
-            handle_renewal(provider, state, &body, &signature, data).await
+            handle_renewal(provider, state, &body, &signature, data).await.unwrap_or_else(|e| e)
         }
         WebhookEvent::SubscriptionCancelled(data) => {
-            handle_cancellation(provider, state, &body, &signature, data).await
+            handle_cancellation(provider, state, &body, &signature, data).await.unwrap_or_else(|e| e)
         }
         WebhookEvent::Ignored => (StatusCode::OK, "Event ignored"),
     }
@@ -274,207 +310,118 @@ pub async fn handle_webhook<P: WebhookProvider>(
 
 async fn handle_checkout<P: WebhookProvider>(
     provider: &P,
-    state: &crate::db::AppState,
+    state: &AppState,
     body: &Bytes,
     signature: &str,
     data: CheckoutData,
-) -> WebhookResult {
-    let mut conn = match state.db.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("DB connection error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+) -> Result<WebhookResult, WebhookResult> {
+    let mut conn = state.db.get().map_err(|e| {
+        tracing::error!("DB connection error: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+    })?;
 
-    let project = match queries::get_project_by_id(&conn, &data.project_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::OK, "Project not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let project = db_lookup(
+        queries::get_project_by_id(&conn, &data.project_id),
+        "Project not found",
+    )?;
 
-    // Get organization for payment config
-    let org = match queries::get_organization_by_id(&conn, &project.org_id) {
-        Ok(Some(o)) => o,
-        Ok(None) => return (StatusCode::OK, "Organization not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let org = db_lookup(
+        queries::get_organization_by_id(&conn, &project.org_id),
+        "Organization not found",
+    )?;
 
     // Verify signature
     match provider.verify_signature(&org, &state.master_key, body, signature) {
         Ok(true) => {}
-        Ok(false) => return (StatusCode::UNAUTHORIZED, "Invalid signature"),
-        Err(e) => return e,
+        Ok(false) => return Err((StatusCode::UNAUTHORIZED, "Invalid signature")),
+        Err(e) => return Err(e),
     }
 
-    // Get payment session
-    let payment_session = match queries::get_payment_session(&conn, &data.session_id) {
-        Ok(Some(s)) => s,
-        Ok(None) => return (StatusCode::OK, "Payment session not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let payment_session = db_lookup(
+        queries::get_payment_session(&conn, &data.session_id),
+        "Payment session not found",
+    )?;
 
-    // Get product
-    let product = match queries::get_product_by_id(&conn, &payment_session.product_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::OK, "Product not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let product = db_lookup(
+        queries::get_product_by_id(&conn, &payment_session.product_id),
+        "Product not found",
+    )?;
 
-    process_checkout(&mut conn, provider.provider_name(), &project, &payment_session, &product, &data, &state.master_key)
+    Ok(process_checkout(&mut conn, provider.provider_name(), &project, &payment_session, &product, &data, &state.master_key))
 }
 
 async fn handle_renewal<P: WebhookProvider>(
     provider: &P,
-    state: &crate::db::AppState,
+    state: &AppState,
     body: &Bytes,
     signature: &str,
     data: RenewalData,
-) -> WebhookResult {
+) -> Result<WebhookResult, WebhookResult> {
     // Skip if not a renewal (initial subscription handled by checkout)
     if !data.is_renewal {
-        return (StatusCode::OK, "Initial subscription - handled by checkout");
+        return Ok((StatusCode::OK, "Initial subscription - handled by checkout"));
     }
 
     if !data.is_paid {
-        return (StatusCode::OK, "Invoice not paid");
+        return Ok((StatusCode::OK, "Invoice not paid"));
     }
 
-    let conn = match state.db.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("DB connection error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let conn = state.db.get().map_err(|e| {
+        tracing::error!("DB connection error: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+    })?;
 
-    // Find license by subscription ID
-    let license = match queries::get_license_key_by_subscription(&conn, provider.provider_name(), &data.subscription_id, &state.master_key) {
-        Ok(Some(l)) => l,
-        Ok(None) => {
-            tracing::warn!("No license found for {} subscription: {}", provider.provider_name(), data.subscription_id);
-            return (StatusCode::OK, "License not found for subscription");
-        }
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
-
-    // Get product and project for signature verification
-    let product = match queries::get_product_by_id(&conn, &license.product_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::OK, "Product not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
-
-    let project = match queries::get_project_by_id(&conn, &product.project_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::OK, "Project not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
-
-    // Get organization for payment config
-    let org = match queries::get_organization_by_id(&conn, &project.org_id) {
-        Ok(Some(o)) => o,
-        Ok(None) => return (StatusCode::OK, "Organization not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let license = lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
+    let product = db_lookup(queries::get_product_by_id(&conn, &license.product_id), "Product not found")?;
+    let project = db_lookup(queries::get_project_by_id(&conn, &product.project_id), "Project not found")?;
+    let org = db_lookup(queries::get_organization_by_id(&conn, &project.org_id), "Organization not found")?;
 
     // Verify signature
     match provider.verify_signature(&org, &state.master_key, body, signature) {
         Ok(true) => {}
-        Ok(false) => return (StatusCode::UNAUTHORIZED, "Invalid signature"),
-        Err(e) => return e,
+        Ok(false) => return Err((StatusCode::UNAUTHORIZED, "Invalid signature")),
+        Err(e) => return Err(e),
     }
 
-    process_renewal(&conn, provider.provider_name(), &product, &license.id, &license.key, &data.subscription_id, data.event_id.as_deref())
+    Ok(process_renewal(
+        &conn,
+        provider.provider_name(),
+        &product,
+        &license.id,
+        &license.key,
+        &data.subscription_id,
+        data.event_id.as_deref(),
+    ))
 }
 
 async fn handle_cancellation<P: WebhookProvider>(
     provider: &P,
-    state: &crate::db::AppState,
+    state: &AppState,
     body: &Bytes,
     signature: &str,
     data: CancellationData,
-) -> WebhookResult {
-    let conn = match state.db.get() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("DB connection error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+) -> Result<WebhookResult, WebhookResult> {
+    let conn = state.db.get().map_err(|e| {
+        tracing::error!("DB connection error: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+    })?;
 
-    // Find license by subscription ID
-    let license = match queries::get_license_key_by_subscription(&conn, provider.provider_name(), &data.subscription_id, &state.master_key) {
-        Ok(Some(l)) => l,
-        Ok(None) => {
-            tracing::warn!("No license found for {} subscription: {}", provider.provider_name(), data.subscription_id);
-            return (StatusCode::OK, "License not found for subscription");
-        }
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
-
-    // Get product and project for signature verification
-    let product = match queries::get_product_by_id(&conn, &license.product_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::OK, "Product not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
-
-    let project = match queries::get_project_by_id(&conn, &product.project_id) {
-        Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::OK, "Project not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
-
-    // Get organization for payment config
-    let org = match queries::get_organization_by_id(&conn, &project.org_id) {
-        Ok(Some(o)) => o,
-        Ok(None) => return (StatusCode::OK, "Organization not found"),
-        Err(e) => {
-            tracing::error!("DB error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error");
-        }
-    };
+    let license = lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
+    let product = db_lookup(queries::get_product_by_id(&conn, &license.product_id), "Product not found")?;
+    let project = db_lookup(queries::get_project_by_id(&conn, &product.project_id), "Project not found")?;
+    let org = db_lookup(queries::get_organization_by_id(&conn, &project.org_id), "Organization not found")?;
 
     // Verify signature
     match provider.verify_signature(&org, &state.master_key, body, signature) {
         Ok(true) => {}
-        Ok(false) => return (StatusCode::UNAUTHORIZED, "Invalid signature"),
-        Err(e) => return e,
+        Ok(false) => return Err((StatusCode::UNAUTHORIZED, "Invalid signature")),
+        Err(e) => return Err(e),
     }
 
-    process_cancellation(provider.provider_name(), &license.key, license.expires_at, &data.subscription_id)
+    Ok(process_cancellation(
+        provider.provider_name(),
+        &license.key,
+        license.expires_at,
+        &data.subscription_id,
+    ))
 }
