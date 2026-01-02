@@ -1,5 +1,5 @@
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, types::Value, Connection};
 use uuid::Uuid;
 
 use crate::crypto::{hash_secret, MasterKey};
@@ -45,6 +45,53 @@ fn decrypt_license_key_row(row: LicenseKeyRow, master_key: &MasterKey) -> Result
         payment_provider_subscription_id: row.payment_provider_subscription_id,
         payment_provider_order_id: row.payment_provider_order_id,
     })
+}
+
+/// Builder for dynamic UPDATE statements with optional fields.
+/// Combines multiple field updates into a single query for efficiency.
+struct UpdateBuilder {
+    table: &'static str,
+    id: String,
+    fields: Vec<(&'static str, Value)>,
+    track_updated_at: bool,
+}
+
+impl UpdateBuilder {
+    fn new(table: &'static str, id: &str) -> Self {
+        Self { table, id: id.to_string(), fields: Vec::new(), track_updated_at: false }
+    }
+
+    fn with_updated_at(mut self) -> Self {
+        self.track_updated_at = true;
+        self
+    }
+
+    fn set(mut self, column: &'static str, value: impl Into<Value>) -> Self {
+        self.fields.push((column, value.into()));
+        self
+    }
+
+    fn set_opt<V: Into<Value>>(self, column: &'static str, value: Option<V>) -> Self {
+        match value {
+            Some(v) => self.set(column, v),
+            None => self,
+        }
+    }
+
+    fn execute(mut self, conn: &Connection) -> Result<bool> {
+        if self.fields.is_empty() {
+            return Ok(false);
+        }
+        if self.track_updated_at {
+            self.fields.push(("updated_at", now().into()));
+        }
+        let sets: Vec<String> = self.fields.iter().map(|(col, _)| format!("{} = ?", col)).collect();
+        let mut values: Vec<Value> = self.fields.into_iter().map(|(_, v)| v).collect();
+        values.push(self.id.into());
+        let sql = format!("UPDATE {} SET {} WHERE id = ?", self.table, sets.join(", "));
+        let affected = conn.execute(&sql, rusqlite::params_from_iter(values))?;
+        Ok(affected > 0)
+    }
 }
 
 pub fn generate_api_key() -> String {
@@ -114,18 +161,10 @@ pub fn list_operators(conn: &Connection) -> Result<Vec<Operator>> {
 }
 
 pub fn update_operator(conn: &Connection, id: &str, input: &UpdateOperator) -> Result<()> {
-    if let Some(ref name) = input.name {
-        conn.execute(
-            "UPDATE operators SET name = ?1 WHERE id = ?2",
-            params![name, id],
-        )?;
-    }
-    if let Some(role) = input.role {
-        conn.execute(
-            "UPDATE operators SET role = ?1 WHERE id = ?2",
-            params![role.as_ref(), id],
-        )?;
-    }
+    UpdateBuilder::new("operators", id)
+        .set_opt("name", input.name.clone())
+        .set_opt("role", input.role.map(|r| r.as_ref().to_string()))
+        .execute(conn)?;
     Ok(())
 }
 
@@ -463,18 +502,10 @@ pub fn list_org_members(conn: &Connection, org_id: &str) -> Result<Vec<OrgMember
 }
 
 pub fn update_org_member(conn: &Connection, id: &str, input: &UpdateOrgMember) -> Result<()> {
-    if let Some(ref name) = input.name {
-        conn.execute(
-            "UPDATE org_members SET name = ?1 WHERE id = ?2",
-            params![name, id],
-        )?;
-    }
-    if let Some(role) = input.role {
-        conn.execute(
-            "UPDATE org_members SET role = ?1 WHERE id = ?2",
-            params![role.as_ref(), id],
-        )?;
-    }
+    UpdateBuilder::new("org_members", id)
+        .set_opt("name", input.name.clone())
+        .set_opt("role", input.role.map(|r| r.as_ref().to_string()))
+        .execute(conn)?;
     Ok(())
 }
 
@@ -583,33 +614,17 @@ pub fn update_project_private_key(conn: &Connection, id: &str, private_key: &[u8
 }
 
 pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Result<()> {
-    let now = now();
+    let redirect_json = input.allowed_redirect_urls.as_ref()
+        .map(|urls| serde_json::to_string(urls))
+        .transpose()?;
 
-    if let Some(ref name) = input.name {
-        conn.execute(
-            "UPDATE projects SET name = ?1, updated_at = ?2 WHERE id = ?3",
-            params![name, now, id],
-        )?;
-    }
-    if let Some(ref domain) = input.domain {
-        conn.execute(
-            "UPDATE projects SET domain = ?1, updated_at = ?2 WHERE id = ?3",
-            params![domain, now, id],
-        )?;
-    }
-    if let Some(ref license_key_prefix) = input.license_key_prefix {
-        conn.execute(
-            "UPDATE projects SET license_key_prefix = ?1, updated_at = ?2 WHERE id = ?3",
-            params![license_key_prefix, now, id],
-        )?;
-    }
-    if let Some(ref allowed_redirect_urls) = input.allowed_redirect_urls {
-        let json = serde_json::to_string(allowed_redirect_urls)?;
-        conn.execute(
-            "UPDATE projects SET allowed_redirect_urls = ?1, updated_at = ?2 WHERE id = ?3",
-            params![json, now, id],
-        )?;
-    }
+    UpdateBuilder::new("projects", id)
+        .with_updated_at()
+        .set_opt("name", input.name.clone())
+        .set_opt("domain", input.domain.clone())
+        .set_opt("license_key_prefix", input.license_key_prefix.clone())
+        .set_opt("allowed_redirect_urls", redirect_json)
+        .execute(conn)?;
     Ok(())
 }
 
@@ -738,28 +753,19 @@ pub fn list_products_for_project(conn: &Connection, project_id: &str) -> Result<
 }
 
 pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Result<()> {
-    if let Some(ref name) = input.name {
-        conn.execute("UPDATE products SET name = ?1 WHERE id = ?2", params![name, id])?;
-    }
-    if let Some(ref tier) = input.tier {
-        conn.execute("UPDATE products SET tier = ?1 WHERE id = ?2", params![tier, id])?;
-    }
-    if let Some(ref exp) = input.license_exp_days {
-        conn.execute("UPDATE products SET license_exp_days = ?1 WHERE id = ?2", params![exp, id])?;
-    }
-    if let Some(ref exp) = input.updates_exp_days {
-        conn.execute("UPDATE products SET updates_exp_days = ?1 WHERE id = ?2", params![exp, id])?;
-    }
-    if let Some(limit) = input.activation_limit {
-        conn.execute("UPDATE products SET activation_limit = ?1 WHERE id = ?2", params![limit, id])?;
-    }
-    if let Some(limit) = input.device_limit {
-        conn.execute("UPDATE products SET device_limit = ?1 WHERE id = ?2", params![limit, id])?;
-    }
-    if let Some(ref features) = input.features {
-        let json = serde_json::to_string(features)?;
-        conn.execute("UPDATE products SET features = ?1 WHERE id = ?2", params![json, id])?;
-    }
+    let features_json = input.features.as_ref()
+        .map(|f| serde_json::to_string(f))
+        .transpose()?;
+
+    UpdateBuilder::new("products", id)
+        .set_opt("name", input.name.clone())
+        .set_opt("tier", input.tier.clone())
+        .set_opt("license_exp_days", input.license_exp_days.clone())
+        .set_opt("updates_exp_days", input.updates_exp_days.clone())
+        .set_opt("activation_limit", input.activation_limit)
+        .set_opt("device_limit", input.device_limit)
+        .set_opt("features", features_json)
+        .execute(conn)?;
     Ok(())
 }
 
