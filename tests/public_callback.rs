@@ -68,10 +68,18 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
         .unwrap();
 
     // Should redirect
-    assert_eq!(response.status(), axum::http::StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::TEMPORARY_REDIRECT
+    );
 
     // Check redirect location contains status=pending
-    let location = response.headers().get("location").unwrap().to_str().unwrap();
+    let location = response
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(
         location.contains("status=pending"),
         "Redirect should include status=pending"
@@ -132,10 +140,18 @@ async fn test_callback_completed_session_redirects_with_token() {
         .unwrap();
 
     // Should redirect
-    assert_eq!(response.status(), axum::http::StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::TEMPORARY_REDIRECT
+    );
 
     // Check redirect location contains required params
-    let location = response.headers().get("location").unwrap().to_str().unwrap();
+    let location = response
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(location.contains("token="), "Redirect should include token");
     assert!(location.contains("code="), "Redirect should include code");
     assert!(
@@ -203,10 +219,18 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
         .unwrap();
 
     // Should redirect
-    assert_eq!(response.status(), axum::http::StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::TEMPORARY_REDIRECT
+    );
 
     // Check redirect location
-    let location = response.headers().get("location").unwrap().to_str().unwrap();
+    let location = response
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
 
     // Should redirect to the third-party URL
     assert!(
@@ -284,10 +308,18 @@ async fn test_callback_pending_third_party_redirect_uses_redirect_url() {
         .unwrap();
 
     // Should redirect
-    assert_eq!(response.status(), axum::http::StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::TEMPORARY_REDIRECT
+    );
 
     // Check redirect location goes to third-party URL even when pending
-    let location = response.headers().get("location").unwrap().to_str().unwrap();
+    let location = response
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(
         location.starts_with("https://myapp.example.com/activated"),
         "Should redirect to third-party URL even when pending"

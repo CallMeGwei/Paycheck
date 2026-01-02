@@ -200,9 +200,15 @@ async fn test_buy_redirect_url_not_in_allowlist_returns_error() {
             allowed_redirect_urls: vec!["https://allowed.example.com".to_string()],
         };
         let (private_key, public_key) = paycheck::jwt::generate_keypair();
-        let project =
-            queries::create_project(&conn, &org.id, &input, &private_key, &public_key, &master_key)
-                .unwrap();
+        let project = queries::create_project(
+            &conn,
+            &org.id,
+            &input,
+            &private_key,
+            &public_key,
+            &master_key,
+        )
+        .unwrap();
 
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 

@@ -2,15 +2,15 @@
 
 #![allow(dead_code)]
 
-use axum::routing::{get, post};
 use axum::Router;
+use axum::routing::{get, post};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 
 // Re-export the main library crate
 pub use paycheck::crypto::MasterKey;
-pub use paycheck::db::{init_audit_db, init_db, queries, AppState};
+pub use paycheck::db::{AppState, init_audit_db, init_db, queries};
 pub use paycheck::handlers::public::{
     deactivate_device, generate_redemption_code, get_license_info, initiate_buy, payment_callback,
     redeem_with_code, redeem_with_key, validate_license,
@@ -227,8 +227,7 @@ pub fn create_test_payment_session(
 
 /// Mark a payment session as completed and associate it with a license
 pub fn complete_payment_session(conn: &Connection, session_id: &str, license_key_id: &str) {
-    queries::try_claim_payment_session(conn, session_id)
-        .expect("Failed to claim payment session");
+    queries::try_claim_payment_session(conn, session_id).expect("Failed to claim payment session");
     queries::set_payment_session_license(conn, session_id, license_key_id)
         .expect("Failed to set payment session license");
 }

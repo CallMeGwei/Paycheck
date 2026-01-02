@@ -293,10 +293,7 @@ async fn test_validate_with_wrong_project_returns_invalid() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!(
-                    "/validate?project_id=wrong-project-id&jti={}",
-                    jti
-                ))
+                .uri(format!("/validate?project_id=wrong-project-id&jti={}", jti))
                 .body(Body::empty())
                 .unwrap(),
         )

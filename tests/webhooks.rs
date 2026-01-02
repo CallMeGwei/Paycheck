@@ -4,7 +4,7 @@ mod common;
 
 use common::*;
 use paycheck::handlers::webhooks::common::{
-    process_cancellation, process_checkout, process_renewal, CheckoutData,
+    CheckoutData, process_cancellation, process_checkout, process_renewal,
 };
 use paycheck::models::{LemonSqueezyConfig, StripeConfig};
 use paycheck::payments::{LemonSqueezyClient, StripeClient};
@@ -757,7 +757,10 @@ fn test_checkout_perpetual_license() {
     .unwrap()
     .unwrap();
 
-    assert!(license.expires_at.is_none(), "Perpetual license has no expiration");
+    assert!(
+        license.expires_at.is_none(),
+        "Perpetual license has no expiration"
+    );
     assert!(
         license.updates_expires_at.is_none(),
         "Perpetual license has no updates expiration"
@@ -898,7 +901,7 @@ fn test_cancellation_returns_ok_without_modifying_license() {
 
 // ============ Stripe HTTP Handler Tests ============
 
-use axum::{body::Body, http::Request, routing::post, Router};
+use axum::{Router, body::Body, http::Request, routing::post};
 use paycheck::handlers::webhooks::{handle_lemonsqueezy_webhook, handle_stripe_webhook};
 use serde_json::json;
 use tower::ServiceExt;

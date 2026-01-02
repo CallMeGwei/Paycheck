@@ -3,7 +3,7 @@
 //! These tests verify the business logic and response formats for operator-level
 //! API endpoints, complementing the authorization tests in auth.rs.
 
-use axum::{body::Body, http::Request, Router};
+use axum::{Router, body::Body, http::Request};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -718,7 +718,9 @@ mod organization_tests {
 
         // Verify config was encrypted and stored
         let conn = state.db.get().unwrap();
-        let org = queries::get_organization_by_id(&conn, &org_id).unwrap().unwrap();
+        let org = queries::get_organization_by_id(&conn, &org_id)
+            .unwrap()
+            .unwrap();
         let stripe_config = org.decrypt_stripe_config(&master_key).unwrap();
         assert!(stripe_config.is_some());
         let config = stripe_config.unwrap();
@@ -865,7 +867,10 @@ mod payment_config_tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/operators/organizations/{}/payment-config", org_id))
+                    .uri(format!(
+                        "/operators/organizations/{}/payment-config",
+                        org_id
+                    ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -909,7 +914,10 @@ mod payment_config_tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/operators/organizations/{}/payment-config", org_id))
+                    .uri(format!(
+                        "/operators/organizations/{}/payment-config",
+                        org_id
+                    ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -951,7 +959,10 @@ mod payment_config_tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/operators/organizations/{}/payment-config", org_id))
+                    .uri(format!(
+                        "/operators/organizations/{}/payment-config",
+                        org_id
+                    ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
