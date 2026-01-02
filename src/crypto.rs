@@ -75,7 +75,7 @@ impl MasterKey {
 
     /// Derive a per-project data encryption key using HKDF.
     fn derive_dek(&self, project_id: &str) -> [u8; 32] {
-        let hk = Hkdf::<Sha256>::new(None, &self.key);
+        let hk = Hkdf::<Sha256>::new(Some(b"paycheck-v1"), &self.key);
         let mut dek = [0u8; 32];
         // Using project_id as the info parameter ensures each project gets a unique DEK
         hk.expand(project_id.as_bytes(), &mut dek)
@@ -150,9 +150,10 @@ impl MasterKey {
 }
 
 /// Hash a secret for database lookups (license keys, API keys, redemption codes).
-/// Uses SHA-256, returns lowercase hex string.
+/// Uses SHA-256 with application salt, returns lowercase hex string.
 pub fn hash_secret(input: &str) -> String {
     let mut hasher = Sha256::new();
+    hasher.update(b"paycheck-v1:");
     hasher.update(input.as_bytes());
     hex::encode(hasher.finalize())
 }
