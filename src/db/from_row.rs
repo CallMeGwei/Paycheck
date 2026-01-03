@@ -54,7 +54,9 @@ pub const PROJECT_COLS: &str = "id, org_id, name, domain, license_key_prefix, pr
 
 pub const PROJECT_MEMBER_COLS: &str = "id, org_member_id, project_id, role, created_at";
 
-pub const PRODUCT_COLS: &str = "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at, stripe_price_id, price_cents, currency, ls_variant_id";
+pub const PRODUCT_COLS: &str = "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at";
+
+pub const PAYMENT_CONFIG_COLS: &str = "id, product_id, provider, stripe_price_id, price_cents, currency, ls_variant_id, created_at, updated_at";
 
 /// Columns for license_keys table.
 /// Note: encrypted_key requires decryption with MasterKey, so use LicenseKeyRow
@@ -180,10 +182,22 @@ impl FromRow for Product {
             device_limit: row.get(7)?,
             features: serde_json::from_str(&features_str).unwrap_or_default(),
             created_at: row.get(9)?,
-            stripe_price_id: row.get(10)?,
-            price_cents: row.get(11)?,
-            currency: row.get(12)?,
-            ls_variant_id: row.get(13)?,
+        })
+    }
+}
+
+impl FromRow for ProductPaymentConfig {
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(ProductPaymentConfig {
+            id: row.get(0)?,
+            product_id: row.get(1)?,
+            provider: row.get(2)?,
+            stripe_price_id: row.get(3)?,
+            price_cents: row.get(4)?,
+            currency: row.get(5)?,
+            ls_variant_id: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
         })
     }
 }

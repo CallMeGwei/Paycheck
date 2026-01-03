@@ -3,11 +3,12 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::db::{AppState, queries};
+use crate::db::{queries, AppState};
+use crate::db::queries::ProductWithPaymentConfig;
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, CreateProduct, Product, UpdateProduct};
+use crate::models::{ActorType, CreateProduct, UpdateProduct};
 use crate::util::audit_log;
 
 #[derive(serde::Deserialize)]
@@ -23,7 +24,7 @@ pub async fn create_product(
     Path(path): Path<crate::middleware::OrgProjectPath>,
     headers: HeaderMap,
     Json(input): Json<CreateProduct>,
-) -> Result<Json<Product>> {
+) -> Result<Json<ProductWithPaymentConfig>> {
     if !ctx.can_write_project() {
         return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
@@ -46,27 +47,31 @@ pub async fn create_product(
         Some(&path.project_id),
     )?;
 
-    Ok(Json(product))
+    // Return with empty payment config (none configured yet)
+    Ok(Json(ProductWithPaymentConfig {
+        product,
+        payment_config: vec![],
+    }))
 }
 
 pub async fn list_products(
     State(state): State<AppState>,
     Path(path): Path<crate::middleware::OrgProjectPath>,
-) -> Result<Json<Vec<Product>>> {
+) -> Result<Json<Vec<ProductWithPaymentConfig>>> {
     let conn = state.db.get()?;
-    let products = queries::list_products_for_project(&conn, &path.project_id)?;
+    let products = queries::list_products_with_config(&conn, &path.project_id)?;
     Ok(Json(products))
 }
 
 pub async fn get_product(
     State(state): State<AppState>,
     Path(path): Path<ProductPath>,
-) -> Result<Json<Product>> {
+) -> Result<Json<ProductWithPaymentConfig>> {
     let conn = state.db.get()?;
-    let product = queries::get_product_by_id(&conn, &path.id)?
+    let product = queries::get_product_with_config(&conn, &path.id)?
         .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
 
-    if product.project_id != path.project_id {
+    if product.product.project_id != path.project_id {
         return Err(AppError::NotFound("Product not found".into()));
     }
 
@@ -79,7 +84,7 @@ pub async fn update_product(
     Path(path): Path<ProductPath>,
     headers: HeaderMap,
     Json(input): Json<UpdateProduct>,
-) -> Result<Json<Product>> {
+) -> Result<Json<ProductWithPaymentConfig>> {
     if !ctx.can_write_project() {
         return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
@@ -110,7 +115,7 @@ pub async fn update_product(
         Some(&path.project_id),
     )?;
 
-    let product = queries::get_product_by_id(&conn, &path.id)?
+    let product = queries::get_product_with_config(&conn, &path.id)?
         .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
 
     Ok(Json(product))

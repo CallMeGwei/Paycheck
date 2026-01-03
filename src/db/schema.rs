@@ -79,14 +79,30 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             activation_limit INTEGER NOT NULL DEFAULT 0,
             device_limit INTEGER NOT NULL DEFAULT 0,
             features TEXT NOT NULL DEFAULT '[]',
-            created_at INTEGER NOT NULL,
-            -- Payment provider config
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_products_project ON products(project_id);
+
+        -- Product payment config (payment provider settings per product)
+        CREATE TABLE IF NOT EXISTS product_payment_config (
+            id TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL CHECK (provider IN ('stripe', 'lemonsqueezy')),
+
+            -- Stripe fields
             stripe_price_id TEXT,
             price_cents INTEGER,
             currency TEXT,
-            ls_variant_id TEXT
+
+            -- LemonSqueezy fields
+            ls_variant_id TEXT,
+
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+
+            UNIQUE(product_id, provider)
         );
-        CREATE INDEX IF NOT EXISTS idx_products_project ON products(project_id);
+        CREATE INDEX IF NOT EXISTS idx_payment_config_product ON product_payment_config(product_id);
 
         -- License keys
         -- encrypted_key: AES-256-GCM encrypted with project DEK (derived from project_id)

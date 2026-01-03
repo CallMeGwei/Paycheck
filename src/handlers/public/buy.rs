@@ -96,6 +96,19 @@ pub async fn initiate_buy(
         }
     };
 
+    // Get payment config for this product and provider
+    let provider_str = match provider {
+        PaymentProvider::Stripe => "stripe",
+        PaymentProvider::LemonSqueezy => "lemonsqueezy",
+    };
+    let payment_config = queries::get_payment_config(&conn, &product.id, provider_str)?
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "No payment config for provider '{}' on this product",
+                provider_str
+            ))
+        })?;
+
     // Create payment session (NO device info - that comes at activation time)
     let session = queries::create_payment_session(
         &conn,
@@ -110,20 +123,20 @@ pub async fn initiate_buy(
     let callback_url = format!("{}/callback?session={}", state.base_url, session.id);
     let cancel_url = format!("{}/cancel", state.base_url);
 
-    // Create checkout with the appropriate provider, using product config
+    // Create checkout with the appropriate provider, using payment config
     let checkout_url = match provider {
         PaymentProvider::Stripe => {
             let config = org
                 .decrypt_stripe_config(&state.master_key)?
                 .ok_or_else(|| AppError::BadRequest("Stripe not configured".into()))?;
 
-            // Get price from product config
-            let price_cents = product.price_cents.ok_or_else(|| {
+            // Get price from payment config
+            let price_cents = payment_config.price_cents.ok_or_else(|| {
                 AppError::BadRequest(
-                    "Product has no price_cents configured. Set it in the product settings.".into(),
+                    "Payment config has no price_cents configured.".into(),
                 )
             })? as u64;
-            let currency = product.currency.as_deref().unwrap_or("usd");
+            let currency = payment_config.currency.as_deref().unwrap_or("usd");
 
             let client = StripeClient::new(&config);
             let (_, url) = client
@@ -145,11 +158,10 @@ pub async fn initiate_buy(
                 .decrypt_ls_config(&state.master_key)?
                 .ok_or_else(|| AppError::BadRequest("LemonSqueezy not configured".into()))?;
 
-            // Get variant ID from product config
-            let variant_id = product.ls_variant_id.as_ref().ok_or_else(|| {
+            // Get variant ID from payment config
+            let variant_id = payment_config.ls_variant_id.as_ref().ok_or_else(|| {
                 AppError::BadRequest(
-                    "Product has no ls_variant_id configured. Set it in the product settings."
-                        .into(),
+                    "Payment config has no ls_variant_id configured.".into(),
                 )
             })?;
 

@@ -6,6 +6,7 @@ mod org_member;
 mod organization;
 mod payment_session;
 mod product;
+mod product_payment_config;
 mod project;
 mod project_member;
 
@@ -17,5 +18,6 @@ pub use org_member::*;
 pub use organization::*;
 pub use payment_session::*;
 pub use product::*;
+pub use product_payment_config::*;
 pub use project::*;
 pub use project_member::*;

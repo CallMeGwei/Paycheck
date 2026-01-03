@@ -641,10 +641,6 @@ mod license_tests {
                 activation_limit: 5,
                 device_limit: 3,
                 features: vec![],
-                stripe_price_id: None,
-                price_cents: Some(9999),
-                currency: Some("usd".to_string()),
-                ls_variant_id: None,
             };
             let product = queries::create_product(&conn, &project.id, &input).unwrap();
 

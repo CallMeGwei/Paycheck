@@ -336,6 +336,8 @@ async fn test_buy_accepts_optional_fields() {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+        // Create payment config so we get past payment config check and fail on Stripe config
+        create_test_payment_config(&conn, &product.id, "stripe", Some(1999));
 
         product_id = product.id.clone();
     }

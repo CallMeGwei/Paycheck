@@ -8,8 +8,8 @@ use crate::models::*;
 
 use super::from_row::{
     DEVICE_COLS, LICENSE_KEY_COLS, LicenseKeyRow, OPERATOR_COLS, ORG_MEMBER_COLS,
-    ORGANIZATION_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS, PROJECT_MEMBER_COLS,
-    REDEMPTION_CODE_COLS, query_all, query_one,
+    ORGANIZATION_COLS, PAYMENT_CONFIG_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS,
+    PROJECT_MEMBER_COLS, REDEMPTION_CODE_COLS, query_all, query_one,
 };
 
 fn now() -> i64 {
@@ -731,8 +731,8 @@ pub fn create_product(
     let features_json = serde_json::to_string(&input.features)?;
 
     conn.execute(
-        "INSERT INTO products (id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at, stripe_price_id, price_cents, currency, ls_variant_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO products (id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             &id,
             project_id,
@@ -743,11 +743,7 @@ pub fn create_product(
             input.activation_limit,
             input.device_limit,
             &features_json,
-            now,
-            &input.stripe_price_id,
-            input.price_cents,
-            &input.currency,
-            &input.ls_variant_id
+            now
         ],
     )?;
 
@@ -762,10 +758,6 @@ pub fn create_product(
         device_limit: input.device_limit,
         features: input.features.clone(),
         created_at: now,
-        stripe_price_id: input.stripe_price_id.clone(),
-        price_cents: input.price_cents,
-        currency: input.currency.clone(),
-        ls_variant_id: input.ls_variant_id.clone(),
     })
 }
 
@@ -803,6 +795,104 @@ pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Res
         .set_opt("activation_limit", input.activation_limit)
         .set_opt("device_limit", input.device_limit)
         .set_opt("features", features_json)
+        .execute(conn)?;
+    Ok(())
+}
+
+pub fn delete_product(conn: &Connection, id: &str) -> Result<bool> {
+    let deleted = conn.execute("DELETE FROM products WHERE id = ?1", params![id])?;
+    Ok(deleted > 0)
+}
+
+// ============ Product Payment Config ============
+
+pub fn create_payment_config(
+    conn: &Connection,
+    product_id: &str,
+    input: &CreatePaymentConfig,
+) -> Result<ProductPaymentConfig> {
+    let id = gen_id();
+    let now = now();
+
+    conn.execute(
+        "INSERT INTO product_payment_config (id, product_id, provider, stripe_price_id, price_cents, currency, ls_variant_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            &id,
+            product_id,
+            &input.provider,
+            &input.stripe_price_id,
+            input.price_cents,
+            &input.currency,
+            &input.ls_variant_id,
+            now,
+            now
+        ],
+    )?;
+
+    Ok(ProductPaymentConfig {
+        id,
+        product_id: product_id.to_string(),
+        provider: input.provider.clone(),
+        stripe_price_id: input.stripe_price_id.clone(),
+        price_cents: input.price_cents,
+        currency: input.currency.clone(),
+        ls_variant_id: input.ls_variant_id.clone(),
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+pub fn get_payment_config(
+    conn: &Connection,
+    product_id: &str,
+    provider: &str,
+) -> Result<Option<ProductPaymentConfig>> {
+    query_one(
+        conn,
+        &format!(
+            "SELECT {} FROM product_payment_config WHERE product_id = ?1 AND provider = ?2",
+            PAYMENT_CONFIG_COLS
+        ),
+        &[&product_id, &provider],
+    )
+}
+
+pub fn get_payment_config_by_id(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<ProductPaymentConfig>> {
+    query_one(
+        conn,
+        &format!(
+            "SELECT {} FROM product_payment_config WHERE id = ?1",
+            PAYMENT_CONFIG_COLS
+        ),
+        &[&id],
+    )
+}
+
+pub fn get_payment_configs_for_product(
+    conn: &Connection,
+    product_id: &str,
+) -> Result<Vec<ProductPaymentConfig>> {
+    query_all(
+        conn,
+        &format!(
+            "SELECT {} FROM product_payment_config WHERE product_id = ?1 ORDER BY created_at",
+            PAYMENT_CONFIG_COLS
+        ),
+        &[&product_id],
+    )
+}
+
+pub fn update_payment_config(
+    conn: &Connection,
+    id: &str,
+    input: &UpdatePaymentConfig,
+) -> Result<()> {
+    UpdateBuilder::new("product_payment_config", id)
+        .with_updated_at()
         .set_opt("stripe_price_id", input.stripe_price_id.clone())
         .set_opt("price_cents", input.price_cents)
         .set_opt("currency", input.currency.clone())
@@ -811,9 +901,90 @@ pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Res
     Ok(())
 }
 
-pub fn delete_product(conn: &Connection, id: &str) -> Result<bool> {
-    let deleted = conn.execute("DELETE FROM products WHERE id = ?1", params![id])?;
+pub fn delete_payment_config(conn: &Connection, id: &str) -> Result<bool> {
+    let deleted = conn.execute(
+        "DELETE FROM product_payment_config WHERE id = ?1",
+        params![id],
+    )?;
     Ok(deleted > 0)
+}
+
+/// Product with its payment configurations included inline.
+/// Used for API responses to avoid N+1 queries.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProductWithPaymentConfig {
+    #[serde(flatten)]
+    pub product: Product,
+    pub payment_config: Vec<ProductPaymentConfig>,
+}
+
+pub fn get_product_with_config(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<ProductWithPaymentConfig>> {
+    let product = get_product_by_id(conn, id)?;
+    match product {
+        Some(product) => {
+            let payment_config = get_payment_configs_for_product(conn, &product.id)?;
+            Ok(Some(ProductWithPaymentConfig {
+                product,
+                payment_config,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
+pub fn list_products_with_config(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProductWithPaymentConfig>> {
+    // Get all products for the project
+    let products = list_products_for_project(conn, project_id)?;
+
+    if products.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Get all payment configs for these products in one query
+    let product_ids: Vec<&str> = products.iter().map(|p| p.id.as_str()).collect();
+    let placeholders: Vec<String> = (1..=product_ids.len()).map(|i| format!("?{}", i)).collect();
+    let sql = format!(
+        "SELECT {} FROM product_payment_config WHERE product_id IN ({}) ORDER BY product_id, created_at",
+        PAYMENT_CONFIG_COLS,
+        placeholders.join(", ")
+    );
+
+    let params: Vec<&dyn rusqlite::ToSql> = product_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::ToSql)
+        .collect();
+
+    let configs: Vec<ProductPaymentConfig> = query_all(conn, &sql, &params)?;
+
+    // Group configs by product_id
+    let mut config_map: std::collections::HashMap<String, Vec<ProductPaymentConfig>> =
+        std::collections::HashMap::new();
+    for config in configs {
+        config_map
+            .entry(config.product_id.clone())
+            .or_default()
+            .push(config);
+    }
+
+    // Build result
+    let result = products
+        .into_iter()
+        .map(|product| {
+            let payment_config = config_map.remove(&product.id).unwrap_or_default();
+            ProductWithPaymentConfig {
+                product,
+                payment_config,
+            }
+        })
+        .collect();
+
+    Ok(result)
 }
 
 // ============ License Keys ============

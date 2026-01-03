@@ -11,8 +11,8 @@ use paycheck::db::{AppState, create_pool, init_audit_db, init_db, queries};
 use paycheck::handlers;
 use paycheck::jwt;
 use paycheck::models::{
-    self, ActorType, CreateOperator, CreateOrgMember, CreateProduct, CreateProject, OperatorRole,
-    OrgMemberRole,
+    self, ActorType, CreateOperator, CreateOrgMember, CreatePaymentConfig, CreateProduct,
+    CreateProject, OperatorRole, OrgMemberRole,
 };
 
 #[derive(Parser, Debug)]
@@ -261,11 +261,6 @@ fn seed_dev_data(state: &AppState) {
             "cloud-sync".to_string(),
             "priority-support".to_string(),
         ],
-        // Payment config - set in product settings
-        stripe_price_id: None,
-        price_cents: Some(4999), // $49.99
-        currency: Some("usd".to_string()),
-        ls_variant_id: None,
     };
     let product = queries::create_product(&conn, &project.id, &product_input)
         .expect("Failed to create dev product");
@@ -289,6 +284,24 @@ fn seed_dev_data(state: &AppState) {
     tracing::info!("Product: {} (id: {})", product.name, product.id);
     tracing::info!("Product Tier: {}", product.tier);
     tracing::info!("Product Features: {:?}", product.features);
+
+    // 6. Create payment config for product
+    let payment_config_input = CreatePaymentConfig {
+        provider: "stripe".to_string(),
+        stripe_price_id: None,
+        price_cents: Some(4999), // $49.99
+        currency: Some("usd".to_string()),
+        ls_variant_id: None,
+    };
+    let payment_config = queries::create_payment_config(&conn, &product.id, &payment_config_input)
+        .expect("Failed to create dev payment config");
+
+    tracing::info!(
+        "Payment Config: {} (provider: {}, price: ${:.2})",
+        payment_config.id,
+        payment_config.provider,
+        payment_config.price_cents.unwrap_or(0) as f64 / 100.0
+    );
     tracing::info!("");
 
     tracing::info!("============================================");

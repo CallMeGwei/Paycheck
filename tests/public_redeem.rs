@@ -673,10 +673,6 @@ async fn test_redeem_key_device_limit_exceeded_returns_error() {
             activation_limit: 10,
             device_limit: 1, // Only 1 device allowed
             features: vec![],
-            stripe_price_id: None,
-            price_cents: Some(4999),
-            currency: Some("usd".to_string()),
-            ls_variant_id: None,
         };
         let product =
             queries::create_product(&conn, &project.id, &input).expect("Failed to create product");

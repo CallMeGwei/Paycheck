@@ -1,6 +1,7 @@
 mod audit_logs;
 mod licenses;
 mod members;
+mod product_payment_config;
 mod products;
 mod project_members;
 mod projects;
@@ -8,6 +9,7 @@ mod projects;
 pub use audit_logs::*;
 pub use licenses::*;
 pub use members::*;
+pub use product_payment_config::*;
 pub use products::*;
 pub use project_members::*;
 pub use projects::*;
@@ -84,6 +86,27 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route(
             "/orgs/{org_id}/projects/{project_id}/products/{id}",
             delete(delete_product),
+        )
+        // Product payment config
+        .route(
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config",
+            post(create_payment_config),
+        )
+        .route(
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config",
+            get(list_payment_configs),
+        )
+        .route(
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{id}",
+            get(get_payment_config_handler),
+        )
+        .route(
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{id}",
+            put(update_payment_config_handler),
+        )
+        .route(
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{id}",
+            delete(delete_payment_config_handler),
         )
         // Licenses
         .route(

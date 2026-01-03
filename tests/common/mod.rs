@@ -104,13 +104,30 @@ pub fn create_test_product(conn: &Connection, project_id: &str, name: &str, tier
         activation_limit: 5,
         device_limit: 3,
         features: vec!["feature1".to_string(), "feature2".to_string()],
-        // Payment config
-        stripe_price_id: None,
-        price_cents: Some(1999),
-        currency: Some("usd".to_string()),
-        ls_variant_id: None,
     };
     queries::create_product(conn, project_id, &input).expect("Failed to create test product")
+}
+
+/// Create a test payment config for a product
+pub fn create_test_payment_config(
+    conn: &Connection,
+    product_id: &str,
+    provider: &str,
+    price_cents: Option<i64>,
+) -> ProductPaymentConfig {
+    let input = CreatePaymentConfig {
+        provider: provider.to_string(),
+        stripe_price_id: None,
+        price_cents,
+        currency: Some("usd".to_string()),
+        ls_variant_id: if provider == "lemonsqueezy" {
+            Some("test_variant_123".to_string())
+        } else {
+            None
+        },
+    };
+    queries::create_payment_config(conn, product_id, &input)
+        .expect("Failed to create test payment config")
 }
 
 /// Create a test license key

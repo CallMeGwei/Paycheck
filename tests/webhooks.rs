@@ -639,10 +639,6 @@ fn test_checkout_creates_license_with_product_expirations() {
         activation_limit: 5,
         device_limit: 3,
         features: vec![],
-        stripe_price_id: None,
-        price_cents: Some(4999),
-        currency: Some("usd".to_string()),
-        ls_variant_id: None,
     };
     let product = queries::create_product(&conn, &project.id, &input).unwrap();
 
@@ -709,10 +705,6 @@ fn test_checkout_perpetual_license() {
         activation_limit: 5,
         device_limit: 3,
         features: vec![],
-        stripe_price_id: None,
-        price_cents: Some(9999),
-        currency: Some("usd".to_string()),
-        ls_variant_id: None,
     };
     let product = queries::create_product(&conn, &project.id, &input).unwrap();
 
