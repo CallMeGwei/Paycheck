@@ -4,28 +4,22 @@ use serde::{Deserialize, Serialize};
 use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::Json;
-use crate::models::{CreatePaymentSession, DeviceType};
+use crate::models::CreatePaymentSession;
 use crate::payments::{LemonSqueezyClient, PaymentProvider, StripeClient};
 
+/// Simplified BuyRequest - Paycheck knows the product pricing details.
+/// Device info is NOT required here - purchase ≠ activation.
 #[derive(Debug, Deserialize)]
 pub struct BuyRequest {
-    pub project_id: String,
+    /// Product ID - Paycheck looks up project and pricing from this
     pub product_id: String,
-    pub device_id: String,
-    pub device_type: String,
-    /// Developer-managed customer identifier (flows through to license)
-    #[serde(default)]
-    pub customer_id: Option<String>,
+    /// Optional: explicit payment provider (auto-detected if not specified)
     #[serde(default)]
     pub provider: Option<String>,
-    /// Stripe: price in cents; LemonSqueezy: variant ID
+    /// Optional: developer-managed customer identifier (flows through to license)
     #[serde(default)]
-    pub variant_id: Option<String>,
-    #[serde(default)]
-    pub price_cents: Option<u64>,
-    #[serde(default)]
-    pub currency: Option<String>,
-    /// Optional redirect URL after payment (must be in project's allowed_redirect_urls)
+    pub customer_id: Option<String>,
+    /// Optional: redirect URL after payment (must be in project's allowed_redirect_urls)
     #[serde(default)]
     pub redirect: Option<String>,
 }
@@ -42,15 +36,12 @@ pub async fn initiate_buy(
 ) -> Result<Json<BuyResponse>> {
     let conn = state.db.get()?;
 
-    // Validate device type
-    let device_type = request
-        .device_type
-        .parse::<DeviceType>()
-        .ok()
-        .ok_or_else(|| AppError::BadRequest("Invalid device_type".into()))?;
+    // Get product - this gives us project_id and payment config
+    let product = queries::get_product_by_id(&conn, &request.product_id)?
+        .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
 
-    // Get project
-    let project = queries::get_project_by_id(&conn, &request.project_id)?
+    // Get project from product
+    let project = queries::get_project_by_id(&conn, &product.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     // Validate redirect URL against project's allowlist
@@ -74,18 +65,9 @@ pub async fn initiate_buy(
     let org = queries::get_organization_by_id(&conn, &project.org_id)?
         .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
 
-    // Get product
-    let product = queries::get_product_by_id(&conn, &request.product_id)?
-        .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
-
-    // Verify product belongs to project
-    if product.project_id != request.project_id {
-        return Err(AppError::NotFound("Product not found".into()));
-    }
-
     // Determine payment provider
     let provider = if let Some(ref p) = request.provider {
-        // Explicit provider specified in query
+        // Explicit provider specified
         p.parse::<PaymentProvider>()
             .ok()
             .ok_or_else(|| AppError::BadRequest("Invalid provider".into()))?
@@ -103,7 +85,7 @@ pub async fn initiate_buy(
             (false, true) => PaymentProvider::LemonSqueezy,
             (true, true) => {
                 return Err(AppError::BadRequest(
-                    "Multiple payment providers configured. Specify 'provider' query parameter (stripe or lemonsqueezy).".into()
+                    "Multiple payment providers configured. Specify 'provider' parameter (stripe or lemonsqueezy).".into()
                 ));
             }
             (false, false) => {
@@ -114,13 +96,11 @@ pub async fn initiate_buy(
         }
     };
 
-    // Create payment session (customer_id flows through to license on webhook)
+    // Create payment session (NO device info - that comes at activation time)
     let session = queries::create_payment_session(
         &conn,
         &CreatePaymentSession {
             product_id: request.product_id.clone(),
-            device_id: request.device_id.clone(),
-            device_type,
             customer_id: request.customer_id.clone(),
             redirect_url: validated_redirect,
         },
@@ -130,24 +110,27 @@ pub async fn initiate_buy(
     let callback_url = format!("{}/callback?session={}", state.base_url, session.id);
     let cancel_url = format!("{}/cancel", state.base_url);
 
-    // Create checkout with the appropriate provider
+    // Create checkout with the appropriate provider, using product config
     let checkout_url = match provider {
         PaymentProvider::Stripe => {
             let config = org
                 .decrypt_stripe_config(&state.master_key)?
                 .ok_or_else(|| AppError::BadRequest("Stripe not configured".into()))?;
 
-            let price_cents = request
-                .price_cents
-                .ok_or_else(|| AppError::BadRequest("price_cents required for Stripe".into()))?;
-            let currency = request.currency.as_deref().unwrap_or("usd");
+            // Get price from product config
+            let price_cents = product.price_cents.ok_or_else(|| {
+                AppError::BadRequest(
+                    "Product has no price_cents configured. Set it in the product settings.".into(),
+                )
+            })? as u64;
+            let currency = product.currency.as_deref().unwrap_or("usd");
 
             let client = StripeClient::new(&config);
             let (_, url) = client
                 .create_checkout_session(
                     &session.id,
-                    &request.project_id,
-                    &request.product_id,
+                    &product.project_id,
+                    &product.id,
                     &product.name,
                     price_cents,
                     currency,
@@ -162,16 +145,20 @@ pub async fn initiate_buy(
                 .decrypt_ls_config(&state.master_key)?
                 .ok_or_else(|| AppError::BadRequest("LemonSqueezy not configured".into()))?;
 
-            let variant_id = request.variant_id.as_ref().ok_or_else(|| {
-                AppError::BadRequest("variant_id required for LemonSqueezy".into())
+            // Get variant ID from product config
+            let variant_id = product.ls_variant_id.as_ref().ok_or_else(|| {
+                AppError::BadRequest(
+                    "Product has no ls_variant_id configured. Set it in the product settings."
+                        .into(),
+                )
             })?;
 
             let client = LemonSqueezyClient::new(&config);
             let (_, url) = client
                 .create_checkout(
                     &session.id,
-                    &request.project_id,
-                    &request.product_id,
+                    &product.project_id,
+                    &product.id,
                     variant_id,
                     &callback_url,
                 )

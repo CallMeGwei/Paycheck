@@ -395,6 +395,10 @@ async fn test_license_shows_correct_limits() {
             activation_limit: 10,
             device_limit: 5,
             features: vec![],
+            stripe_price_id: None,
+            price_cents: Some(4999),
+            currency: Some("usd".to_string()),
+            ls_variant_id: None,
         };
         let product =
             queries::create_product(&conn, &project.id, &input).expect("Failed to create product");

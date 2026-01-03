@@ -127,8 +127,9 @@ pub trait WebhookProvider: Send + Sync {
     fn parse_event(&self, body: &Bytes) -> Result<WebhookEvent, WebhookResult>;
 }
 
-/// Process a checkout completion event - creates license and device.
+/// Process a checkout completion event - creates license only.
 ///
+/// Device creation is deferred to activation time (/redeem/key endpoint).
 /// Uses atomic compare-and-swap to prevent race conditions where multiple concurrent
 /// webhook deliveries could create multiple licenses from a single payment.
 pub fn process_checkout(
@@ -193,21 +194,8 @@ pub fn process_checkout(
         // Non-fatal - callback will fall back to search
     }
 
-    // Create device atomically (includes activation count increment in transaction)
-    let jti = uuid::Uuid::new_v4().to_string();
-    if let Err(e) = queries::acquire_device_atomic(
-        conn,
-        &license.id,
-        &payment_session.device_id,
-        payment_session.device_type,
-        &jti,
-        None,
-        product.device_limit,
-        product.activation_limit,
-    ) {
-        tracing::error!("Failed to create device: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create device");
-    }
+    // NOTE: Device creation is deferred to activation time (/redeem/key endpoint).
+    // This separates purchase from activation - user may buy on phone, activate on desktop.
 
     tracing::info!(
         "{} checkout completed: session={}, license=[REDACTED], subscription={:?}",

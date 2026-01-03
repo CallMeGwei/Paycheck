@@ -104,6 +104,11 @@ pub fn create_test_product(conn: &Connection, project_id: &str, name: &str, tier
         activation_limit: 5,
         device_limit: 3,
         features: vec!["feature1".to_string(), "feature2".to_string()],
+        // Payment config
+        stripe_price_id: None,
+        price_cents: Some(1999),
+        currency: Some("usd".to_string()),
+        ls_variant_id: None,
     };
     queries::create_product(conn, project_id, &input).expect("Failed to create test product")
 }
@@ -206,19 +211,16 @@ pub fn public_app(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Create a test payment session
+/// Create a test payment session.
+/// Note: Device info is NOT stored in payment sessions - purchase ≠ activation.
 pub fn create_test_payment_session(
     conn: &Connection,
     product_id: &str,
-    device_id: &str,
-    device_type: DeviceType,
     customer_id: Option<&str>,
     redirect_url: Option<&str>,
 ) -> PaymentSession {
     let input = CreatePaymentSession {
         product_id: product_id.to_string(),
-        device_id: device_id.to_string(),
-        device_type,
         customer_id: customer_id.map(|s| s.to_string()),
         redirect_url: redirect_url.map(|s| s.to_string()),
     };

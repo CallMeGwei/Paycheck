@@ -79,7 +79,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             activation_limit INTEGER NOT NULL DEFAULT 0,
             device_limit INTEGER NOT NULL DEFAULT 0,
             features TEXT NOT NULL DEFAULT '[]',
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            -- Payment provider config
+            stripe_price_id TEXT,
+            price_cents INTEGER,
+            currency TEXT,
+            ls_variant_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_products_project ON products(project_id);
 
@@ -142,11 +147,10 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_devices_jti ON devices(jti);
 
         -- Payment sessions (temporary, for tracking buy flow)
+        -- Device info removed: purchase ≠ activation. Device created at /redeem time.
         CREATE TABLE IF NOT EXISTS payment_sessions (
             id TEXT PRIMARY KEY,
             product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            device_id TEXT NOT NULL,
-            device_type TEXT NOT NULL CHECK (device_type IN ('uuid', 'machine')),
             customer_id TEXT,
             redirect_url TEXT,
             created_at INTEGER NOT NULL,

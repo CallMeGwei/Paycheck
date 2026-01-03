@@ -54,7 +54,7 @@ pub const PROJECT_COLS: &str = "id, org_id, name, domain, license_key_prefix, pr
 
 pub const PROJECT_MEMBER_COLS: &str = "id, org_member_id, project_id, role, created_at";
 
-pub const PRODUCT_COLS: &str = "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at";
+pub const PRODUCT_COLS: &str = "id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at, stripe_price_id, price_cents, currency, ls_variant_id";
 
 /// Columns for license_keys table.
 /// Note: encrypted_key requires decryption with MasterKey, so use LicenseKeyRow
@@ -64,7 +64,7 @@ pub const LICENSE_KEY_COLS: &str = "id, key_hash, encrypted_key, project_id, pro
 pub const DEVICE_COLS: &str =
     "id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at";
 
-pub const PAYMENT_SESSION_COLS: &str = "id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed, license_key_id";
+pub const PAYMENT_SESSION_COLS: &str = "id, product_id, customer_id, redirect_url, created_at, completed, license_key_id";
 
 pub const REDEMPTION_CODE_COLS: &str =
     "id, code_hash, license_key_id, expires_at, used, created_at";
@@ -180,6 +180,10 @@ impl FromRow for Product {
             device_limit: row.get(7)?,
             features: serde_json::from_str(&features_str).unwrap_or_default(),
             created_at: row.get(9)?,
+            stripe_price_id: row.get(10)?,
+            price_cents: row.get(11)?,
+            currency: row.get(12)?,
+            ls_variant_id: row.get(13)?,
         })
     }
 }
@@ -249,13 +253,11 @@ impl FromRow for PaymentSession {
         Ok(PaymentSession {
             id: row.get(0)?,
             product_id: row.get(1)?,
-            device_id: row.get(2)?,
-            device_type: row.get::<_, String>(3)?.parse::<DeviceType>().unwrap(),
-            customer_id: row.get(4)?,
-            redirect_url: row.get(5)?,
-            created_at: row.get(6)?,
-            completed: row.get::<_, i32>(7)? != 0,
-            license_key_id: row.get(8)?,
+            customer_id: row.get(2)?,
+            redirect_url: row.get(3)?,
+            created_at: row.get(4)?,
+            completed: row.get::<_, i32>(5)? != 0,
+            license_key_id: row.get(6)?,
         })
     }
 }

@@ -1,27 +1,28 @@
 use axum::{extract::State, response::Redirect};
-use chrono::Utc;
 use serde::Deserialize;
 
 use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::Query;
-use crate::jwt::{self, LicenseClaims};
-use crate::util::LicenseExpirations;
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackQuery {
     pub session: String,
 }
 
-/// Callback after payment - redirects to configured URL with token
+/// Callback after payment - redirects with license key for activation.
 ///
-/// If session has a redirect_url (validated at /buy time), redirects there.
-/// Otherwise, redirects to the operator-configured success page.
+/// This endpoint is called after a successful payment. It returns the license key
+/// which the user must then activate via /redeem/key with their device info.
 ///
 /// Query params appended to redirect:
-/// - token: The JWT for the activated device
-/// - code: A short-lived redemption code for future activations
-/// - license_key: The permanent license key (only for success page, not third-party redirects)
+/// - license_key: The permanent license key
+/// - code: A short-lived redemption code for URL-safe activation
+/// - status: "success" or "pending"
+/// - project_id: The project ID (needed for activation)
+///
+/// Note: No JWT is returned here because the user hasn't activated a device yet.
+/// The user must call /redeem/key with device_id and device_type to get a JWT.
 pub async fn payment_callback(
     State(state): State<AppState>,
     Query(query): Query<CallbackQuery>,
@@ -60,56 +61,18 @@ pub async fn payment_callback(
     let license = queries::get_license_key_by_id(&conn, &license_id, &state.master_key)?
         .ok_or_else(|| AppError::Internal("License not found".into()))?;
 
-    // Get the device to find JTI
-    let device = queries::get_device_for_license(&conn, &license.id, &session.device_id)?
-        .ok_or_else(|| AppError::Internal("Device not found".into()))?;
-
-    // Get project for signing
-    let project = queries::get_project_by_id(&conn, &product.project_id)?
-        .ok_or_else(|| AppError::Internal("Project not found".into()))?;
-
-    // Build fresh JWT
-    let now = Utc::now().timestamp();
-    let exps = LicenseExpirations::from_product(&product, now);
-
-    let claims = LicenseClaims {
-        license_exp: exps.license_exp,
-        updates_exp: exps.updates_exp,
-        tier: product.tier.clone(),
-        features: product.features.clone(),
-        device_id: session.device_id.clone(),
-        device_type: match session.device_type {
-            crate::models::DeviceType::Uuid => "uuid".to_string(),
-            crate::models::DeviceType::Machine => "machine".to_string(),
-        },
-        product_id: product.id.clone(),
-    };
-
-    // Decrypt the private key and sign the JWT
-    let private_key = state
-        .master_key
-        .decrypt_private_key(&project.id, &project.private_key)?;
-    let token = jwt::sign_claims(
-        &claims,
-        &private_key,
-        &license.id,
-        &project.domain,
-        &device.jti,
-    )?;
-
-    // Create a short-lived redemption code for future activations
+    // Create a short-lived redemption code for URL-safe activation
     let redemption_code = queries::create_redemption_code(&conn, &license.id)?;
 
-    // Build redirect URL with token and code
-    // For third-party redirects, we don't expose the license key in URL
-    // For the success page, we include it so it can be displayed
+    // Build redirect URL with license key and redemption code
+    // No JWT - user must activate via /redeem/key with device info
     let redirect_url = if session.redirect_url.is_some() {
-        // Third-party redirect: token + redemption code only
+        // Third-party redirect: redemption code only (safer for URLs)
         append_query_params(
             base_redirect,
             &[
-                ("token", &token),
                 ("code", &redemption_code.code),
+                ("project_id", &product.project_id),
                 ("status", "success"),
             ],
         )
@@ -118,9 +81,9 @@ pub async fn payment_callback(
         append_query_params(
             base_redirect,
             &[
-                ("token", &token),
-                ("code", &redemption_code.code),
                 ("license_key", &license.key),
+                ("code", &redemption_code.code),
+                ("project_id", &product.project_id),
                 ("status", "success"),
             ],
         )

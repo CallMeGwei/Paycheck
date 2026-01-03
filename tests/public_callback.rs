@@ -1,7 +1,8 @@
 //! Tests for the GET /callback endpoint.
 //!
 //! The callback endpoint is where users are redirected after payment completion.
-//! It returns a redirect with the JWT token and redemption code.
+//! It returns a redirect with the license_key and redemption code (NOT a JWT).
+//! The user must then call /redeem/key to activate and get a JWT.
 
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
@@ -41,15 +42,8 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        // Create a payment session that's NOT completed
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        // Create a payment session that's NOT completed (no device info needed)
+        let session = create_test_payment_session(&conn, &product.id, None, None);
 
         session_id = session.id.clone();
     }
@@ -87,7 +81,7 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
 }
 
 #[tokio::test]
-async fn test_callback_completed_session_redirects_with_token() {
+async fn test_callback_completed_session_redirects_with_license_key() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
@@ -99,7 +93,7 @@ async fn test_callback_completed_session_redirects_with_token() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        // Create license and device (simulating what webhook would do)
+        // Create license (no device - that's created at activation time)
         let license = create_test_license(
             &conn,
             &project.id,
@@ -108,17 +102,9 @@ async fn test_callback_completed_session_redirects_with_token() {
             Some(future_timestamp(365)),
             &master_key,
         );
-        let _device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        // Create a payment session
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        // Create a payment session (no device info)
+        let session = create_test_payment_session(&conn, &product.id, None, None);
 
         // Complete the session (simulating webhook completion)
         complete_payment_session(&conn, &session.id, &license.id);
@@ -152,11 +138,20 @@ async fn test_callback_completed_session_redirects_with_token() {
         .unwrap()
         .to_str()
         .unwrap();
-    assert!(location.contains("token="), "Redirect should include token");
+
+    // No token - user must activate via /redeem/key
+    assert!(
+        !location.contains("token="),
+        "Callback should NOT include token (user must activate)"
+    );
     assert!(location.contains("code="), "Redirect should include code");
     assert!(
         location.contains("status=success"),
         "Redirect should include status=success"
+    );
+    assert!(
+        location.contains("project_id="),
+        "Redirect should include project_id"
     );
     // For success page (no redirect_url), license_key should be included
     assert!(
@@ -178,7 +173,7 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        // Create license and device
+        // Create license (no device)
         let license = create_test_license(
             &conn,
             &project.id,
@@ -187,14 +182,11 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
             Some(future_timestamp(365)),
             &master_key,
         );
-        let _device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        // Create a payment session WITH a third-party redirect URL
+        // Create a payment session WITH a third-party redirect URL (no device info)
         let session = create_test_payment_session(
             &conn,
             &product.id,
-            "test-device",
-            DeviceType::Uuid,
             None,
             Some("https://myapp.example.com/activated"),
         );
@@ -238,14 +230,23 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
         "Should redirect to third-party URL"
     );
 
-    // Should include token and code
-    assert!(location.contains("token="), "Redirect should include token");
+    // Should include code and project_id
     assert!(location.contains("code="), "Redirect should include code");
+    assert!(
+        location.contains("project_id="),
+        "Redirect should include project_id"
+    );
 
     // Should NOT include license_key for security
     assert!(
         !location.contains("license_key="),
         "Third-party redirect should NOT include license_key"
+    );
+
+    // No token - user must activate via /redeem/key
+    assert!(
+        !location.contains("token="),
+        "Callback should NOT include token"
     );
 }
 
@@ -285,8 +286,6 @@ async fn test_callback_pending_third_party_redirect_uses_redirect_url() {
         let session = create_test_payment_session(
             &conn,
             &product.id,
-            "test-device",
-            DeviceType::Uuid,
             None,
             Some("https://myapp.example.com/activated"),
         );

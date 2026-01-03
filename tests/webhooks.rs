@@ -501,15 +501,8 @@ fn test_checkout_creates_license_and_device() {
     let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
     let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-    // Create payment session
-    let session = create_test_payment_session(
-        &conn,
-        &product.id,
-        "test-device-123",
-        DeviceType::Uuid,
-        Some("cust_test"),
-        None,
-    );
+    // Create payment session (no device info - that's at activation time)
+    let session = create_test_payment_session(&conn, &product.id, Some("cust_test"), None);
 
     let checkout_data = CheckoutData {
         session_id: session.id.clone(),
@@ -554,10 +547,14 @@ fn test_checkout_creates_license_and_device() {
         Some("cs_test_123")
     );
 
-    // Verify device was created
+    // Device creation is deferred to activation time (/redeem/key)
+    // Verify NO device was created during checkout
     let devices = queries::list_devices_for_license(&conn, &license_id).unwrap();
-    assert_eq!(devices.len(), 1);
-    assert_eq!(devices[0].device_id, "test-device-123");
+    assert_eq!(
+        devices.len(),
+        0,
+        "No device should be created at checkout - activation creates the device"
+    );
 }
 
 #[test]
@@ -571,14 +568,7 @@ fn test_checkout_concurrent_webhooks_create_only_one_license() {
     let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
     let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-    let session = create_test_payment_session(
-        &conn,
-        &product.id,
-        "test-device",
-        DeviceType::Uuid,
-        None,
-        None,
-    );
+    let session = create_test_payment_session(&conn, &product.id, None, None);
 
     let checkout_data = CheckoutData {
         session_id: session.id.clone(),
@@ -619,8 +609,15 @@ fn test_checkout_concurrent_webhooks_create_only_one_license() {
         .unwrap()
         .unwrap();
     let license_id = updated_session.license_key_id.unwrap();
+
+    // Device creation is deferred to activation time (/redeem/key)
+    // Verify NO device was created during checkout
     let devices = queries::list_devices_for_license(&conn, &license_id).unwrap();
-    assert_eq!(devices.len(), 1, "Only one device should exist");
+    assert_eq!(
+        devices.len(),
+        0,
+        "No device should be created at checkout - device is created at activation time"
+    );
 }
 
 #[test]
@@ -642,17 +639,14 @@ fn test_checkout_creates_license_with_product_expirations() {
         activation_limit: 5,
         device_limit: 3,
         features: vec![],
+        stripe_price_id: None,
+        price_cents: Some(4999),
+        currency: Some("usd".to_string()),
+        ls_variant_id: None,
     };
     let product = queries::create_product(&conn, &project.id, &input).unwrap();
 
-    let session = create_test_payment_session(
-        &conn,
-        &product.id,
-        "test-device",
-        DeviceType::Uuid,
-        None,
-        None,
-    );
+    let session = create_test_payment_session(&conn, &product.id, None, None);
 
     let checkout_data = CheckoutData {
         session_id: session.id.clone(),
@@ -715,17 +709,14 @@ fn test_checkout_perpetual_license() {
         activation_limit: 5,
         device_limit: 3,
         features: vec![],
+        stripe_price_id: None,
+        price_cents: Some(9999),
+        currency: Some("usd".to_string()),
+        ls_variant_id: None,
     };
     let product = queries::create_product(&conn, &project.id, &input).unwrap();
 
-    let session = create_test_payment_session(
-        &conn,
-        &product.id,
-        "test-device",
-        DeviceType::Uuid,
-        None,
-        None,
-    );
+    let session = create_test_payment_session(&conn, &product.id, None, None);
 
     let checkout_data = CheckoutData {
         session_id: session.id.clone(),
@@ -929,14 +920,7 @@ async fn test_stripe_webhook_checkout_completed_creates_license() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        let session = create_test_payment_session(&conn, &product.id, None, None);
 
         session_id = session.id.clone();
         project_id = project.id.clone();
@@ -1039,14 +1023,7 @@ async fn test_stripe_webhook_invalid_signature_returns_unauthorized() {
         setup_stripe_config(&conn, &org.id, &master_key);
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        let session = create_test_payment_session(&conn, &product.id, None, None);
         session_id = session.id.clone();
         project_id = project.id.clone();
     }
@@ -1102,14 +1079,7 @@ async fn test_stripe_webhook_unpaid_checkout_ignored() {
         setup_stripe_config(&conn, &org.id, &master_key);
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        let session = create_test_payment_session(&conn, &product.id, None, None);
         session_id = session.id.clone();
         project_id = project.id.clone();
     }
@@ -1362,14 +1332,7 @@ async fn test_lemonsqueezy_webhook_order_created_creates_license() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device-ls",
-            DeviceType::Machine,
-            None,
-            None,
-        );
+        let session = create_test_payment_session(&conn, &product.id, None, None);
 
         session_id = session.id.clone();
         project_id = project.id.clone();
@@ -1467,14 +1430,7 @@ async fn test_lemonsqueezy_webhook_invalid_signature_returns_unauthorized() {
         setup_lemonsqueezy_config(&conn, &org.id, &master_key);
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        let session = create_test_payment_session(&conn, &product.id, None, None);
 
         // Use session_id and project_id in payload
         let payload = json!({
@@ -1669,14 +1625,7 @@ async fn test_webhook_provider_not_configured_returns_ok() {
         // NO payment config set!
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            "test-device",
-            DeviceType::Uuid,
-            None,
-            None,
-        );
+        let session = create_test_payment_session(&conn, &product.id, None, None);
         session_id = session.id.clone();
         project_id = project.id.clone();
     }

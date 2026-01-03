@@ -515,6 +515,10 @@ fn test_update_product() {
             "feature2".to_string(),
             "feature3".to_string(),
         ]),
+        stripe_price_id: None,
+        price_cents: None,
+        currency: None,
+        ls_variant_id: None,
     };
 
     queries::update_product(&conn, &product.id, &update).expect("Update failed");

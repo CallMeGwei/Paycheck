@@ -421,6 +421,10 @@ async fn test_validate_perpetual_license_returns_valid() {
             activation_limit: 5,
             device_limit: 3,
             features: vec![],
+            stripe_price_id: None,
+            price_cents: Some(4999),
+            currency: Some("usd".to_string()),
+            ls_variant_id: None,
         };
         let product =
             queries::create_product(&conn, &project.id, &input).expect("Failed to create product");

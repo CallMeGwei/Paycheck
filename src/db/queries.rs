@@ -731,8 +731,8 @@ pub fn create_product(
     let features_json = serde_json::to_string(&input.features)?;
 
     conn.execute(
-        "INSERT INTO products (id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO products (id, project_id, name, tier, license_exp_days, updates_exp_days, activation_limit, device_limit, features, created_at, stripe_price_id, price_cents, currency, ls_variant_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             &id,
             project_id,
@@ -743,7 +743,11 @@ pub fn create_product(
             input.activation_limit,
             input.device_limit,
             &features_json,
-            now
+            now,
+            &input.stripe_price_id,
+            input.price_cents,
+            &input.currency,
+            &input.ls_variant_id
         ],
     )?;
 
@@ -758,6 +762,10 @@ pub fn create_product(
         device_limit: input.device_limit,
         features: input.features.clone(),
         created_at: now,
+        stripe_price_id: input.stripe_price_id.clone(),
+        price_cents: input.price_cents,
+        currency: input.currency.clone(),
+        ls_variant_id: input.ls_variant_id.clone(),
     })
 }
 
@@ -795,6 +803,10 @@ pub fn update_product(conn: &Connection, id: &str, input: &UpdateProduct) -> Res
         .set_opt("activation_limit", input.activation_limit)
         .set_opt("device_limit", input.device_limit)
         .set_opt("features", features_json)
+        .set_opt("stripe_price_id", input.stripe_price_id.clone())
+        .set_opt("price_cents", input.price_cents)
+        .set_opt("currency", input.currency.clone())
+        .set_opt("ls_variant_id", input.ls_variant_id.clone())
         .execute(conn)?;
     Ok(())
 }
@@ -1341,16 +1353,14 @@ pub fn create_payment_session(
     let now = now();
 
     conn.execute(
-        "INSERT INTO payment_sessions (id, product_id, device_id, device_type, customer_id, redirect_url, created_at, completed)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
-        params![&id, &input.product_id, &input.device_id, input.device_type.as_ref(), &input.customer_id, &input.redirect_url, now],
+        "INSERT INTO payment_sessions (id, product_id, customer_id, redirect_url, created_at, completed)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+        params![&id, &input.product_id, &input.customer_id, &input.redirect_url, now],
     )?;
 
     Ok(PaymentSession {
         id,
         product_id: input.product_id.clone(),
-        device_id: input.device_id.clone(),
-        device_type: input.device_type,
         customer_id: input.customer_id.clone(),
         redirect_url: input.redirect_url.clone(),
         created_at: now,

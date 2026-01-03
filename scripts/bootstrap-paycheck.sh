@@ -15,7 +15,7 @@
 #
 # What this creates:
 #   1. Organization: "Paycheck" with owner admin@paycheck.dev
-#   2. Project: "Paycheck" (domain: paycheck.dev, prefix: PAY)
+#   2. Project: "Paycheck" (domain: paycheck.dev, prefix: PC)
 #   3. Products:
 #      - Free:       perpetual, 1 device, basic features
 #      - Pro:        30-day subscription, 5 devices, priority support
@@ -89,7 +89,7 @@ PROJECT_RESPONSE=$(curl -s -X POST "$BASE_URL/orgs/$ORG_ID/projects" \
     -d '{
         "name": "Paycheck",
         "domain": "paycheck.dev",
-        "license_key_prefix": "PAY"
+        "license_key_prefix": "PC"
     }')
 
 PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.id')

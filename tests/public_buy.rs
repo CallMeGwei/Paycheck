@@ -2,118 +2,24 @@
 //!
 //! Note: These tests only cover validation errors that occur before payment
 //! provider API calls. Full buy flow testing would require HTTP mocking.
+//!
+//! The /buy endpoint now only requires product_id. Device info is NOT required
+//! since purchase ≠ activation. Users activate via /redeem/key with device info.
 
 use axum::{body::Body, http::Request};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 
 mod common;
 use common::*;
 
 #[tokio::test]
-async fn test_buy_invalid_device_type_returns_error() {
-    let state = create_test_app_state();
-    let master_key = test_master_key();
-
-    let project_id: String;
-    let product_id: String;
-
-    {
-        let conn = state.db.get().unwrap();
-        let org = create_test_org(&conn, "Test Org");
-        let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
-        let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-
-        project_id = project.id.clone();
-        product_id = product.id.clone();
-    }
-
-    let app = public_app(state);
-
-    let body = json!({
-        "project_id": project_id,
-        "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "invalid" // Invalid!
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/buy")
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
-
-    // Error details should mention device_type
-    let details = json["details"].as_str().unwrap_or("");
-    assert!(
-        details.contains("device_type"),
-        "Error details should mention device_type, got: {}",
-        details
-    );
-}
-
-#[tokio::test]
-async fn test_buy_project_not_found_returns_error() {
-    let state = create_test_app_state();
-    let app = public_app(state);
-
-    let body = json!({
-        "project_id": "nonexistent-project-id",
-        "product_id": "some-product-id",
-        "device_id": "test-device",
-        "device_type": "uuid"
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/buy")
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn test_buy_product_not_found_returns_error() {
     let state = create_test_app_state();
-    let master_key = test_master_key();
-
-    let project_id: String;
-
-    {
-        let conn = state.db.get().unwrap();
-        let org = create_test_org(&conn, "Test Org");
-        let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
-
-        project_id = project.id.clone();
-    }
-
     let app = public_app(state);
 
     let body = json!({
-        "project_id": project_id,
-        "product_id": "nonexistent-product-id",
-        "device_id": "test-device",
-        "device_type": "uuid"
+        "product_id": "nonexistent-product-id"
     });
 
     let response = app
@@ -128,55 +34,6 @@ async fn test_buy_product_not_found_returns_error() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn test_buy_product_project_mismatch_returns_not_found() {
-    let state = create_test_app_state();
-    let master_key = test_master_key();
-
-    let project1_id: String;
-    let project2_product_id: String;
-
-    {
-        let conn = state.db.get().unwrap();
-        let org = create_test_org(&conn, "Test Org");
-
-        // Create two projects
-        let project1 = create_test_project(&conn, &org.id, "Project 1", &master_key);
-        let project2 = create_test_project(&conn, &org.id, "Project 2", &master_key);
-
-        // Create product in project2
-        let product2 = create_test_product(&conn, &project2.id, "Pro Plan", "pro");
-
-        project1_id = project1.id.clone();
-        project2_product_id = product2.id.clone();
-    }
-
-    let app = public_app(state);
-
-    // Try to buy project2's product with project1's ID
-    let body = json!({
-        "project_id": project1_id,
-        "product_id": project2_product_id,
-        "device_id": "test-device",
-        "device_type": "uuid"
-    });
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/buy")
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Returns 404 to mask that product exists in another project
     assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
 }
 
@@ -185,7 +42,6 @@ async fn test_buy_redirect_url_not_in_allowlist_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
     let product_id: String;
 
     {
@@ -211,18 +67,13 @@ async fn test_buy_redirect_url_not_in_allowlist_returns_error() {
         .unwrap();
 
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-
-        project_id = project.id.clone();
         product_id = product.id.clone();
     }
 
     let app = public_app(state);
 
     let body = json!({
-        "project_id": project_id,
         "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "uuid",
         "redirect": "https://notallowed.example.com" // Not in allowlist!
     });
 
@@ -259,7 +110,6 @@ async fn test_buy_redirect_url_with_empty_allowlist_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
     let product_id: String;
 
     {
@@ -269,17 +119,13 @@ async fn test_buy_redirect_url_with_empty_allowlist_returns_error() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        project_id = project.id.clone();
         product_id = product.id.clone();
     }
 
     let app = public_app(state);
 
     let body = json!({
-        "project_id": project_id,
         "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "uuid",
         "redirect": "https://someurl.example.com"
     });
 
@@ -316,7 +162,6 @@ async fn test_buy_no_payment_provider_configured_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
     let product_id: String;
 
     {
@@ -326,17 +171,14 @@ async fn test_buy_no_payment_provider_configured_returns_error() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        project_id = project.id.clone();
         product_id = product.id.clone();
     }
 
     let app = public_app(state);
 
+    // Simple request with just product_id
     let body = json!({
-        "project_id": project_id,
-        "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "uuid"
+        "product_id": product_id
     });
 
     let response = app
@@ -372,7 +214,6 @@ async fn test_buy_invalid_provider_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
     let product_id: String;
 
     {
@@ -381,17 +222,13 @@ async fn test_buy_invalid_provider_returns_error() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        project_id = project.id.clone();
         product_id = product.id.clone();
     }
 
     let app = public_app(state);
 
     let body = json!({
-        "project_id": project_id,
         "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "uuid",
         "provider": "invalid_provider"
     });
 
@@ -411,15 +248,13 @@ async fn test_buy_invalid_provider_returns_error() {
 }
 
 #[tokio::test]
-async fn test_buy_missing_required_fields_returns_error() {
+async fn test_buy_missing_product_id_returns_error() {
     let state = create_test_app_state();
     let app = public_app(state);
 
-    // Missing project_id
+    // Missing product_id (the only required field now)
     let body = json!({
-        "product_id": "some-product",
-        "device_id": "test-device",
-        "device_type": "uuid"
+        "customer_id": "some-customer"
     });
 
     let response = app
@@ -438,11 +273,10 @@ async fn test_buy_missing_required_fields_returns_error() {
 }
 
 #[tokio::test]
-async fn test_buy_uuid_device_type_accepted() {
+async fn test_buy_accepts_minimal_request() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
     let product_id: String;
 
     {
@@ -451,17 +285,14 @@ async fn test_buy_uuid_device_type_accepted() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        project_id = project.id.clone();
         product_id = product.id.clone();
     }
 
     let app = public_app(state);
 
+    // Minimal request - just product_id
     let body = json!({
-        "project_id": project_id,
-        "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "uuid" // Valid
+        "product_id": product_id
     });
 
     let response = app
@@ -476,8 +307,7 @@ async fn test_buy_uuid_device_type_accepted() {
         .await
         .unwrap();
 
-    // Will fail on "no payment provider" but NOT on device_type
-    // This confirms uuid is a valid device_type
+    // Will fail on "no payment provider" but request should be accepted
     assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -485,21 +315,20 @@ async fn test_buy_uuid_device_type_accepted() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    // Should fail on payment provider, not device_type
+    // Should fail on payment provider, not on missing fields
     let details = json["details"].as_str().unwrap_or("");
     assert!(
-        !details.contains("device_type"),
-        "uuid should be a valid device_type, got error: {}",
+        details.contains("payment provider") || details.contains("No payment"),
+        "Should fail on payment provider, not validation, got: {}",
         details
     );
 }
 
 #[tokio::test]
-async fn test_buy_machine_device_type_accepted() {
+async fn test_buy_accepts_optional_fields() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
     let product_id: String;
 
     {
@@ -508,17 +337,16 @@ async fn test_buy_machine_device_type_accepted() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        project_id = project.id.clone();
         product_id = product.id.clone();
     }
 
     let app = public_app(state);
 
+    // Request with all optional fields
     let body = json!({
-        "project_id": project_id,
         "product_id": product_id,
-        "device_id": "test-device",
-        "device_type": "machine" // Valid
+        "provider": "stripe",
+        "customer_id": "cust_123"
     });
 
     let response = app
@@ -533,7 +361,7 @@ async fn test_buy_machine_device_type_accepted() {
         .await
         .unwrap();
 
-    // Will fail on "no payment provider" but NOT on device_type
+    // Will fail on "no payment provider" but request should be accepted
     assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -541,10 +369,11 @@ async fn test_buy_machine_device_type_accepted() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
+    // Should fail because Stripe is not configured, not validation
     let details = json["details"].as_str().unwrap_or("");
     assert!(
-        !details.contains("device_type"),
-        "machine should be a valid device_type, got error: {}",
+        details.contains("Stripe") || details.contains("not configured"),
+        "Should fail on Stripe config, got: {}",
         details
     );
 }

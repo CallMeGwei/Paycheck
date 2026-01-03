@@ -261,6 +261,11 @@ fn seed_dev_data(state: &AppState) {
             "cloud-sync".to_string(),
             "priority-support".to_string(),
         ],
+        // Payment config - set in product settings
+        stripe_price_id: None,
+        price_cents: Some(4999), // $49.99
+        currency: Some("usd".to_string()),
+        ls_variant_id: None,
     };
     let product = queries::create_product(&conn, &project.id, &product_input)
         .expect("Failed to create dev product");
