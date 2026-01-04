@@ -115,10 +115,6 @@ fn seed_dev_data(state: &AppState) {
         return;
     }
 
-    tracing::info!("============================================");
-    tracing::info!("SEEDING DEV DATA");
-    tracing::info!("============================================");
-
     // 1. Create operator
     let operator_api_key = queries::generate_api_key();
     let operator_input = CreateOperator {
@@ -144,10 +140,6 @@ fn seed_dev_data(state: &AppState) {
         None,
     )
     .expect("Failed to create audit log");
-
-    tracing::info!("Operator: {} ({})", operator.email, operator.name);
-    tracing::info!("Operator API Key: {}", operator_api_key);
-    tracing::info!("");
 
     // 2. Create organization
     let org = queries::create_organization(
@@ -176,9 +168,6 @@ fn seed_dev_data(state: &AppState) {
     )
     .expect("Failed to create audit log");
 
-    tracing::info!("Organization: {} (id: {})", org.name, org.id);
-    tracing::info!("");
-
     // 3. Create org member
     let member_api_key = queries::generate_api_key();
     let member_input = CreateOrgMember {
@@ -204,10 +193,6 @@ fn seed_dev_data(state: &AppState) {
         None,
     )
     .expect("Failed to create audit log");
-
-    tracing::info!("Org Member: {} ({})", member.email, member.name);
-    tracing::info!("Org Member API Key: {}", member_api_key);
-    tracing::info!("");
 
     // 4. Create project
     let (private_key, public_key) = jwt::generate_keypair();
@@ -243,11 +228,6 @@ fn seed_dev_data(state: &AppState) {
     )
     .expect("Failed to create audit log");
 
-    tracing::info!("Project: {} (id: {})", project.name, project.id);
-    tracing::info!("Project Domain: {}", project.domain);
-    tracing::info!("Project Public Key: {}", project.public_key);
-    tracing::info!("");
-
     // 5. Create product
     let product_input = CreateProduct {
         name: "Pro License".to_string(),
@@ -281,10 +261,6 @@ fn seed_dev_data(state: &AppState) {
     )
     .expect("Failed to create audit log");
 
-    tracing::info!("Product: {} (id: {})", product.name, product.id);
-    tracing::info!("Product Tier: {}", product.tier);
-    tracing::info!("Product Features: {:?}", product.features);
-
     // 6. Create payment config for product
     let payment_config_input = CreatePaymentConfig {
         provider: "stripe".to_string(),
@@ -293,20 +269,8 @@ fn seed_dev_data(state: &AppState) {
         currency: Some("usd".to_string()),
         ls_variant_id: None,
     };
-    let payment_config = queries::create_payment_config(&conn, &product.id, &payment_config_input)
+    let _payment_config = queries::create_payment_config(&conn, &product.id, &payment_config_input)
         .expect("Failed to create dev payment config");
-
-    tracing::info!(
-        "Payment Config: {} (provider: {}, price: ${:.2})",
-        payment_config.id,
-        payment_config.provider,
-        payment_config.price_cents.unwrap_or(0) as f64 / 100.0
-    );
-    tracing::info!("");
-
-    tracing::info!("============================================");
-    tracing::info!("DEV DATA SEEDED SUCCESSFULLY");
-    tracing::info!("============================================");
 
     // Print copy-paste friendly output
     println!();
@@ -326,13 +290,13 @@ fn seed_dev_data(state: &AppState) {
     println!("║ 1. Create a license:                                             ║");
     println!("║    curl -X POST http://localhost:3000/dev/create-license \\       ║");
     println!("║      -H 'Content-Type: application/json' \\                       ║");
-    println!("║      -d '{{\"product_id\": \"{}\"}}'            ║", product.id);
+    println!("║{:<66}║", format!("      -d '{{\"product_id\": \"{}\"}}'", product.id));
     println!("║                                                                  ║");
     println!("║ 2. Activate & get JWT:                                           ║");
     println!("║    curl -X POST http://localhost:3000/redeem/key \\               ║");
     println!("║      -H 'Content-Type: application/json' \\                       ║");
-    println!("║      -d '{{\"license_key\": \"<key>\", \"device_id\": \"dev-1\", \\     ║");
-    println!("║           \"device_type\": \"uuid\"}}'                               ║");
+    println!("║      -d '{{\"license_key\": \"<key>\", \"device_id\": \"dev-1\", \\        ║");
+    println!("║           \"device_type\": \"uuid\"}}'                                ║");
     println!("╠══════════════════════════════════════════════════════════════════╣");
     println!("║ For real Stripe payments:                                        ║");
     println!("║ • Update org with stripe_secret_key and stripe_webhook_secret    ║");
