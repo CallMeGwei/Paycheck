@@ -46,6 +46,17 @@ pub struct Config {
     pub success_page_url: String,
     /// Rate limiting configuration for public endpoints
     pub rate_limit: RateLimitConfig,
+    /// Allowed origins for admin console CORS (operator/org APIs)
+    /// Set via PAYCHECK_CONSOLE_ORIGINS (comma-separated)
+    pub console_origins: Vec<String>,
+    /// System-level Resend API key for email delivery.
+    /// Set via PAYCHECK_RESEND_API_KEY.
+    /// Organizations can override with their own key; this is the fallback.
+    pub resend_api_key: Option<String>,
+    /// Default "from" email address for activation emails.
+    /// Set via PAYCHECK_DEFAULT_FROM_EMAIL.
+    /// Projects can override with their own email_from setting.
+    pub default_from_email: String,
 }
 
 /// Check that a file has secure permissions (owner read-only, no write, no group/other access).
@@ -182,6 +193,28 @@ impl Config {
                 .unwrap_or(rate_limit_defaults.relaxed_rpm),
         };
 
+        // Console origins for admin API CORS
+        // In dev mode, defaults to localhost:3001 if not set
+        let console_origins: Vec<String> = env::var("PAYCHECK_CONSOLE_ORIGINS")
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_else(|_| {
+                if dev_mode {
+                    vec![
+                        "http://localhost:3001".to_string(),
+                        "http://127.0.0.1:3001".to_string(),
+                    ]
+                } else {
+                    vec![]
+                }
+            });
+
+        // Resend API key for email delivery (optional - orgs can set their own)
+        let resend_api_key = env::var("PAYCHECK_RESEND_API_KEY").ok();
+
+        // Default "from" email address for activation emails
+        let default_from_email = env::var("PAYCHECK_DEFAULT_FROM_EMAIL")
+            .unwrap_or_else(|_| "noreply@paycheck.dev".to_string());
+
         Self {
             host,
             port,
@@ -196,10 +229,41 @@ impl Config {
             master_key,
             success_page_url,
             rate_limit,
+            console_origins,
+            resend_api_key,
+            default_from_email,
         }
     }
 
     pub fn addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+
+    /// Creates a CORS layer for admin APIs (operator/org routes).
+    /// Only allows requests from configured console origins.
+    pub fn console_cors_layer(&self) -> tower_http::cors::CorsLayer {
+        use axum::http::{HeaderName, HeaderValue, Method};
+        use tower_http::cors::CorsLayer;
+
+        let origins: Vec<HeaderValue> = self
+            .console_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([
+                HeaderName::from_static("authorization"),
+                HeaderName::from_static("content-type"),
+            ])
+            .allow_credentials(true)
     }
 }

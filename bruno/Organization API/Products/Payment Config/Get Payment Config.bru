@@ -1,0 +1,19 @@
+meta {
+  name: Get Payment Config
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/products/{{product_id}}/payment-config/{{payment_config_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_api_key}}
+}
+
+docs {
+  Get a specific payment configuration by ID.
+}

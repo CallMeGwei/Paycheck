@@ -2,13 +2,16 @@ mod from_row;
 pub mod queries;
 mod schema;
 
-pub use from_row::LicenseKeyRow;
 pub use schema::{init_audit_db, init_db};
+
+use std::sync::Arc;
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
 use crate::crypto::MasterKey;
+use crate::email::EmailService;
+use crate::rate_limit::ActivationRateLimiter;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -27,6 +30,10 @@ pub struct AppState {
     pub master_key: MasterKey,
     /// URL for the success page after payment (when no project redirect is configured)
     pub success_page_url: String,
+    /// Rate limiter for activation code requests (per email)
+    pub activation_rate_limiter: Arc<ActivationRateLimiter>,
+    /// Email service for sending activation codes
+    pub email_service: Arc<EmailService>,
 }
 
 pub fn create_pool(database_path: &str) -> Result<DbPool, r2d2::Error> {

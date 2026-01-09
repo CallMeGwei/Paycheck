@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use crate::crypto::MasterKey;
 use crate::db::{AppState, queries};
 use crate::error::AppError;
-use crate::models::{CreateLicenseKey, LicenseKey, Organization, PaymentSession, Product, Project};
+use crate::models::{CreateLicense, License, Organization, PaymentSession, Product, Project};
 use crate::util::LicenseExpirations;
 
 /// Helper to unwrap DB query results with consistent error handling.
@@ -35,14 +35,8 @@ fn lookup_license_by_subscription<P: WebhookProvider>(
     provider: &P,
     conn: &Connection,
     subscription_id: &str,
-    master_key: &MasterKey,
-) -> Result<LicenseKey, WebhookResult> {
-    match queries::get_license_key_by_subscription(
-        conn,
-        provider.provider_name(),
-        subscription_id,
-        master_key,
-    ) {
+) -> Result<License, WebhookResult> {
+    match queries::get_license_by_subscription(conn, provider.provider_name(), subscription_id) {
         Ok(Some(l)) => Ok(l),
         Ok(None) => {
             tracing::warn!(
@@ -68,6 +62,8 @@ pub struct CheckoutData {
     pub session_id: String,
     pub project_id: String,
     pub customer_id: Option<String>,
+    /// Customer email from payment provider (for license recovery via email)
+    pub customer_email: Option<String>,
     pub subscription_id: Option<String>,
     /// Provider's order/checkout session ID (Stripe: cs_xxx, LemonSqueezy: order ID)
     pub order_id: Option<String>,
@@ -129,7 +125,7 @@ pub trait WebhookProvider: Send + Sync {
 
 /// Process a checkout completion event - creates license only.
 ///
-/// Device creation is deferred to activation time (/redeem/key endpoint).
+/// Device creation is deferred to activation time (/redeem endpoint).
 /// Uses atomic compare-and-swap to prevent race conditions where multiple concurrent
 /// webhook deliveries could create multiple licenses from a single payment.
 pub fn process_checkout(
@@ -139,7 +135,6 @@ pub fn process_checkout(
     payment_session: &PaymentSession,
     product: &Product,
     data: &CheckoutData,
-    master_key: &MasterKey,
 ) -> WebhookResult {
     // Atomically claim this payment session BEFORE creating any resources.
     // This prevents race conditions where concurrent webhooks could all create licenses.
@@ -157,17 +152,27 @@ pub fn process_checkout(
         }
     }
 
+    // Compute email hash for license recovery via email
+    let email_hash = data.customer_email.as_ref().map(|e| queries::hash_email(e));
+
+    if email_hash.is_none() {
+        tracing::warn!(
+            "No email in checkout for session {} - license will not be recoverable via email",
+            data.session_id
+        );
+    }
+
     // Compute expirations from product settings
     let now = chrono::Utc::now().timestamp();
     let exps = LicenseExpirations::from_product(product, now);
 
-    // Create license key
-    let license = match queries::create_license_key(
+    // Create license (no user-facing key - email hash is the identity)
+    let license = match queries::create_license(
         conn,
         &project.id,
         &payment_session.product_id,
-        &project.license_key_prefix,
-        &CreateLicenseKey {
+        &CreateLicense {
+            email_hash,
             customer_id: payment_session.customer_id.clone(),
             expires_at: exps.license_exp,
             updates_expires_at: exps.updates_exp,
@@ -176,7 +181,6 @@ pub fn process_checkout(
             payment_provider_subscription_id: data.subscription_id.clone(),
             payment_provider_order_id: data.order_id.clone(),
         },
-        master_key,
     ) {
         Ok(l) => l,
         Err(e) => {
@@ -194,13 +198,14 @@ pub fn process_checkout(
         // Non-fatal - callback will fall back to search
     }
 
-    // NOTE: Device creation is deferred to activation time (/redeem/key endpoint).
+    // NOTE: Device creation is deferred to activation time (/redeem endpoint).
     // This separates purchase from activation - user may buy on phone, activate on desktop.
 
     tracing::info!(
-        "{} checkout completed: session={}, license=[REDACTED], subscription={:?}",
+        "{} checkout completed: session={}, license_id={}, subscription={:?}",
         provider,
         data.session_id,
+        license.id,
         data.subscription_id
     );
 
@@ -216,7 +221,6 @@ pub fn process_renewal(
     provider: &str,
     product: &Product,
     license_id: &str,
-    license_key: &str,
     subscription_id: &str,
     event_id: Option<&str>,
 ) -> WebhookResult {
@@ -251,10 +255,10 @@ pub fn process_renewal(
     }
 
     tracing::info!(
-        "{} subscription renewed: subscription={}, license={}, new_expires_at={:?}",
+        "{} subscription renewed: subscription={}, license_id={}, new_expires_at={:?}",
         provider,
         subscription_id,
-        license_key,
+        license_id,
         exps.license_exp
     );
 
@@ -264,15 +268,15 @@ pub fn process_renewal(
 /// Process a subscription cancellation event - just logs, license expires naturally.
 pub fn process_cancellation(
     provider: &str,
-    license_key: &str,
+    license_id: &str,
     license_expires_at: Option<i64>,
     subscription_id: &str,
 ) -> WebhookResult {
     tracing::info!(
-        "{} subscription cancelled: subscription={}, license={}, expires_at={:?} (will expire naturally)",
+        "{} subscription cancelled: subscription={}, license_id={}, expires_at={:?} (will expire naturally)",
         provider,
         subscription_id,
-        license_key,
+        license_id,
         license_expires_at
     );
 
@@ -365,7 +369,6 @@ async fn handle_checkout<P: WebhookProvider>(
         &payment_session,
         &product,
         &data,
-        &state.master_key,
     ))
 }
 
@@ -390,8 +393,7 @@ async fn handle_renewal<P: WebhookProvider>(
         (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    let license =
-        lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
+    let license = lookup_license_by_subscription(provider, &conn, &data.subscription_id)?;
     let product = db_lookup(
         queries::get_product_by_id(&conn, &license.product_id),
         "Product not found",
@@ -417,7 +419,6 @@ async fn handle_renewal<P: WebhookProvider>(
         provider.provider_name(),
         &product,
         &license.id,
-        &license.key,
         &data.subscription_id,
         data.event_id.as_deref(),
     ))
@@ -435,8 +436,7 @@ async fn handle_cancellation<P: WebhookProvider>(
         (StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    let license =
-        lookup_license_by_subscription(provider, &conn, &data.subscription_id, &state.master_key)?;
+    let license = lookup_license_by_subscription(provider, &conn, &data.subscription_id)?;
     let product = db_lookup(
         queries::get_product_by_id(&conn, &license.product_id),
         "Product not found",
@@ -459,7 +459,7 @@ async fn handle_cancellation<P: WebhookProvider>(
 
     Ok(process_cancellation(
         provider.provider_name(),
-        &license.key,
+        &license.id,
         license.expires_at,
         &data.subscription_id,
     ))

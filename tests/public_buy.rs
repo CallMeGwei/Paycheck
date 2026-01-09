@@ -54,6 +54,9 @@ async fn test_buy_redirect_url_not_in_allowlist_returns_error() {
             domain: "testproject.example.com".to_string(),
             license_key_prefix: "TEST".to_string(),
             allowed_redirect_urls: vec!["https://allowed.example.com".to_string()],
+            email_from: None,
+            email_enabled: true,
+            email_webhook_url: None,
         };
         let (private_key, public_key) = paycheck::jwt::generate_keypair();
         let project = queries::create_project(

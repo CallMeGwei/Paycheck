@@ -1,0 +1,37 @@
+meta {
+  name: Create Payment Config
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/products/{{product_id}}/payment-config
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_api_key}}
+}
+
+body:json {
+  {
+    "provider": "stripe",
+    "stripe_price_id": "price_1234567890",
+    "price_cents": 2999,
+    "currency": "usd"
+  }
+}
+
+docs {
+  Create a payment configuration for a product.
+
+  Each product can have one config per provider (stripe or lemonsqueezy).
+
+  Fields:
+  - provider: "stripe" or "lemonsqueezy" (required)
+  - stripe_price_id: Stripe Price ID (for Stripe provider)
+  - price_cents: Price in cents for display purposes
+  - currency: Currency code (e.g., "usd")
+  - ls_variant_id: LemonSqueezy Variant ID (for LemonSqueezy provider)
+}

@@ -104,6 +104,7 @@ fn parse_checkout_completed(event: &StripeWebhookEvent) -> Result<WebhookEvent, 
         session_id,
         project_id,
         customer_id: session.customer,
+        customer_email: session.customer_email,
         subscription_id: session.subscription,
         order_id: Some(session.id),
     }))

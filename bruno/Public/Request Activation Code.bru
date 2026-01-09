@@ -1,0 +1,47 @@
+meta {
+  name: Request Activation Code
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{base_url}}/activation/request-code
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "customer@example.com",
+    "public_key": "{{project_pub_key}}"
+  }
+}
+
+docs {
+  Request an activation code sent to the purchase email.
+  Used for activating on new devices after initial purchase.
+
+  Request fields:
+  - email: (required) The email address used for the original purchase
+  - public_key: (required) Project's public key (identifies which project)
+
+  Returns:
+  {
+    "message": "If a license exists for this email, an activation code has been sent."
+  }
+
+  Security notes:
+  - Always returns 200 with the same message (prevents email enumeration)
+  - Rate limited to 3 requests per email per hour
+  - Email is looked up by SHA-256 hash (no PII stored)
+
+  Email delivery:
+  - Sent via Resend if configured (system or org API key)
+  - Or POSTed to project's email_webhook_url if configured
+  - Or skipped if email_enabled is false (use admin API instead)
+
+  The activation code:
+  - Expires in 30 minutes
+  - Format: PREFIX-XXXX-XXXX-XXXX-XXXX
+  - Redeem via GET /redeem?code=...&device_id=...&device_type=...
+}

@@ -48,9 +48,7 @@ fn setup_refresh_test() -> (Router, String, String, String, String) {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
 
         // Create a device
@@ -99,6 +97,10 @@ fn setup_refresh_test() -> (Router, String, String, String, String) {
         audit_log_enabled: true,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = Router::new()
@@ -240,6 +242,10 @@ async fn test_refresh_rejects_non_uuid_product_id() {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = Router::new()
@@ -287,9 +293,7 @@ async fn test_refresh_with_revoked_license_fails() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
@@ -317,7 +321,7 @@ async fn test_refresh_with_revoked_license_fails() {
         .unwrap();
 
         // Revoke the license
-        queries::revoke_license_key(&conn, &license.id).unwrap();
+        queries::revoke_license(&conn, &license.id).unwrap();
     }
 
     let audit_manager = SqliteConnectionManager::memory();
@@ -334,6 +338,10 @@ async fn test_refresh_with_revoked_license_fails() {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = Router::new()
@@ -375,9 +383,7 @@ async fn test_refresh_with_revoked_jti_fails() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
@@ -405,7 +411,7 @@ async fn test_refresh_with_revoked_jti_fails() {
         .unwrap();
 
         // Revoke this specific JTI
-        queries::add_revoked_jti(&conn, &license.id, &device.jti, &master_key).unwrap();
+        queries::add_revoked_jti(&conn, &license.id, &device.jti).unwrap();
     }
 
     let audit_manager = SqliteConnectionManager::memory();
@@ -422,6 +428,10 @@ async fn test_refresh_with_revoked_jti_fails() {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = Router::new()

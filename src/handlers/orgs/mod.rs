@@ -118,20 +118,20 @@ pub fn router(state: AppState) -> Router<AppState> {
             post(create_license),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/licenses/{key}",
+            "/orgs/{org_id}/projects/{project_id}/licenses/{license_id}",
             get(get_license),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/licenses/{key}/revoke",
+            "/orgs/{org_id}/projects/{project_id}/licenses/{license_id}/revoke",
             post(revoke_license),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/licenses/{key}/replace",
-            post(replace_license),
+            "/orgs/{org_id}/projects/{project_id}/licenses/{license_id}/send-code",
+            post(send_activation_code),
         )
         // Device management (for remote deactivation of lost devices)
         .route(
-            "/orgs/{org_id}/projects/{project_id}/licenses/{key}/devices/{device_id}",
+            "/orgs/{org_id}/projects/{project_id}/licenses/{license_id}/devices/{device_id}",
             delete(deactivate_device_admin),
         )
         .layer(middleware::from_fn_with_state(

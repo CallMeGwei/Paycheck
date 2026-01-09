@@ -18,19 +18,31 @@ body:json {
   {
     "name": "Updated App Name",
     "domain": "newdomain.example.com",
-    "license_key_prefix": "MYAPP"
+    "license_key_prefix": "MYAPP",
+    "email_from": "support@myapp.com",
+    "email_enabled": true,
+    "email_webhook_url": null
   }
 }
 
 docs {
   Update a project (requires write access).
-  All fields are optional.
+  All fields are optional - only include fields you want to update.
 
   Fields:
   - name: Project display name
   - domain: Project domain
-  - license_key_prefix: Prefix for generated license keys (e.g., "MYAPP" -> "MYAPP-XXXX-XXXX-XXXX-XXXX")
+  - license_key_prefix: Prefix for activation codes (e.g., "MYAPP" -> "MYAPP-XXXX-XXXX-XXXX-XXXX")
+  - email_from: "From" address for activation emails (set to null to use system default)
+  - email_enabled: Enable/disable email delivery for this project
+  - email_webhook_url: Webhook URL for DIY email delivery (set to null to disable)
 
-  Note: Payment configuration (Stripe, LemonSqueezy) is managed at the organization level,
-  not per-project. Use PUT /operators/organizations/{org_id} to update payment settings.
+  Email configuration:
+  - To use Resend email with custom from address, org must have resend_api_key configured
+  - To switch to webhook mode: set email_webhook_url to your endpoint URL
+  - To disable email entirely: set email_enabled to false
+  - To clear a setting, set it to null
+
+  Note: Payment configuration (Stripe, LemonSqueezy) and Resend API key are managed
+  at the organization level. Use PUT /operators/organizations/{org_id}.
 }

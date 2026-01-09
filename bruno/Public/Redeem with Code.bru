@@ -5,18 +5,18 @@ meta {
 }
 
 get {
-  url: {{base_url}}/redeem?project_id={{project_id}}&code={{redemption_code}}&device_id={{device_id}}&device_type=uuid
+  url: {{base_url}}/redeem?public_key={{project_pub_key}}&code={{activation_code}}&device_id={{device_id}}&device_type=uuid
   body: none
   auth: none
 }
 
 docs {
-  Online activation using a short-lived redemption code.
-  The redemption code is safe to appear in URLs as it expires in 30 minutes.
+  Activate a license using a short-lived activation code.
+  Creates a device and returns a signed JWT for offline validation.
 
   Required params:
-  - project_id: The project identifier
-  - code: Short-lived redemption code (NOT the permanent license key)
+  - public_key: Project's public key (preferred) OR project_id
+  - code: Activation code (PREFIX-XXXX-XXXX-XXXX-XXXX format, expires in 30 min)
   - device_id: Device identifier
   - device_type: "uuid" or "machine"
 
@@ -30,9 +30,12 @@ docs {
     "updates_exp": 1735689600,
     "tier": "pro",
     "features": ["feature1", "feature2"],
-    "redemption_code": "NEW_CODE_FOR_FUTURE_USE",
-    "redemption_code_expires_at": 1735691400
+    "activation_code": "NEW_CODE_FOR_FUTURE_USE",
+    "activation_code_expires_at": 1735691400
   }
 
-  Note: A fresh redemption code is returned for future URL-based redemptions.
+  Notes:
+  - A fresh activation_code is returned for future activations on other devices
+  - The activation code in the request is consumed (single-use)
+  - The JWT token can be validated offline using the project's public key
 }

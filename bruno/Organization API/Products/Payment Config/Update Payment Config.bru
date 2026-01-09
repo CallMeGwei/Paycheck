@@ -1,0 +1,34 @@
+meta {
+  name: Update Payment Config
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/products/{{product_id}}/payment-config/{{payment_config_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_api_key}}
+}
+
+body:json {
+  {
+    "stripe_price_id": "price_updated_1234567890",
+    "price_cents": 3999
+  }
+}
+
+docs {
+  Update a payment configuration.
+
+  All fields are optional. Set a field to null to clear it.
+
+  Fields:
+  - stripe_price_id: Stripe Price ID
+  - price_cents: Price in cents
+  - currency: Currency code
+  - ls_variant_id: LemonSqueezy Variant ID
+}

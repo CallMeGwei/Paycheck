@@ -13,6 +13,34 @@ post {
 body:json {
   {
     "product_id": "{{product_id}}",
+    "email": "customer@example.com",
     "customer_id": "your-user-123"
   }
+}
+
+docs {
+  Create a test license for development (only available in dev mode).
+
+  Request fields:
+  - product_id: (required) Product ID to create license for
+  - email: (optional) Customer email - enables license recovery via /activation/request-code
+  - customer_id: (optional) Your internal customer identifier
+  - expires_at: (optional) Unix timestamp for license expiration (overrides product setting)
+
+  Returns:
+  {
+    "license_id": "lic_xxx",
+    "activation_code": "MYAPP-XXXX-XXXX-XXXX-XXXX",
+    "activation_code_expires_at": 1735693200,
+    "product_id": "prod_xxx"
+  }
+
+  The activation_code:
+  - Expires in 30 minutes
+  - Can be redeemed via GET /redeem?code=MYAPP-XXXX-XXXX-XXXX-XXXX&device_id=...&device_type=...
+  - Format: PREFIX-XXXX-XXXX-XXXX-XXXX (prefix from project's license_key_prefix)
+
+  If email is provided:
+  - User can request new activation codes via POST /activation/request-code
+  - Email is stored as SHA-256 hash (no PII in database)
 }

@@ -5,7 +5,7 @@ meta {
 }
 
 delete {
-  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_key}}/devices/{{device_id}}
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_id}}/devices/{{device_id}}
   body: none
   auth: bearer
 }
@@ -23,7 +23,7 @@ docs {
   Path params:
   - org_id: Organization ID
   - project_id: Project ID
-  - license_key: The license key (e.g., PC-XXXX-XXXX-XXXX-XXXX)
+  - license_id: The license ID
   - device_id: The device ID to deactivate
 
   Returns:
@@ -37,5 +37,5 @@ docs {
   - The device's JWT is revoked (jti added to revoked list)
   - The device record is deleted
   - Creates an audit log entry
-  - Use GET /licenses/{key} to list devices first
+  - Use GET /licenses/{id} to list devices first
 }

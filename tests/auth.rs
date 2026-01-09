@@ -52,6 +52,10 @@ fn operator_app() -> (Router, AppState) {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = handlers::operators::router(state.clone()).with_state(state.clone());
@@ -84,6 +88,10 @@ fn org_app() -> (Router, AppState) {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = handlers::orgs::router(state.clone()).with_state(state.clone());
@@ -1299,9 +1307,7 @@ mod cross_project_boundaries {
             &conn,
             &project1.id,
             &product.id,
-            &project1.license_key_prefix,
             None,
-            &state.master_key,
         );
 
         let (_owner, owner_key) =
@@ -1314,7 +1320,7 @@ mod cross_project_boundaries {
                     .method("GET")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}",
-                        org.id, project2.id, license.key
+                        org.id, project2.id, license.id
                     ))
                     .header("Authorization", format!("Bearer {}", owner_key))
                     .body(Body::empty())
@@ -1461,9 +1467,7 @@ mod license_permissions {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             None,
-            &state.master_key,
         );
 
         let (member, member_key) =
@@ -1481,7 +1485,7 @@ mod license_permissions {
                     .method("POST")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/revoke",
-                        org.id, project.id, license.key
+                        org.id, project.id, license.id
                     ))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
@@ -1505,9 +1509,7 @@ mod license_permissions {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             None,
-            &state.master_key,
         );
 
         let (member, member_key) =
@@ -1525,7 +1527,7 @@ mod license_permissions {
                     .method("POST")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/revoke",
-                        org.id, project.id, license.key
+                        org.id, project.id, license.id
                     ))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
@@ -1558,9 +1560,7 @@ mod device_permissions {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             None,
-            &state.master_key,
         );
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
@@ -1579,7 +1579,7 @@ mod device_permissions {
                     .method("DELETE")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/devices/{}",
-                        org.id, project.id, license.key, device.device_id
+                        org.id, project.id, license.id, device.device_id
                     ))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
@@ -1603,9 +1603,7 @@ mod device_permissions {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             None,
-            &state.master_key,
         );
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
@@ -1624,7 +1622,7 @@ mod device_permissions {
                     .method("DELETE")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/devices/{}",
-                        org.id, project.id, license.key, device.device_id
+                        org.id, project.id, license.id, device.device_id
                     ))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .body(Body::empty())
@@ -1786,6 +1784,10 @@ mod org_audit_log_isolation {
             audit_log_enabled: true, // Enable audit logging
             master_key,
             success_page_url: "http://localhost:3000/success".to_string(),
+            activation_rate_limiter: std::sync::Arc::new(
+                paycheck::rate_limit::ActivationRateLimiter::default(),
+            ),
+            email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
         };
 
         let app = handlers::orgs::router(state.clone()).with_state(state.clone());

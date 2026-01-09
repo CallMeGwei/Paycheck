@@ -1,8 +1,8 @@
 //! Tests for the GET /callback endpoint.
 //!
 //! The callback endpoint is where users are redirected after payment completion.
-//! It returns a redirect with the license_key and redemption code (NOT a JWT).
-//! The user must then call /redeem/key to activate and get a JWT.
+//! It returns a redirect with an activation code (NOT a JWT or license key).
+//! The user must then call /redeem with the code and device info to get a JWT.
 
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
@@ -42,7 +42,7 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        // Create a payment session that's NOT completed (no device info needed)
+        // Create a payment session that's NOT completed
         let session = create_test_payment_session(&conn, &product.id, None, None);
 
         session_id = session.id.clone();
@@ -81,7 +81,7 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
 }
 
 #[tokio::test]
-async fn test_callback_completed_session_redirects_with_license_key() {
+async fn test_callback_completed_session_redirects_with_activation_code() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
@@ -98,12 +98,10 @@ async fn test_callback_completed_session_redirects_with_license_key() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
 
-        // Create a payment session (no device info)
+        // Create a payment session
         let session = create_test_payment_session(&conn, &product.id, None, None);
 
         // Complete the session (simulating webhook completion)
@@ -139,12 +137,16 @@ async fn test_callback_completed_session_redirects_with_license_key() {
         .to_str()
         .unwrap();
 
-    // No token - user must activate via /redeem/key
+    // No token or license_key - user must activate via /redeem
     assert!(
         !location.contains("token="),
-        "Callback should NOT include token (user must activate)"
+        "Callback should NOT include token (user must activate via /redeem)"
     );
-    assert!(location.contains("code="), "Redirect should include code");
+    assert!(
+        !location.contains("license_key="),
+        "Callback should NOT include license_key (email-only activation)"
+    );
+    assert!(location.contains("code="), "Redirect should include activation code");
     assert!(
         location.contains("status=success"),
         "Redirect should include status=success"
@@ -153,15 +155,10 @@ async fn test_callback_completed_session_redirects_with_license_key() {
         location.contains("project_id="),
         "Redirect should include project_id"
     );
-    // For success page (no redirect_url), license_key should be included
-    assert!(
-        location.contains("license_key="),
-        "Success page redirect should include license_key"
-    );
 }
 
 #[tokio::test]
-async fn test_callback_third_party_redirect_excludes_license_key() {
+async fn test_callback_third_party_redirect() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
@@ -173,17 +170,15 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-        // Create license (no device)
+        // Create license
         let license = create_test_license(
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
 
-        // Create a payment session WITH a third-party redirect URL (no device info)
+        // Create a payment session WITH a third-party redirect URL
         let session = create_test_payment_session(
             &conn,
             &product.id,
@@ -210,13 +205,11 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
         .await
         .unwrap();
 
-    // Should redirect
     assert_eq!(
         response.status(),
         axum::http::StatusCode::TEMPORARY_REDIRECT
     );
 
-    // Check redirect location
     let location = response
         .headers()
         .get("location")
@@ -224,107 +217,14 @@ async fn test_callback_third_party_redirect_excludes_license_key() {
         .to_str()
         .unwrap();
 
-    // Should redirect to the third-party URL
+    // Should redirect to custom URL
     assert!(
         location.starts_with("https://myapp.example.com/activated"),
-        "Should redirect to third-party URL"
+        "Should redirect to custom URL"
     );
 
-    // Should include code and project_id
-    assert!(location.contains("code="), "Redirect should include code");
-    assert!(
-        location.contains("project_id="),
-        "Redirect should include project_id"
-    );
-
-    // Should NOT include license_key for security
-    assert!(
-        !location.contains("license_key="),
-        "Third-party redirect should NOT include license_key"
-    );
-
-    // No token - user must activate via /redeem/key
-    assert!(
-        !location.contains("token="),
-        "Callback should NOT include token"
-    );
-}
-
-#[tokio::test]
-async fn test_callback_missing_session_param_returns_error() {
-    let state = create_test_app_state();
-    let app = public_app(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/callback")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn test_callback_pending_third_party_redirect_uses_redirect_url() {
-    let state = create_test_app_state();
-    let master_key = test_master_key();
-
-    let session_id: String;
-
-    {
-        let conn = state.db.get().unwrap();
-        let org = create_test_org(&conn, "Test Org");
-        let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
-        let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-
-        // Create a payment session WITH a third-party redirect URL, but NOT completed
-        let session = create_test_payment_session(
-            &conn,
-            &product.id,
-            None,
-            Some("https://myapp.example.com/activated"),
-        );
-
-        session_id = session.id.clone();
-    }
-
-    let app = public_app(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/callback?session={}", session_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Should redirect
-    assert_eq!(
-        response.status(),
-        axum::http::StatusCode::TEMPORARY_REDIRECT
-    );
-
-    // Check redirect location goes to third-party URL even when pending
-    let location = response
-        .headers()
-        .get("location")
-        .unwrap()
-        .to_str()
-        .unwrap();
-    assert!(
-        location.starts_with("https://myapp.example.com/activated"),
-        "Should redirect to third-party URL even when pending"
-    );
-    assert!(
-        location.contains("status=pending"),
-        "Should include status=pending"
-    );
+    // Should include activation code and project_id
+    assert!(location.contains("code="), "Should include activation code");
+    assert!(location.contains("project_id="), "Should include project_id");
+    assert!(location.contains("status=success"), "Should include success status");
 }

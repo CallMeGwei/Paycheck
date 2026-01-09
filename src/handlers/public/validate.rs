@@ -66,11 +66,10 @@ pub async fn validate_license(
     };
 
     // Get the license
-    let license =
-        match queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)? {
-            Some(l) => l,
-            None => return Ok(invalid_response()),
-        };
+    let license = match queries::get_license_by_id(&conn, &device.license_id)? {
+        Some(l) => l,
+        None => return Ok(invalid_response()),
+    };
 
     // Check if license is revoked
     if license.revoked {

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, State},
+    extract::{Extension, Query, State},
     http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
@@ -8,39 +8,83 @@ use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, CreateLicenseKey, Device, LicenseKeyWithProduct};
+use crate::models::{ActorType, CreateLicense, Device, LicenseWithProduct};
 use crate::util::{LicenseExpirations, audit_log};
 
 #[derive(serde::Deserialize)]
 pub struct LicensePath {
     pub org_id: String,
     pub project_id: String,
-    pub key: String,
+    pub license_id: String,
 }
 
 #[derive(serde::Deserialize)]
 pub struct LicenseDevicePath {
     pub org_id: String,
     pub project_id: String,
-    pub key: String,
+    pub license_id: String,
     pub device_id: String,
 }
 
 #[derive(Serialize)]
 pub struct LicenseWithDevices {
     #[serde(flatten)]
-    pub license: LicenseKeyWithProduct,
+    pub license: LicenseWithProduct,
     pub devices: Vec<Device>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListLicensesQuery {
+    /// Filter licenses by customer email (for support lookups)
+    pub email: Option<String>,
+    /// Max results to return (default 50, max 100)
+    pub limit: Option<i64>,
+    /// Offset for pagination (default 0)
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListLicensesResponse {
+    pub licenses: Vec<LicenseWithProduct>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// GET /orgs/{org_id}/projects/{project_id}/licenses
+/// List licenses for a project with pagination, optionally filtered by email.
+/// When filtering by email, returns ALL licenses including expired/revoked (for support).
 pub async fn list_licenses(
     State(state): State<AppState>,
     Path(path): Path<crate::middleware::OrgProjectPath>,
-) -> Result<Json<Vec<LicenseKeyWithProduct>>> {
+    Query(query): Query<ListLicensesQuery>,
+) -> Result<Json<ListLicensesResponse>> {
     let conn = state.db.get()?;
-    let licenses =
-        queries::list_license_keys_for_project(&conn, &path.project_id, &state.master_key)?;
-    Ok(Json(licenses))
+
+    let limit = query.limit.unwrap_or(50).min(100).max(1);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let (licenses, total) = if let Some(email) = query.email {
+        // Support lookup by email - includes expired/revoked
+        let email_hash = queries::hash_email(&email);
+        queries::get_all_licenses_by_email_hash_for_admin_paginated(
+            &conn,
+            &path.project_id,
+            &email_hash,
+            limit,
+            offset,
+        )?
+    } else {
+        // Default: list all licenses for project
+        queries::list_licenses_for_project_paginated(&conn, &path.project_id, limit, offset)?
+    };
+
+    Ok(Json(ListLicensesResponse {
+        licenses,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 /// Request body for creating a license directly (for bulk/trial licenses)
@@ -48,6 +92,9 @@ pub async fn list_licenses(
 pub struct CreateLicenseBody {
     /// Product ID to create the license for
     pub product_id: String,
+    /// Email address for the license (optional - enables license recovery via email)
+    #[serde(default)]
+    pub email: Option<String>,
     /// Developer-managed customer identifier (optional)
     /// Use this to link licenses to your own user/account system
     #[serde(default)]
@@ -77,7 +124,11 @@ pub struct CreateLicenseResponse {
 #[derive(Debug, Serialize)]
 pub struct CreatedLicense {
     pub id: String,
-    pub key: String,
+    /// Activation code for immediate use (only included when count=1)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_code_expires_at: Option<i64>,
     pub expires_at: Option<i64>,
     pub updates_expires_at: Option<i64>,
 }
@@ -116,9 +167,12 @@ pub async fn create_license(
         ));
     }
 
-    // Get project for license key prefix
+    // Get project for activation code prefix
     let project = queries::get_project_by_id(&conn, &path.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    // Compute email hash if email provided
+    let email_hash = body.email.as_ref().map(|e| queries::hash_email(e));
 
     // Compute expirations (use override if provided, otherwise use product defaults)
     let now = chrono::Utc::now().timestamp();
@@ -129,12 +183,12 @@ pub async fn create_license(
     let mut created_licenses = Vec::with_capacity(body.count as usize);
 
     for _ in 0..body.count {
-        let license = queries::create_license_key(
+        let license = queries::create_license(
             &conn,
             &project.id,
             &body.product_id,
-            &project.license_key_prefix,
-            &CreateLicenseKey {
+            &CreateLicense {
+                email_hash: email_hash.clone(),
                 customer_id: body.customer_id.clone(),
                 expires_at: exps.license_exp,
                 updates_expires_at: exps.updates_exp,
@@ -143,12 +197,21 @@ pub async fn create_license(
                 payment_provider_subscription_id: None,
                 payment_provider_order_id: None,
             },
-            &state.master_key,
         )?;
+
+        // Generate activation code for single license creation (useful for immediate distribution)
+        let (activation_code, activation_code_expires_at) = if body.count == 1 {
+            let code =
+                queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)?;
+            (Some(code.code), Some(code.expires_at))
+        } else {
+            (None, None)
+        };
 
         created_licenses.push(CreatedLicense {
             id: license.id.clone(),
-            key: license.key.clone(),
+            activation_code,
+            activation_code_expires_at,
             expires_at: exps.license_exp,
             updates_expires_at: exps.updates_exp,
         });
@@ -161,10 +224,10 @@ pub async fn create_license(
             Some(&ctx.member.id),
             &headers,
             "create_license",
-            "license_key",
+            "license",
             &license.id,
             Some(
-                &serde_json::json!({ "key": license.key, "product_id": body.product_id, "expires_at": exps.license_exp }),
+                &serde_json::json!({ "product_id": body.product_id, "expires_at": exps.license_exp, "has_email": email_hash.is_some() }),
             ),
             Some(&path.org_id),
             Some(&path.project_id),
@@ -189,7 +252,7 @@ pub async fn get_license(
 ) -> Result<Json<LicenseWithDevices>> {
     let conn = state.db.get()?;
 
-    let license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
+    let license = queries::get_license_by_id(&conn, &path.license_id)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -203,7 +266,7 @@ pub async fn get_license(
     let devices = queries::list_devices_for_license(&conn, &license.id)?;
 
     Ok(Json(LicenseWithDevices {
-        license: LicenseKeyWithProduct {
+        license: LicenseWithProduct {
             license,
             product_name: product.name,
         },
@@ -224,7 +287,7 @@ pub async fn revoke_license(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    let license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
+    let license = queries::get_license_by_id(&conn, &path.license_id)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -239,7 +302,7 @@ pub async fn revoke_license(
         return Err(AppError::BadRequest("License is already revoked".into()));
     }
 
-    queries::revoke_license_key(&conn, &license.id)?;
+    queries::revoke_license(&conn, &license.id)?;
 
     audit_log(
         &audit_conn,
@@ -248,9 +311,9 @@ pub async fn revoke_license(
         Some(&ctx.member.id),
         &headers,
         "revoke_license",
-        "license_key",
+        "license",
         &license.id,
-        Some(&serde_json::json!({ "key": license.key })),
+        None,
         Some(&path.org_id),
         Some(&path.project_id),
     )?;
@@ -259,18 +322,20 @@ pub async fn revoke_license(
 }
 
 #[derive(Serialize)]
-pub struct ReplaceLicenseResponse {
-    pub old_key: String,
-    pub new_key: String,
-    pub new_license_id: String,
+pub struct SendActivationCodeResponse {
+    pub code: String,
+    pub expires_at: i64,
+    pub message: &'static str,
 }
 
-pub async fn replace_license(
+/// POST /orgs/{org_id}/projects/{project_id}/licenses/{license_id}/send-code
+/// Generate an activation code for a license (for manual distribution to customer)
+pub async fn send_activation_code(
     State(state): State<AppState>,
     Extension(ctx): Extension<OrgMemberContext>,
     Path(path): Path<LicensePath>,
     headers: HeaderMap,
-) -> Result<Json<ReplaceLicenseResponse>> {
+) -> Result<Json<SendActivationCodeResponse>> {
     if !ctx.can_write_project() {
         return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
@@ -278,46 +343,27 @@ pub async fn replace_license(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    // Get the old license
-    let old_license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
+    let license = queries::get_license_by_id(&conn, &path.license_id)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
-    let product = queries::get_product_by_id(&conn, &old_license.product_id)?
+    let product = queries::get_product_by_id(&conn, &license.product_id)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     if product.project_id != path.project_id {
         return Err(AppError::NotFound("License not found".into()));
     }
 
-    // Get the project for license key prefix
+    if license.revoked {
+        return Err(AppError::BadRequest("License is revoked".into()));
+    }
+
+    // Get project for activation code prefix
     let project = queries::get_project_by_id(&conn, &path.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
-    // Revoke the old license
-    if !old_license.revoked {
-        queries::revoke_license_key(&conn, &old_license.id)?;
-    }
-
-    // Create a new license with the same settings (preserving customer_id and payment info)
-    // Note: subscription_id is NOT copied - the old subscription is tied to the old key
-    // If this is a subscription, the customer will need to update their payment method
-    let new_license = queries::create_license_key(
-        &conn,
-        &project.id,
-        &old_license.product_id,
-        &project.license_key_prefix,
-        &CreateLicenseKey {
-            customer_id: old_license.customer_id.clone(),
-            expires_at: old_license.expires_at,
-            updates_expires_at: old_license.updates_expires_at,
-            payment_provider: old_license.payment_provider.clone(),
-            payment_provider_customer_id: old_license.payment_provider_customer_id.clone(),
-            payment_provider_subscription_id: old_license.payment_provider_subscription_id.clone(),
-            payment_provider_order_id: old_license.payment_provider_order_id.clone(),
-        },
-        &state.master_key,
-    )?;
+    // Create activation code
+    let code = queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)?;
 
     audit_log(
         &audit_conn,
@@ -325,27 +371,18 @@ pub async fn replace_license(
         ActorType::OrgMember,
         Some(&ctx.member.id),
         &headers,
-        "replace_license",
-        "license_key",
-        &new_license.id,
-        Some(
-            &serde_json::json!({ "old_key": old_license.key, "old_license_id": old_license.id, "new_key": new_license.key, "reason": "key_replacement" }),
-        ),
+        "generate_activation_code",
+        "license",
+        &license.id,
+        Some(&serde_json::json!({ "expires_at": code.expires_at })),
         Some(&path.org_id),
         Some(&path.project_id),
     )?;
 
-    tracing::info!(
-        "License replaced: {} -> {} (project: {})",
-        old_license.key,
-        new_license.key,
-        path.project_id
-    );
-
-    Ok(Json(ReplaceLicenseResponse {
-        old_key: old_license.key,
-        new_key: new_license.key,
-        new_license_id: new_license.id,
+    Ok(Json(SendActivationCodeResponse {
+        code: code.code,
+        expires_at: code.expires_at,
+        message: "Provide this code to the customer (expires in 30 minutes)",
     }))
 }
 
@@ -372,7 +409,7 @@ pub async fn deactivate_device_admin(
     let audit_conn = state.audit.get()?;
 
     // Get the license
-    let license = queries::get_license_key_by_key(&conn, &path.key, &state.master_key)?
+    let license = queries::get_license_by_id(&conn, &path.license_id)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     // Verify license belongs to a product in this project
@@ -388,7 +425,7 @@ pub async fn deactivate_device_admin(
         .ok_or_else(|| AppError::NotFound("Device not found".into()))?;
 
     // Add the device's JTI to revoked list so the token can't be used anymore
-    queries::add_revoked_jti(&conn, &license.id, &device.jti, &state.master_key)?;
+    queries::add_revoked_jti(&conn, &license.id, &device.jti)?;
 
     // Delete the device record
     queries::delete_device(&conn, &device.id)?;
@@ -407,7 +444,7 @@ pub async fn deactivate_device_admin(
         "device",
         &device.id,
         Some(
-            &serde_json::json!({ "license_key": license.key, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" }),
+            &serde_json::json!({ "license_id": license.id, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" }),
         ),
         Some(&path.org_id),
         Some(&path.project_id),
@@ -416,7 +453,7 @@ pub async fn deactivate_device_admin(
     tracing::info!(
         "Device deactivated by admin: {} on license {} (project: {})",
         path.device_id,
-        license.key,
+        license.id,
         path.project_id
     );
 

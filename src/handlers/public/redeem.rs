@@ -1,4 +1,4 @@
-use axum::{extract::State, http::HeaderMap};
+use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -9,9 +9,9 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Query};
 use crate::jwt::{self, LicenseClaims};
 use crate::models::DeviceType;
-use crate::util::{LicenseExpirations, extract_bearer_token};
+use crate::util::LicenseExpirations;
 
-/// Query parameters for GET /redeem (using short-lived redemption code)
+/// Query parameters for GET /redeem (using short-lived activation code)
 #[derive(Debug, Deserialize)]
 pub struct RedeemCodeQuery {
     /// Public key - identifies the project (preferred)
@@ -20,26 +20,8 @@ pub struct RedeemCodeQuery {
     /// Project ID - deprecated, use public_key instead
     #[serde(default)]
     pub project_id: Option<String>,
-    /// Short-lived redemption code (not the permanent license key)
+    /// Short-lived activation code (PREFIX-XXXX-XXXX-XXXX-XXXX format)
     pub code: String,
-    pub device_id: String,
-    pub device_type: String,
-    #[serde(default)]
-    pub device_name: Option<String>,
-}
-
-/// Request body for POST /redeem/key (using permanent license key)
-#[derive(Debug, Deserialize)]
-pub struct RedeemKeyBody {
-    /// Public key - identifies the project (preferred)
-    #[serde(default)]
-    pub public_key: Option<String>,
-    /// Project ID - deprecated, use public_key instead
-    #[serde(default)]
-    pub project_id: Option<String>,
-    /// Permanent license key - can be in body OR Authorization header
-    #[serde(default)]
-    pub key: Option<String>,
     pub device_id: String,
     pub device_type: String,
     #[serde(default)]
@@ -53,10 +35,10 @@ pub struct RedeemResponse {
     pub updates_exp: Option<i64>,
     pub tier: String,
     pub features: Vec<String>,
-    /// Short-lived redemption code for future URL-based redemptions
-    pub redemption_code: String,
-    /// Expiration time of the redemption code
-    pub redemption_code_expires_at: i64,
+    /// Short-lived activation code for future activations
+    pub activation_code: String,
+    /// Expiration time of the activation code
+    pub activation_code_expires_at: i64,
 }
 
 /// Resolve project ID from public_key or project_id, returning an error if neither is provided.
@@ -78,8 +60,10 @@ fn resolve_project_id(
     }
 }
 
-/// GET /redeem - Redeem using a short-lived redemption code
-/// The redemption code is safe to appear in URLs as it expires quickly
+/// GET /redeem - Redeem using a short-lived activation code
+///
+/// The activation code is in PREFIX-XXXX-XXXX-XXXX-XXXX format and expires after 30 minutes.
+/// After successful redemption, a fresh activation code is returned for future use.
 pub async fn redeem_with_code(
     State(state): State<AppState>,
     Query(query): Query<RedeemCodeQuery>,
@@ -102,22 +86,21 @@ pub async fn redeem_with_code(
             AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into())
         })?;
 
-    // Look up the redemption code
-    let redemption_code = queries::get_redemption_code_by_code(&conn, &query.code)?
-        .ok_or_else(|| AppError::NotFound("Redemption code not found or expired".into()))?;
+    // Look up the activation code
+    let activation_code = queries::get_activation_code_by_code(&conn, &query.code)?
+        .ok_or_else(|| AppError::NotFound("Activation code not found or expired".into()))?;
 
     // Check if already used or expired (generic message to prevent enumeration)
-    if redemption_code.used || Utc::now().timestamp() > redemption_code.expires_at {
+    if activation_code.used || Utc::now().timestamp() > activation_code.expires_at {
         return Err(AppError::Forbidden("Cannot be redeemed".into()));
     }
 
-    // Get the license key
-    let license =
-        queries::get_license_key_by_id(&conn, &redemption_code.license_key_id, &state.master_key)?
-            .ok_or_else(|| AppError::Internal("License key not found".into()))?;
+    // Get the license
+    let license = queries::get_license_by_id(&conn, &activation_code.license_id)?
+        .ok_or_else(|| AppError::Internal("License not found".into()))?;
 
-    // Mark redemption code as used
-    queries::mark_redemption_code_used(&conn, &redemption_code.id)?;
+    // Mark activation code as used
+    queries::mark_activation_code_used(&conn, &activation_code.id)?;
 
     // Proceed with normal redemption logic
     redeem_license_internal(
@@ -131,61 +114,11 @@ pub async fn redeem_with_code(
     )
 }
 
-/// POST /redeem/key - Redeem using the permanent license key
-///
-/// License key can be provided via:
-/// - Authorization header: `Authorization: Bearer {key}`
-/// - Request body: `{"key": "..."}`
-///
-/// Header takes precedence if both are provided.
-pub async fn redeem_with_key(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<RedeemKeyBody>,
-) -> Result<Json<RedeemResponse>> {
-    let mut conn = state.db.get()?;
-
-    // Resolve project ID from public_key or project_id
-    let project_id = resolve_project_id(
-        &conn,
-        body.public_key.as_deref(),
-        body.project_id.as_deref(),
-    )?;
-
-    // Extract key from header first, fall back to body
-    let key = extract_bearer_token(&headers)
-        .map(String::from)
-        .or(body.key)
-        .ok_or_else(|| AppError::BadRequest(
-            "License key required. Provide via Authorization header (Bearer {key}) or request body.".into()
-        ))?;
-
-    // Validate device type
-    let device_type = body.device_type.parse::<DeviceType>().ok().ok_or_else(|| {
-        AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into())
-    })?;
-
-    // Get the license key
-    let license = queries::get_license_key_by_key(&conn, &key, &state.master_key)?
-        .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
-
-    // Proceed with normal redemption logic
-    redeem_license_internal(
-        &mut conn,
-        &state.master_key,
-        &license,
-        &project_id,
-        &body.device_id,
-        device_type,
-        body.device_name.as_deref(),
-    )
-}
-
 /// Internal function that handles the actual license redemption logic
 fn redeem_license_internal(
     conn: &mut r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>,
     master_key: &MasterKey,
-    license: &crate::models::LicenseKey,
+    license: &crate::models::License,
     project_id: &str,
     device_id: &str,
     device_type: DeviceType,
@@ -205,7 +138,7 @@ fn redeem_license_internal(
 
     // Verify project matches
     if product.project_id != project_id {
-        return Err(AppError::NotFound("License key not found".into()));
+        return Err(AppError::NotFound("License not found".into()));
     }
 
     // Get the project for signing
@@ -250,8 +183,9 @@ fn redeem_license_internal(
     let private_key = master_key.decrypt_private_key(&project.id, &project.private_key)?;
     let token = jwt::sign_claims(&claims, &private_key, &license.id, &project.domain, &jti)?;
 
-    // Create a fresh redemption code for future URL-based redemptions
-    let new_redemption_code = queries::create_redemption_code(conn, &license.id)?;
+    // Create a fresh activation code for future activations (e.g., on new device)
+    let new_activation_code =
+        queries::create_activation_code(conn, &license.id, &project.license_key_prefix)?;
 
     Ok(Json(RedeemResponse {
         token,
@@ -259,60 +193,7 @@ fn redeem_license_internal(
         updates_exp: exps.updates_exp,
         tier: product.tier,
         features: product.features,
-        redemption_code: new_redemption_code.code,
-        redemption_code_expires_at: new_redemption_code.expires_at,
-    }))
-}
-
-/// POST /redeem/code - Generate a new redemption code from a license key
-/// This allows users to get a URL-safe code without exposing their license key
-/// License key can be provided via:
-///   - Authorization header: `Authorization: Bearer {key}`
-///   - Request body: `{"key": "..."}`
-#[derive(Debug, Deserialize, Default)]
-pub struct GenerateCodeBody {
-    #[serde(default)]
-    pub key: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct GenerateCodeResponse {
-    pub code: String,
-    pub expires_at: i64,
-}
-
-pub async fn generate_redemption_code(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<GenerateCodeBody>,
-) -> Result<Json<GenerateCodeResponse>> {
-    let conn = state.db.get()?;
-
-    // Extract key from header first, fall back to body
-    let key = extract_bearer_token(&headers)
-        .map(String::from)
-        .or(body.key)
-        .ok_or_else(|| AppError::BadRequest(
-            "License key required. Provide via Authorization header (Bearer {key}) or request body.".into()
-        ))?;
-
-    // Get the license key
-    let license = queries::get_license_key_by_key(&conn, &key, &state.master_key)?
-        .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
-
-    // Check if revoked or expired (generic message to prevent enumeration)
-    let is_expired = license
-        .expires_at
-        .is_some_and(|exp| Utc::now().timestamp() > exp);
-    if license.revoked || is_expired {
-        return Err(AppError::Forbidden("Cannot be redeemed".into()));
-    }
-
-    // Create a new redemption code
-    let redemption_code = queries::create_redemption_code(&conn, &license.id)?;
-
-    Ok(Json(GenerateCodeResponse {
-        code: redemption_code.code,
-        expires_at: redemption_code.expires_at,
+        activation_code: new_activation_code.code,
+        activation_code_expires_at: new_activation_code.expires_at,
     }))
 }

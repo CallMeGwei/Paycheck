@@ -54,6 +54,10 @@ fn test_app() -> Router {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     Router::new()

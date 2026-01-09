@@ -8,16 +8,13 @@ use serde::{Deserialize, Serialize};
 use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Query};
+use crate::jwt;
 
 /// Query parameters for GET /license
 #[derive(Debug, Deserialize)]
 pub struct LicenseQuery {
-    /// Public key - identifies the project (preferred)
-    #[serde(default)]
-    pub public_key: Option<String>,
-    /// Project ID - deprecated, use public_key instead
-    #[serde(default)]
-    pub project_id: Option<String>,
+    /// Public key - identifies the project
+    pub public_key: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,54 +47,44 @@ pub enum LicenseStatus {
     Revoked,
 }
 
-/// Resolve project ID from public_key or project_id, returning an error if neither is provided.
-fn resolve_project_id(
-    conn: &rusqlite::Connection,
-    public_key: Option<&str>,
-    project_id: Option<&str>,
-) -> Result<String> {
-    if let Some(public_key) = public_key {
-        let project = queries::get_project_by_public_key(conn, public_key)?
-            .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
-        Ok(project.id)
-    } else if let Some(project_id) = project_id {
-        Ok(project_id.to_string())
-    } else {
-        Err(AppError::BadRequest(
-            "Either public_key or project_id is required".into(),
-        ))
-    }
-}
-
 /// GET /license - Get license info
-/// License key is passed in Authorization header, never exposed in URL
+/// JWT token in Authorization header, public_key in query
 pub async fn get_license_info(
     State(state): State<AppState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Query(query): Query<LicenseQuery>,
 ) -> Result<Json<LicenseResponse>> {
     let conn = state.db.get()?;
-    let license_key = auth.token();
+    let token = auth.token();
 
-    // Resolve project ID from public_key or project_id
-    let project_id = resolve_project_id(
-        &conn,
-        query.public_key.as_deref(),
-        query.project_id.as_deref(),
-    )?;
+    // Look up project by public key
+    let project = queries::get_project_by_public_key(&conn, &query.public_key)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
-    // Get the license key
-    let license = queries::get_license_key_by_key(&conn, license_key, &state.master_key)?
-        .ok_or_else(|| AppError::NotFound("License key not found".into()))?;
+    // Verify JWT signature (allow expired JWTs - we just need identity)
+    let claims = jwt::verify_token_allow_expired(token, &query.public_key, &project.domain)?;
 
-    // Get the product to verify project and get limits
+    // Extract JTI from verified token
+    let jti = claims
+        .jwt_id
+        .ok_or_else(|| AppError::BadRequest("Token missing JTI".into()))?;
+
+    // Look up device by JTI
+    let device = queries::get_device_by_jti(&conn, &jti)?
+        .ok_or_else(|| AppError::NotFound("Device not found".into()))?;
+
+    // Get license from device
+    let license = queries::get_license_by_id(&conn, &device.license_id)?
+        .ok_or_else(|| AppError::NotFound("License not found".into()))?;
+
+    // Check if this JTI is revoked
+    if license.revoked_jtis.contains(&jti) {
+        return Err(AppError::Forbidden("Device has been deactivated".into()));
+    }
+
+    // Get the product for limits
     let product = queries::get_product_by_id(&conn, &license.product_id)?
         .ok_or_else(|| AppError::Internal("Product not found".into()))?;
-
-    // Verify project matches
-    if product.project_id != project_id {
-        return Err(AppError::NotFound("License key not found".into()));
-    }
 
     // Determine status
     let now = chrono::Utc::now().timestamp();

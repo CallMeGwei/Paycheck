@@ -1,0 +1,20 @@
+meta {
+  name: List Payment Configs
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/products/{{product_id}}/payment-config
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_api_key}}
+}
+
+docs {
+  List all payment configurations for a product.
+  Returns configs for each provider (stripe, lemonsqueezy) if configured.
+}

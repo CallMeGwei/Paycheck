@@ -1,0 +1,40 @@
+meta {
+  name: Send Activation Code
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_id}}/send-code
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_api_key}}
+}
+
+docs {
+  Generate an activation code for a license (admin API).
+  Used for manual code distribution when email isn't available.
+
+  Path params:
+  - license_id: The license ID
+
+  Returns:
+  {
+    "code": "MYAPP-XXXX-XXXX-XXXX-XXXX",
+    "expires_at": 1735693200,
+    "message": "Provide this code to the customer (expires in 30 minutes)"
+  }
+
+  The activation code:
+  - Expires in 30 minutes
+  - Can be redeemed via GET /redeem with device info
+  - Admin delivers to customer via their preferred method
+
+  Notes:
+  - Does NOT send email - just returns the code
+  - Use this for bulk/trial licenses or when email isn't configured
+  - For email-based recovery, customer uses POST /activation/request-code
+}

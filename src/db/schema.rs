@@ -21,6 +21,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             name TEXT NOT NULL,
             stripe_config TEXT,
             ls_config TEXT,
+            resend_api_key BLOB,
             default_provider TEXT CHECK (default_provider IS NULL OR default_provider IN ('stripe', 'lemonsqueezy')),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
@@ -50,6 +51,9 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             private_key BLOB NOT NULL,
             public_key TEXT NOT NULL,
             allowed_redirect_urls TEXT NOT NULL DEFAULT '[]',
+            email_from TEXT,
+            email_enabled INTEGER NOT NULL DEFAULT 1,
+            email_webhook_url TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -105,14 +109,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_payment_config_product ON product_payment_config(product_id);
 
-        -- License keys
-        -- encrypted_key: AES-256-GCM encrypted with project DEK (derived from project_id)
-        -- key_hash: SHA-256 hash for O(1) lookups without decryption
-        -- project_id: denormalized for DEK derivation (avoids join through products)
-        CREATE TABLE IF NOT EXISTS license_keys (
+        -- Licenses (no user-facing keys - email hash is the identity)
+        -- email_hash: SHA-256 hash of purchase email (no PII stored)
+        -- project_id: denormalized for efficient lookups
+        CREATE TABLE IF NOT EXISTS licenses (
             id TEXT PRIMARY KEY,
-            key_hash TEXT NOT NULL UNIQUE,
-            encrypted_key BLOB NOT NULL,
+            email_hash TEXT,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
             customer_id TEXT,
@@ -127,40 +129,40 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             payment_provider_subscription_id TEXT,
             payment_provider_order_id TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_license_keys_product ON license_keys(product_id);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_project ON license_keys(project_id);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_key_hash ON license_keys(key_hash);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_customer ON license_keys(customer_id);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_provider_customer ON license_keys(payment_provider, payment_provider_customer_id);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_provider_subscription ON license_keys(payment_provider, payment_provider_subscription_id);
-        CREATE INDEX IF NOT EXISTS idx_license_keys_provider_order ON license_keys(payment_provider, payment_provider_order_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_product ON licenses(product_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_project ON licenses(project_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_email_hash ON licenses(email_hash, project_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_customer ON licenses(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_provider_customer ON licenses(payment_provider, payment_provider_customer_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_provider_subscription ON licenses(payment_provider, payment_provider_subscription_id);
+        CREATE INDEX IF NOT EXISTS idx_licenses_provider_order ON licenses(payment_provider, payment_provider_order_id);
 
-        -- Redemption codes (short-lived codes for URL-safe license redemption)
-        CREATE TABLE IF NOT EXISTS redemption_codes (
+        -- Activation codes (short-lived codes in PREFIX-XXXX-XXXX-XXXX-XXXX format)
+        CREATE TABLE IF NOT EXISTS activation_codes (
             id TEXT PRIMARY KEY,
             code_hash TEXT NOT NULL UNIQUE,
-            license_key_id TEXT NOT NULL REFERENCES license_keys(id) ON DELETE CASCADE,
+            license_id TEXT NOT NULL REFERENCES licenses(id) ON DELETE CASCADE,
             expires_at INTEGER NOT NULL,
             used INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_redemption_codes_hash ON redemption_codes(code_hash);
-        CREATE INDEX IF NOT EXISTS idx_redemption_codes_license ON redemption_codes(license_key_id);
-        CREATE INDEX IF NOT EXISTS idx_redemption_codes_expires ON redemption_codes(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_activation_codes_hash ON activation_codes(code_hash);
+        CREATE INDEX IF NOT EXISTS idx_activation_codes_license ON activation_codes(license_id);
+        CREATE INDEX IF NOT EXISTS idx_activation_codes_expires ON activation_codes(expires_at);
 
         -- Devices (activated devices for a license)
         CREATE TABLE IF NOT EXISTS devices (
             id TEXT PRIMARY KEY,
-            license_key_id TEXT NOT NULL REFERENCES license_keys(id) ON DELETE CASCADE,
+            license_id TEXT NOT NULL REFERENCES licenses(id) ON DELETE CASCADE,
             device_id TEXT NOT NULL,
             device_type TEXT NOT NULL CHECK (device_type IN ('uuid', 'machine')),
             name TEXT,
             jti TEXT NOT NULL,
             activated_at INTEGER NOT NULL,
             last_seen_at INTEGER NOT NULL,
-            UNIQUE(license_key_id, device_id)
+            UNIQUE(license_id, device_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_devices_license ON devices(license_key_id);
+        CREATE INDEX IF NOT EXISTS idx_devices_license ON devices(license_id);
         CREATE INDEX IF NOT EXISTS idx_devices_jti ON devices(jti);
 
         -- Payment sessions (temporary, for tracking buy flow)
@@ -172,7 +174,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             redirect_url TEXT,
             created_at INTEGER NOT NULL,
             completed INTEGER NOT NULL DEFAULT 0,
-            license_key_id TEXT REFERENCES license_keys(id) ON DELETE SET NULL
+            license_id TEXT REFERENCES licenses(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_payment_sessions_product ON payment_sessions(product_id);
 

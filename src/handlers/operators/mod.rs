@@ -41,6 +41,10 @@ pub fn router(state: AppState) -> Router<AppState> {
                     "/operators/organizations/{org_id}/payment-config",
                     get(get_org_payment_config),
                 )
+                .route(
+                    "/operators/organizations/{org_id}/projects/{project_id}/licenses/lookup",
+                    get(lookup_licenses_by_email),
+                )
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     require_admin_role,

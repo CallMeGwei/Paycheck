@@ -27,6 +27,7 @@ body:json {
       "store_id": "store_123",
       "webhook_secret": "whsec_ls_xxx"
     },
+    "resend_api_key": "re_xxx",
     "default_provider": "stripe"
   }
 }
@@ -45,14 +46,21 @@ docs {
     - api_key: LemonSqueezy API key
     - store_id: LemonSqueezy store ID
     - webhook_secret: LemonSqueezy webhook signing secret
+  - resend_api_key: Resend API key for email delivery (overrides system default)
   - default_provider: Default payment provider ("stripe" or "lemonsqueezy", or null to clear)
 
-  Payment configuration is encrypted at rest using envelope encryption.
-  All projects in this organization share the same payment configuration.
+  All sensitive configuration (payment configs, Resend API key) is encrypted at rest.
+  All projects in this organization share the same payment and email configuration.
 
-  To clear a payment config, set it to null:
+  To clear a config, set it to null:
   { "stripe_config": null }
+  { "resend_api_key": null }
 
   To clear default_provider, set it to null:
   { "default_provider": null }
+
+  Email configuration:
+  - If resend_api_key is set, this org's projects can use custom email_from addresses
+  - If not set, system-level Resend API key is used with system default from address
+  - Projects can still use webhook mode regardless of Resend configuration
 }

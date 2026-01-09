@@ -11,23 +11,24 @@ get {
 }
 
 docs {
-  Called after payment completion to retrieve the license.
+  Called after payment completion to retrieve the activation code.
+  This is typically handled by the payment provider's redirect.
 
   Required params:
-  - session: Payment session ID (from payment flow)
+  - session: Payment session ID (from /buy response)
 
-  Optional params:
-  - redirect: URL to redirect to after success
+  Behavior:
+  - Redirects to project's configured redirect URL (or success page)
+  - Appends query params: code, project_id, status
 
-  Returns:
-  - Success: HTML page with license key + JWT, or redirect
-  - Pending: Auto-refresh HTML while payment processes
+  Redirect example:
+  https://yourapp.com/success?code=MYAPP-XXXX-XXXX-XXXX-XXXX&project_id=xxx&status=success
 
-  Response JSON (embedded in HTML or redirect):
-  {
-    "success": true,
-    "token": "JWT_TOKEN",
-    "license_key": "LICENSE_KEY",
-    "message": "Optional message"
-  }
+  The activation code:
+  - Expires in 30 minutes
+  - Must be redeemed via GET /redeem with device info to get JWT
+  - Can be used to activate on any device (within limit)
+
+  Note: No JWT is returned here. User must activate via /redeem endpoint.
+  This separation allows purchase on one device and activation on another.
 }

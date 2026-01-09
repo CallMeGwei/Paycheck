@@ -56,3 +56,67 @@ pub fn standard_layer(requests_per_minute: u32) -> RateLimitLayer {
 pub fn relaxed_layer(requests_per_minute: u32) -> RateLimitLayer {
     create_layer(requests_per_minute)
 }
+
+// ============ Activation Code Rate Limiter ============
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
+
+/// In-memory rate limiter for activation code requests.
+/// Limits by email hash to prevent abuse of /activation/request-code.
+pub struct ActivationRateLimiter {
+    requests: Mutex<HashMap<String, Vec<Instant>>>,
+    max_requests: usize,
+    window_secs: u64,
+}
+
+impl ActivationRateLimiter {
+    pub fn new(max_requests: usize, window_secs: u64) -> Self {
+        Self {
+            requests: Mutex::new(HashMap::new()),
+            max_requests,
+            window_secs,
+        }
+    }
+
+    /// Check if a request is allowed for the given email hash.
+    /// Returns Ok(()) if allowed, Err with message if rate limited.
+    pub fn check(&self, email_hash: &str) -> Result<(), &'static str> {
+        let mut map = self.requests.lock().unwrap();
+        let now = Instant::now();
+        let cutoff = now - std::time::Duration::from_secs(self.window_secs);
+
+        let timestamps = map.entry(email_hash.to_string()).or_default();
+
+        // Remove old entries
+        timestamps.retain(|t| *t > cutoff);
+
+        if timestamps.len() >= self.max_requests {
+            return Err("Rate limit exceeded. Please try again later.");
+        }
+
+        timestamps.push(now);
+        Ok(())
+    }
+
+    /// Clean up expired entries to prevent memory growth.
+    /// Call periodically (e.g., every few minutes).
+    pub fn cleanup(&self) {
+        let mut map = self.requests.lock().unwrap();
+        let now = Instant::now();
+        let cutoff = now - std::time::Duration::from_secs(self.window_secs);
+
+        map.retain(|_, timestamps| {
+            timestamps.retain(|t| *t > cutoff);
+            !timestamps.is_empty()
+        });
+    }
+}
+
+impl Default for ActivationRateLimiter {
+    fn default() -> Self {
+        // 3 requests per email per hour
+        Self::new(3, 3600)
+    }
+}

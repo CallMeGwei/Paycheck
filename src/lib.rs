@@ -6,6 +6,7 @@
 pub mod config;
 pub mod crypto;
 pub mod db;
+pub mod email;
 pub mod error;
 pub mod extractors;
 pub mod handlers;

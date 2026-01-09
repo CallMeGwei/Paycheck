@@ -18,7 +18,10 @@ body:json {
   {
     "name": "My App",
     "domain": "myapp.example.com",
-    "license_key_prefix": "MYAPP"
+    "license_key_prefix": "MYAPP",
+    "email_from": "noreply@myapp.com",
+    "email_enabled": true,
+    "email_webhook_url": null
   }
 }
 
@@ -28,15 +31,21 @@ docs {
   Fields:
   - name: Project display name
   - domain: Project domain
-  - license_key_prefix: Optional prefix for license keys (default: "PC")
+  - license_key_prefix: Optional prefix for activation codes (default: "PC")
+  - email_from: Optional "from" address for activation emails (default: system setting)
+  - email_enabled: Enable/disable email delivery (default: true)
+  - email_webhook_url: Optional webhook URL for DIY email delivery
+
+  Email configuration:
+  - If email_webhook_url is set, Paycheck POSTs activation data there instead of sending email
+  - If email_enabled is false, no email is sent (use admin API for code delivery)
+  - email_from requires org to have their own Resend API key configured
 
   Auto-generates an Ed25519 key pair for JWT signing.
   The public_key is returned for SDK configuration.
 
-  Note: Payment provider configuration (Stripe, LemonSqueezy) is set at the
-  organization level, not per-project. All projects in an org share the same
-  payment configuration. Use PUT /operators/organizations/{org_id} to configure
-  payment providers.
+  Note: Payment provider configuration (Stripe, LemonSqueezy) and Resend API key
+  are set at the organization level. Use PUT /operators/organizations/{org_id}.
 
   Returns project with public_key for SDK integration.
 }

@@ -7,9 +7,9 @@ use crate::error::{AppError, Result};
 use crate::models::*;
 
 use super::from_row::{
-    DEVICE_COLS, LICENSE_KEY_COLS, LicenseKeyRow, OPERATOR_COLS, ORG_MEMBER_COLS,
+    ACTIVATION_CODE_COLS, DEVICE_COLS, LICENSE_COLS, OPERATOR_COLS, ORG_MEMBER_COLS,
     ORGANIZATION_COLS, PAYMENT_CONFIG_COLS, PAYMENT_SESSION_COLS, PRODUCT_COLS, PROJECT_COLS,
-    PROJECT_MEMBER_COLS, REDEMPTION_CODE_COLS, query_all, query_one,
+    PROJECT_MEMBER_COLS, query_all, query_one,
 };
 
 fn now() -> i64 {
@@ -20,31 +20,16 @@ fn gen_id() -> String {
     Uuid::new_v4().to_string()
 }
 
-/// Decrypt a LicenseKeyRow into a LicenseKey.
-/// Uses the project DEK (derived from project_id) for decryption.
-fn decrypt_license_key_row(row: LicenseKeyRow, master_key: &MasterKey) -> Result<LicenseKey> {
-    let key_bytes = master_key.decrypt_private_key(&row.project_id, &row.encrypted_key)?;
-    let key = String::from_utf8(key_bytes).map_err(|e| {
-        AppError::Internal(format!("Invalid UTF-8 in decrypted license key: {}", e))
-    })?;
-
-    Ok(LicenseKey {
-        id: row.id,
-        key,
-        project_id: row.project_id,
-        product_id: row.product_id,
-        customer_id: row.customer_id,
-        activation_count: row.activation_count,
-        revoked: row.revoked,
-        revoked_jtis: row.revoked_jtis,
-        created_at: row.created_at,
-        expires_at: row.expires_at,
-        updates_expires_at: row.updates_expires_at,
-        payment_provider: row.payment_provider,
-        payment_provider_customer_id: row.payment_provider_customer_id,
-        payment_provider_subscription_id: row.payment_provider_subscription_id,
-        payment_provider_order_id: row.payment_provider_order_id,
-    })
+/// Hash an email address for storage/lookup (no PII stored in DB).
+/// Normalizes to lowercase before hashing for consistent lookups.
+pub fn hash_email(email: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let normalized = email.to_lowercase();
+    let normalized = normalized.trim();
+    let mut hasher = Sha256::new();
+    hasher.update(b"paycheck-email-v1:");
+    hasher.update(normalized.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// Builder for dynamic UPDATE statements with optional fields.
@@ -81,6 +66,16 @@ impl UpdateBuilder {
             Some(v) => self.set(column, v),
             None => self,
         }
+    }
+
+    /// Set a column to an explicit value (including NULL).
+    /// Use this for Option<T> where Some(v) = set to v, None = set to NULL.
+    fn set_nullable<V: Into<Value>>(mut self, column: &'static str, value: Option<V>) -> Self {
+        match value {
+            Some(v) => self.fields.push((column, v.into())),
+            None => self.fields.push((column, Value::Null)),
+        }
+        self
     }
 
     fn execute(mut self, conn: &Connection) -> Result<bool> {
@@ -356,8 +351,8 @@ pub fn create_organization(conn: &Connection, input: &CreateOrganization) -> Res
     let now = now();
 
     conn.execute(
-        "INSERT INTO organizations (id, name, stripe_config, ls_config, default_provider, created_at, updated_at)
-         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        "INSERT INTO organizations (id, name, stripe_config, ls_config, resend_api_key, default_provider, created_at, updated_at)
+         VALUES (?1, ?2, NULL, NULL, NULL, NULL, ?3, ?4)",
         params![&id, &input.name, now, now],
     )?;
 
@@ -366,6 +361,7 @@ pub fn create_organization(conn: &Connection, input: &CreateOrganization) -> Res
         name: input.name.clone(),
         stripe_config_encrypted: None,
         ls_config_encrypted: None,
+        resend_api_key_encrypted: None,
         default_provider: None,
         created_at: now,
         updated_at: now,
@@ -430,6 +426,18 @@ pub fn update_organization(
         )?;
         updated = true;
     }
+    if let Some(ref resend_api_key) = input.resend_api_key {
+        // Some(None) clears the value (fallback to system default), Some(Some(value)) sets it
+        let encrypted: Option<Vec<u8>> = resend_api_key
+            .as_ref()
+            .map(|key| master_key.encrypt_private_key(id, key.as_bytes()))
+            .transpose()?;
+        conn.execute(
+            "UPDATE organizations SET resend_api_key = ?1, updated_at = ?2 WHERE id = ?3",
+            params![encrypted, now, id],
+        )?;
+        updated = true;
+    }
     if let Some(ref default_provider) = input.default_provider {
         // Some(None) clears the value, Some(Some(value)) sets it
         conn.execute(
@@ -441,16 +449,17 @@ pub fn update_organization(
     Ok(updated)
 }
 
-/// Update an organization's encrypted payment configs (for migration/rotation)
-pub fn update_organization_payment_configs(
+/// Update an organization's encrypted configs (for migration/rotation)
+pub fn update_organization_encrypted_configs(
     conn: &Connection,
     id: &str,
     stripe_config: Option<&[u8]>,
     ls_config: Option<&[u8]>,
+    resend_api_key: Option<&[u8]>,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE organizations SET stripe_config = ?1, ls_config = ?2, updated_at = ?3 WHERE id = ?4",
-        params![stripe_config, ls_config, now(), id],
+        "UPDATE organizations SET stripe_config = ?1, ls_config = ?2, resend_api_key = ?3, updated_at = ?4 WHERE id = ?5",
+        params![stripe_config, ls_config, resend_api_key, now(), id],
     )?;
     Ok(())
 }
@@ -559,9 +568,9 @@ pub fn create_project(
     let encrypted_private_key = master_key.encrypt_private_key(&id, private_key)?;
 
     conn.execute(
-        "INSERT INTO projects (id, org_id, name, domain, license_key_prefix, private_key, public_key, allowed_redirect_urls, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![&id, org_id, &input.name, &input.domain, &input.license_key_prefix, &encrypted_private_key, public_key, &redirect_urls_json, now, now],
+        "INSERT INTO projects (id, org_id, name, domain, license_key_prefix, private_key, public_key, allowed_redirect_urls, email_from, email_enabled, email_webhook_url, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![&id, org_id, &input.name, &input.domain, &input.license_key_prefix, &encrypted_private_key, public_key, &redirect_urls_json, &input.email_from, input.email_enabled, &input.email_webhook_url, now, now],
     )?;
 
     Ok(Project {
@@ -573,6 +582,9 @@ pub fn create_project(
         private_key: encrypted_private_key,
         public_key: public_key.to_string(),
         allowed_redirect_urls: input.allowed_redirect_urls.clone(),
+        email_from: input.email_from.clone(),
+        email_enabled: input.email_enabled,
+        email_webhook_url: input.email_webhook_url.clone(),
         created_at: now,
         updated_at: now,
     })
@@ -622,13 +634,31 @@ pub fn update_project(conn: &Connection, id: &str, input: &UpdateProject) -> Res
         .map(serde_json::to_string)
         .transpose()?;
 
-    UpdateBuilder::new("projects", id)
+    // email_from and email_webhook_url use Option<Option<T>> pattern:
+    // None = leave unchanged, Some(None) = clear, Some(Some(v)) = set
+    let mut builder = UpdateBuilder::new("projects", id)
         .with_updated_at()
         .set_opt("name", input.name.clone())
         .set_opt("domain", input.domain.clone())
         .set_opt("license_key_prefix", input.license_key_prefix.clone())
-        .set_opt("allowed_redirect_urls", redirect_json)
-        .execute(conn)?;
+        .set_opt("allowed_redirect_urls", redirect_json);
+
+    // Handle email_from: Option<Option<String>>
+    if let Some(ref email_from) = input.email_from {
+        builder = builder.set_nullable("email_from", email_from.clone());
+    }
+
+    // Handle email_enabled: Option<bool>
+    if let Some(email_enabled) = input.email_enabled {
+        builder = builder.set("email_enabled", email_enabled as i32);
+    }
+
+    // Handle email_webhook_url: Option<Option<String>>
+    if let Some(ref email_webhook_url) = input.email_webhook_url {
+        builder = builder.set_nullable("email_webhook_url", email_webhook_url.clone());
+    }
+
+    builder.execute(conn)?;
     Ok(())
 }
 
@@ -1000,9 +1030,10 @@ pub fn list_products_with_config(
     Ok(result)
 }
 
-// ============ License Keys ============
+// ============ Licenses ============
 
-pub fn generate_license_key_string(prefix: &str) -> String {
+/// Generate an activation code in the familiar license key format: PREFIX-XXXX-XXXX-XXXX-XXXX
+pub fn generate_activation_code(prefix: &str) -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let chars: Vec<char> = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".chars().collect();
@@ -1016,32 +1047,25 @@ pub fn generate_license_key_string(prefix: &str) -> String {
     format!("{}-{}-{}-{}-{}", prefix, part(), part(), part(), part())
 }
 
-pub fn create_license_key(
+/// Create a new license (no user-facing key - email hash is the identity)
+pub fn create_license(
     conn: &Connection,
     project_id: &str,
     product_id: &str,
-    prefix: &str,
-    input: &CreateLicenseKey,
-    master_key: &MasterKey,
-) -> Result<LicenseKey> {
+    input: &CreateLicense,
+) -> Result<License> {
     let id = gen_id();
-    let key = generate_license_key_string(prefix);
     let now = now();
 
-    // Hash for lookups, encrypt for storage
-    let key_hash = hash_secret(&key);
-    let encrypted_key = master_key.encrypt_private_key(project_id, key.as_bytes())?;
-
     conn.execute(
-        "INSERT INTO license_keys (id, key_hash, encrypted_key, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, '[]', ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![&id, &key_hash, &encrypted_key, project_id, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id, &input.payment_provider_order_id],
+        "INSERT INTO licenses (id, email_hash, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, '[]', ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![&id, &input.email_hash, project_id, product_id, &input.customer_id, now, input.expires_at, input.updates_expires_at, &input.payment_provider, &input.payment_provider_customer_id, &input.payment_provider_subscription_id, &input.payment_provider_order_id],
     )?;
 
-    // Return with plaintext key (shown once at creation)
-    Ok(LicenseKey {
+    Ok(License {
         id,
-        key,
+        email_hash: input.email_hash.clone(),
         project_id: project_id.to_string(),
         product_id: product_id.to_string(),
         customer_id: input.customer_id.clone(),
@@ -1058,119 +1082,214 @@ pub fn create_license_key(
     })
 }
 
-pub fn get_license_key_by_id(
-    conn: &Connection,
-    id: &str,
-    master_key: &MasterKey,
-) -> Result<Option<LicenseKey>> {
-    let row: Option<LicenseKeyRow> = query_one(
+pub fn get_license_by_id(conn: &Connection, id: &str) -> Result<Option<License>> {
+    query_one(
         conn,
-        &format!(
-            "SELECT {} FROM license_keys WHERE id = ?1",
-            LICENSE_KEY_COLS
-        ),
+        &format!("SELECT {} FROM licenses WHERE id = ?1", LICENSE_COLS),
         &[&id],
-    )?;
-    row.map(|r| decrypt_license_key_row(r, master_key))
-        .transpose()
+    )
 }
 
-pub fn get_license_key_by_key(
-    conn: &Connection,
-    key: &str,
-    master_key: &MasterKey,
-) -> Result<Option<LicenseKey>> {
-    // Hash the input key for lookup
-    let key_hash = hash_secret(key);
-    let row: Option<LicenseKeyRow> = query_one(
-        conn,
-        &format!(
-            "SELECT {} FROM license_keys WHERE key_hash = ?1",
-            LICENSE_KEY_COLS
-        ),
-        &[&key_hash],
-    )?;
-    row.map(|r| decrypt_license_key_row(r, master_key))
-        .transpose()
-}
-
-pub fn list_license_keys_for_project(
+/// Look up an active (non-revoked, non-expired) license by email hash and project.
+pub fn get_license_by_email_hash(
     conn: &Connection,
     project_id: &str,
-    master_key: &MasterKey,
-) -> Result<Vec<LicenseKeyWithProduct>> {
-    let mut stmt = conn.prepare(
-        "SELECT lk.id, lk.key_hash, lk.encrypted_key, lk.project_id, lk.product_id, lk.customer_id, lk.activation_count, lk.revoked, lk.revoked_jtis, lk.created_at, lk.expires_at, lk.updates_expires_at, lk.payment_provider, lk.payment_provider_customer_id, lk.payment_provider_subscription_id, lk.payment_provider_order_id, p.name
-         FROM license_keys lk
-         JOIN products p ON lk.product_id = p.id
-         WHERE lk.project_id = ?1
-         ORDER BY lk.created_at DESC",
+    email_hash: &str,
+) -> Result<Option<License>> {
+    query_one(
+        conn,
+        &format!(
+            "SELECT {} FROM licenses WHERE project_id = ?1 AND email_hash = ?2 AND revoked = 0 AND (expires_at IS NULL OR expires_at > unixepoch())",
+            LICENSE_COLS
+        ),
+        &[&project_id, &email_hash],
+    )
+}
+
+/// Look up all active (non-revoked, non-expired) licenses by email hash and project.
+/// Used when a user may have multiple licenses (e.g., bought multiple products).
+pub fn get_licenses_by_email_hash(
+    conn: &Connection,
+    project_id: &str,
+    email_hash: &str,
+) -> Result<Vec<License>> {
+    query_all(
+        conn,
+        &format!(
+            "SELECT {} FROM licenses WHERE project_id = ?1 AND email_hash = ?2 AND revoked = 0 AND (expires_at IS NULL OR expires_at > unixepoch()) ORDER BY created_at DESC",
+            LICENSE_COLS
+        ),
+        &[&project_id, &email_hash],
+    )
+}
+
+/// Look up ALL licenses by email hash and project (for admin support) with pagination.
+/// Includes expired and revoked licenses so support can see full history.
+pub fn get_all_licenses_by_email_hash_for_admin_paginated(
+    conn: &Connection,
+    project_id: &str,
+    email_hash: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<LicenseWithProduct>, i64)> {
+    // Get total count
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM licenses WHERE project_id = ?1 AND email_hash = ?2",
+        params![project_id, email_hash],
+        |row| row.get(0),
     )?;
 
-    // Collect rows first, then decrypt
-    let rows: Vec<(LicenseKeyRow, String)> = stmt
-        .query_map(params![project_id], |row| {
-            let jtis_str: String = row.get(8)?;
-            Ok((
-                LicenseKeyRow {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT l.{}, p.name
+         FROM licenses l
+         JOIN products p ON l.product_id = p.id
+         WHERE l.project_id = ?1 AND l.email_hash = ?2
+         ORDER BY l.created_at DESC
+         LIMIT ?3 OFFSET ?4",
+        LICENSE_COLS.replace(", ", ", l.")
+    ))?;
+
+    let rows = stmt
+        .query_map(params![project_id, email_hash, limit, offset], |row| {
+            let jtis_str: String = row.get(7)?;
+            Ok(LicenseWithProduct {
+                license: License {
                     id: row.get(0)?,
-                    key_hash: row.get(1)?,
-                    encrypted_key: row.get(2)?,
-                    project_id: row.get(3)?,
-                    product_id: row.get(4)?,
-                    customer_id: row.get(5)?,
-                    activation_count: row.get(6)?,
-                    revoked: row.get::<_, i32>(7)? != 0,
+                    email_hash: row.get(1)?,
+                    project_id: row.get(2)?,
+                    product_id: row.get(3)?,
+                    customer_id: row.get(4)?,
+                    activation_count: row.get(5)?,
+                    revoked: row.get::<_, i32>(6)? != 0,
                     revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-                    created_at: row.get(9)?,
-                    expires_at: row.get(10)?,
-                    updates_expires_at: row.get(11)?,
-                    payment_provider: row.get(12)?,
-                    payment_provider_customer_id: row.get(13)?,
-                    payment_provider_subscription_id: row.get(14)?,
-                    payment_provider_order_id: row.get(15)?,
+                    created_at: row.get(8)?,
+                    expires_at: row.get(9)?,
+                    updates_expires_at: row.get(10)?,
+                    payment_provider: row.get(11)?,
+                    payment_provider_customer_id: row.get(12)?,
+                    payment_provider_subscription_id: row.get(13)?,
+                    payment_provider_order_id: row.get(14)?,
                 },
-                row.get(16)?, // product_name
-            ))
+                product_name: row.get(15)?,
+            })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    // Decrypt each license key
-    let mut licenses = Vec::with_capacity(rows.len());
-    for (row, product_name) in rows {
-        let license = decrypt_license_key_row(row, master_key)?;
-        licenses.push(LicenseKeyWithProduct {
-            license,
-            product_name,
-        });
-    }
+    Ok((rows, total))
+}
 
-    Ok(licenses)
+pub fn list_licenses_for_project_paginated(
+    conn: &Connection,
+    project_id: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<LicenseWithProduct>, i64)> {
+    // Get total count
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM licenses WHERE project_id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )?;
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT l.{}, p.name
+         FROM licenses l
+         JOIN products p ON l.product_id = p.id
+         WHERE l.project_id = ?1
+         ORDER BY l.created_at DESC
+         LIMIT ?2 OFFSET ?3",
+        LICENSE_COLS.replace(", ", ", l.")
+    ))?;
+
+    let rows = stmt
+        .query_map(params![project_id, limit, offset], |row| {
+            let jtis_str: String = row.get(7)?;
+            Ok(LicenseWithProduct {
+                license: License {
+                    id: row.get(0)?,
+                    email_hash: row.get(1)?,
+                    project_id: row.get(2)?,
+                    product_id: row.get(3)?,
+                    customer_id: row.get(4)?,
+                    activation_count: row.get(5)?,
+                    revoked: row.get::<_, i32>(6)? != 0,
+                    revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
+                    created_at: row.get(8)?,
+                    expires_at: row.get(9)?,
+                    updates_expires_at: row.get(10)?,
+                    payment_provider: row.get(11)?,
+                    payment_provider_customer_id: row.get(12)?,
+                    payment_provider_subscription_id: row.get(13)?,
+                    payment_provider_order_id: row.get(14)?,
+                },
+                product_name: row.get(15)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok((rows, total))
+}
+
+pub fn list_licenses_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Vec<LicenseWithProduct>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT l.{}, p.name
+         FROM licenses l
+         JOIN products p ON l.product_id = p.id
+         WHERE l.project_id = ?1
+         ORDER BY l.created_at DESC",
+        LICENSE_COLS.replace(", ", ", l.")
+    ))?;
+
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            let jtis_str: String = row.get(7)?;
+            Ok(LicenseWithProduct {
+                license: License {
+                    id: row.get(0)?,
+                    email_hash: row.get(1)?,
+                    project_id: row.get(2)?,
+                    product_id: row.get(3)?,
+                    customer_id: row.get(4)?,
+                    activation_count: row.get(5)?,
+                    revoked: row.get::<_, i32>(6)? != 0,
+                    revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
+                    created_at: row.get(8)?,
+                    expires_at: row.get(9)?,
+                    updates_expires_at: row.get(10)?,
+                    payment_provider: row.get(11)?,
+                    payment_provider_customer_id: row.get(12)?,
+                    payment_provider_subscription_id: row.get(13)?,
+                    payment_provider_order_id: row.get(14)?,
+                },
+                product_name: row.get(15)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(rows)
 }
 
 pub fn increment_activation_count(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(
-        "UPDATE license_keys SET activation_count = activation_count + 1 WHERE id = ?1",
+        "UPDATE licenses SET activation_count = activation_count + 1 WHERE id = ?1",
         params![id],
     )?;
     Ok(())
 }
 
-pub fn revoke_license_key(conn: &Connection, id: &str) -> Result<()> {
+pub fn revoke_license(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(
-        "UPDATE license_keys SET revoked = 1 WHERE id = ?1",
+        "UPDATE licenses SET revoked = 1 WHERE id = ?1",
         params![id],
     )?;
     Ok(())
 }
 
-pub fn add_revoked_jti(
-    conn: &Connection,
-    license_id: &str,
-    jti: &str,
-    master_key: &MasterKey,
-) -> Result<()> {
-    let license = get_license_key_by_id(conn, license_id, master_key)?
+pub fn add_revoked_jti(conn: &Connection, license_id: &str, jti: &str) -> Result<()> {
+    let license = get_license_by_id(conn, license_id)?
         .ok_or_else(|| AppError::NotFound("License not found".into()))?;
 
     let mut jtis = license.revoked_jtis;
@@ -1178,29 +1297,26 @@ pub fn add_revoked_jti(
     let json = serde_json::to_string(&jtis)?;
 
     conn.execute(
-        "UPDATE license_keys SET revoked_jtis = ?1 WHERE id = ?2",
+        "UPDATE licenses SET revoked_jtis = ?1 WHERE id = ?2",
         params![json, license_id],
     )?;
     Ok(())
 }
 
 /// Find a license by payment provider and subscription ID (for subscription renewals)
-pub fn get_license_key_by_subscription(
+pub fn get_license_by_subscription(
     conn: &Connection,
     provider: &str,
     subscription_id: &str,
-    master_key: &MasterKey,
-) -> Result<Option<LicenseKey>> {
-    let row: Option<LicenseKeyRow> = query_one(
+) -> Result<Option<License>> {
+    query_one(
         conn,
         &format!(
-            "SELECT {} FROM license_keys WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
-            LICENSE_KEY_COLS
+            "SELECT {} FROM licenses WHERE payment_provider = ?1 AND payment_provider_subscription_id = ?2",
+            LICENSE_COLS
         ),
         &[&provider, &subscription_id],
-    )?;
-    row.map(|r| decrypt_license_key_row(r, master_key))
-        .transpose()
+    )
 }
 
 /// Extend license expiration dates (for subscription renewals)
@@ -1211,106 +1327,68 @@ pub fn extend_license_expiration(
     new_updates_expires_at: Option<i64>,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE license_keys SET expires_at = ?1, updates_expires_at = ?2 WHERE id = ?3",
+        "UPDATE licenses SET expires_at = ?1, updates_expires_at = ?2 WHERE id = ?3",
         params![new_expires_at, new_updates_expires_at, license_id],
     )?;
     Ok(())
 }
 
-/// List all license key rows in raw encrypted form (for key rotation).
-/// Returns the encrypted data without decryption.
-pub fn list_all_license_key_rows(conn: &Connection) -> Result<Vec<LicenseKeyRow>> {
-    query_all(
-        conn,
-        &format!(
-            "SELECT {} FROM license_keys ORDER BY created_at",
-            LICENSE_KEY_COLS
-        ),
-        &[],
-    )
-}
+// ============ Activation Codes ============
 
-/// Update a license key's encrypted key (for key rotation).
-pub fn update_license_key_encrypted(
+const ACTIVATION_CODE_TTL_SECONDS: i64 = 30 * 60; // 30 minutes
+
+/// Create an activation code in PREFIX-XXXX-XXXX-XXXX-XXXX format
+pub fn create_activation_code(
     conn: &Connection,
-    id: &str,
-    encrypted_key: &[u8],
-) -> Result<()> {
-    conn.execute(
-        "UPDATE license_keys SET encrypted_key = ?1 WHERE id = ?2",
-        params![encrypted_key, id],
-    )?;
-    Ok(())
-}
-
-// ============ Redemption Codes ============
-
-const REDEMPTION_CODE_TTL_SECONDS: i64 = 30 * 60; // 30 minutes
-
-pub fn generate_redemption_code_string() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    // Use URL-safe base64-like characters, shorter than license keys
-    let chars: Vec<char> = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-        .chars()
-        .collect();
-
-    (0..16)
-        .map(|_| chars[rng.gen_range(0..chars.len())])
-        .collect()
-}
-
-pub fn create_redemption_code(conn: &Connection, license_key_id: &str) -> Result<RedemptionCode> {
+    license_id: &str,
+    prefix: &str,
+) -> Result<ActivationCode> {
     let id = gen_id();
-    let code = generate_redemption_code_string();
+    let code = generate_activation_code(prefix);
     let code_hash = hash_secret(&code);
     let now = now();
-    let expires_at = now + REDEMPTION_CODE_TTL_SECONDS;
+    let expires_at = now + ACTIVATION_CODE_TTL_SECONDS;
 
     conn.execute(
-        "INSERT INTO redemption_codes (id, code_hash, license_key_id, expires_at, used, created_at)
+        "INSERT INTO activation_codes (id, code_hash, license_id, expires_at, used, created_at)
          VALUES (?1, ?2, ?3, ?4, 0, ?5)",
-        params![&id, &code_hash, license_key_id, expires_at, now],
+        params![&id, &code_hash, license_id, expires_at, now],
     )?;
 
-    // Return plaintext code for caller to give to user
-    Ok(RedemptionCode {
+    Ok(ActivationCode {
         id,
         code,
-        license_key_id: license_key_id.to_string(),
+        license_id: license_id.to_string(),
         expires_at,
         used: false,
         created_at: now,
     })
 }
 
-pub fn get_redemption_code_by_code(
-    conn: &Connection,
-    code: &str,
-) -> Result<Option<RedemptionCode>> {
+pub fn get_activation_code_by_code(conn: &Connection, code: &str) -> Result<Option<ActivationCode>> {
     let code_hash = hash_secret(code);
     query_one(
         conn,
         &format!(
-            "SELECT {} FROM redemption_codes WHERE code_hash = ?1",
-            REDEMPTION_CODE_COLS
+            "SELECT {} FROM activation_codes WHERE code_hash = ?1",
+            ACTIVATION_CODE_COLS
         ),
         &[&code_hash],
     )
 }
 
-pub fn mark_redemption_code_used(conn: &Connection, id: &str) -> Result<()> {
+pub fn mark_activation_code_used(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(
-        "UPDATE redemption_codes SET used = 1 WHERE id = ?1",
+        "UPDATE activation_codes SET used = 1 WHERE id = ?1",
         params![id],
     )?;
     Ok(())
 }
 
-pub fn cleanup_expired_redemption_codes(conn: &Connection) -> Result<usize> {
+pub fn cleanup_expired_activation_codes(conn: &Connection) -> Result<usize> {
     let now = now();
     let deleted = conn.execute(
-        "DELETE FROM redemption_codes WHERE expires_at < ?1 OR used = 1",
+        "DELETE FROM activation_codes WHERE expires_at < ?1 OR used = 1",
         params![now],
     )?;
     Ok(deleted)
@@ -1353,7 +1431,7 @@ pub fn acquire_device_atomic(
     let existing_device: Option<Device> = query_one(
         &tx,
         &format!(
-            "SELECT {} FROM devices WHERE license_key_id = ?1 AND device_id = ?2",
+            "SELECT {} FROM devices WHERE license_id = ?1 AND device_id = ?2",
             DEVICE_COLS
         ),
         &[&license_id, &device_id],
@@ -1376,7 +1454,7 @@ pub fn acquire_device_atomic(
 
     // New device - check limits atomically within the transaction
     let current_device_count: i32 = tx.query_row(
-        "SELECT COUNT(*) FROM devices WHERE license_key_id = ?1",
+        "SELECT COUNT(*) FROM devices WHERE license_id = ?1",
         params![license_id],
         |row| row.get(0),
     )?;
@@ -1391,7 +1469,7 @@ pub fn acquire_device_atomic(
 
     // Check activation limit
     let current_activation_count: i32 = tx.query_row(
-        "SELECT activation_count FROM license_keys WHERE id = ?1",
+        "SELECT activation_count FROM licenses WHERE id = ?1",
         params![license_id],
         |row| row.get(0),
     )?;
@@ -1408,13 +1486,13 @@ pub fn acquire_device_atomic(
     let now = now();
 
     tx.execute(
-        "INSERT INTO devices (id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at)
+        "INSERT INTO devices (id, license_id, device_id, device_type, name, jti, activated_at, last_seen_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![&id, license_id, device_id, device_type.as_ref(), name, jti, now, now],
     )?;
 
     tx.execute(
-        "UPDATE license_keys SET activation_count = activation_count + 1 WHERE id = ?1",
+        "UPDATE licenses SET activation_count = activation_count + 1 WHERE id = ?1",
         params![license_id],
     )?;
 
@@ -1422,7 +1500,7 @@ pub fn acquire_device_atomic(
 
     Ok(DeviceAcquisitionResult::Created(Device {
         id,
-        license_key_id: license_id.to_string(),
+        license_id: license_id.to_string(),
         device_id: device_id.to_string(),
         device_type,
         name: name.map(String::from),
@@ -1434,7 +1512,7 @@ pub fn acquire_device_atomic(
 
 pub fn create_device(
     conn: &Connection,
-    license_key_id: &str,
+    license_id: &str,
     device_id: &str,
     device_type: DeviceType,
     jti: &str,
@@ -1444,14 +1522,14 @@ pub fn create_device(
     let now = now();
 
     conn.execute(
-        "INSERT INTO devices (id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at)
+        "INSERT INTO devices (id, license_id, device_id, device_type, name, jti, activated_at, last_seen_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![&id, license_key_id, device_id, device_type.as_ref(), name, jti, now, now],
+        params![&id, license_id, device_id, device_type.as_ref(), name, jti, now, now],
     )?;
 
     Ok(Device {
         id,
-        license_key_id: license_key_id.to_string(),
+        license_id: license_id.to_string(),
         device_id: device_id.to_string(),
         device_type,
         name: name.map(String::from),
@@ -1471,34 +1549,34 @@ pub fn get_device_by_jti(conn: &Connection, jti: &str) -> Result<Option<Device>>
 
 pub fn get_device_for_license(
     conn: &Connection,
-    license_key_id: &str,
+    license_id: &str,
     device_id: &str,
 ) -> Result<Option<Device>> {
     query_one(
         conn,
         &format!(
-            "SELECT {} FROM devices WHERE license_key_id = ?1 AND device_id = ?2",
+            "SELECT {} FROM devices WHERE license_id = ?1 AND device_id = ?2",
             DEVICE_COLS
         ),
-        &[&license_key_id, &device_id],
+        &[&license_id, &device_id],
     )
 }
 
-pub fn list_devices_for_license(conn: &Connection, license_key_id: &str) -> Result<Vec<Device>> {
+pub fn list_devices_for_license(conn: &Connection, license_id: &str) -> Result<Vec<Device>> {
     query_all(
         conn,
         &format!(
-            "SELECT {} FROM devices WHERE license_key_id = ?1 ORDER BY activated_at DESC",
+            "SELECT {} FROM devices WHERE license_id = ?1 ORDER BY activated_at DESC",
             DEVICE_COLS
         ),
-        &[&license_key_id],
+        &[&license_id],
     )
 }
 
-pub fn count_devices_for_license(conn: &Connection, license_key_id: &str) -> Result<i32> {
+pub fn count_devices_for_license(conn: &Connection, license_id: &str) -> Result<i32> {
     conn.query_row(
-        "SELECT COUNT(*) FROM devices WHERE license_key_id = ?1",
-        params![license_key_id],
+        "SELECT COUNT(*) FROM devices WHERE license_id = ?1",
+        params![license_id],
         |row| row.get(0),
     )
     .map_err(Into::into)
@@ -1549,7 +1627,7 @@ pub fn create_payment_session(
         redirect_url: input.redirect_url.clone(),
         created_at: now,
         completed: false,
-        license_key_id: None,
+        license_id: None,
     })
 }
 
@@ -1581,16 +1659,16 @@ pub fn try_claim_payment_session(conn: &Connection, id: &str) -> Result<bool> {
     Ok(affected > 0)
 }
 
-/// Set the license_key_id on a payment session after license creation.
+/// Set the license_id on a payment session after license creation.
 /// Called after try_claim_payment_session succeeds and license is created.
 pub fn set_payment_session_license(
     conn: &Connection,
     session_id: &str,
-    license_key_id: &str,
+    license_id: &str,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE payment_sessions SET license_key_id = ?1 WHERE id = ?2",
-        params![license_key_id, session_id],
+        "UPDATE payment_sessions SET license_id = ?1 WHERE id = ?2",
+        params![license_id, session_id],
     )?;
     Ok(())
 }

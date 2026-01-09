@@ -142,6 +142,7 @@ fn test_update_organization() {
         name: Some("Updated Name".to_string()),
         stripe_config: None,
         ls_config: None,
+        resend_api_key: None,
         default_provider: None,
     };
     queries::update_organization(&conn, &org.id, &update, &master_key).expect("Update failed");
@@ -301,6 +302,7 @@ fn test_update_org_stripe_config() {
         name: None,
         stripe_config: Some(stripe_config.clone()),
         ls_config: None,
+        resend_api_key: None,
         default_provider: None,
     };
 
@@ -342,6 +344,7 @@ fn test_update_org_lemonsqueezy_config() {
         name: None,
         stripe_config: None,
         ls_config: Some(ls_config.clone()),
+        resend_api_key: None,
         default_provider: None,
     };
 
@@ -386,6 +389,7 @@ fn test_update_org_both_payment_configs() {
         name: None,
         stripe_config: Some(stripe_config),
         ls_config: Some(ls_config),
+        resend_api_key: None,
         default_provider: Some(Some("stripe".to_string())),
     };
 
@@ -431,6 +435,7 @@ fn test_payment_config_wrong_key_fails() {
         name: None,
         stripe_config: Some(stripe_config),
         ls_config: None,
+        resend_api_key: None,
         default_provider: None,
     };
 

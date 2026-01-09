@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_key}}
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_id}}
   body: none
   auth: bearer
 }
@@ -15,11 +15,29 @@ auth:bearer {
 }
 
 docs {
-  Get detailed info about a specific license.
+  Get detailed info about a specific license (admin API).
+
+  Path params:
+  - license_id: The license ID (from list licenses or create license response)
 
   Returns:
   {
-    "license": { license with product info },
-    "devices": [ activated devices ]
+    "license": {
+      "id": "...",
+      "product_id": "...",
+      "email_hash": "...",
+      "revoked": false,
+      "expires_at": null,
+      ...
+    },
+    "devices": [
+      {
+        "id": "...",
+        "device_id": "...",
+        "device_type": "uuid",
+        "name": "MacBook Pro",
+        "activated_at": 1704067200
+      }
+    ]
   }
 }

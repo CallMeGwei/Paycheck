@@ -3,17 +3,20 @@ use clap::Parser;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use paycheck::config::Config;
 use paycheck::crypto::MasterKey;
 use paycheck::db::{AppState, create_pool, init_audit_db, init_db, queries};
+use paycheck::email::EmailService;
 use paycheck::handlers;
 use paycheck::jwt;
 use paycheck::models::{
     self, ActorType, CreateOperator, CreateOrgMember, CreatePaymentConfig, CreateProduct,
     CreateProject, OperatorRole, OrgMemberRole,
 };
+use paycheck::rate_limit::ActivationRateLimiter;
 
 #[derive(Parser, Debug)]
 #[command(name = "paycheck")]
@@ -201,6 +204,9 @@ fn seed_dev_data(state: &AppState) {
         domain: "localhost".to_string(),
         license_key_prefix: "PC".to_string(),
         allowed_redirect_urls: vec![],
+        email_from: None,
+        email_enabled: true,
+        email_webhook_url: None,
     };
     let project = queries::create_project(
         &conn,
@@ -284,19 +290,19 @@ fn seed_dev_data(state: &AppState) {
     println!("  org_id: {}", org.id);
     println!("  project_id: {}", project.id);
     println!("  product_id: {}", product.id);
+    println!("  project_pub_key: {}", public_key);
     println!("╠══════════════════════════════════════════════════════════════════╣");
     println!("║ Quick test (no Stripe needed):                                   ║");
     println!("╠══════════════════════════════════════════════════════════════════╣");
-    println!("║ 1. Create a license:                                             ║");
+    println!("║ 1. Create a license via admin API:                               ║");
     println!("║    curl -X POST http://localhost:3000/dev/create-license \\       ║");
     println!("║      -H 'Content-Type: application/json' \\                       ║");
     println!("║{:<66}║", format!("      -d '{{\"product_id\": \"{}\"}}'", product.id));
+    println!("║    → Returns activation_code                                     ║");
     println!("║                                                                  ║");
-    println!("║ 2. Activate & get JWT:                                           ║");
-    println!("║    curl -X POST http://localhost:3000/redeem/key \\               ║");
-    println!("║      -H 'Content-Type: application/json' \\                       ║");
-    println!("║      -d '{{\"license_key\": \"<key>\", \"device_id\": \"dev-1\", \\        ║");
-    println!("║           \"device_type\": \"uuid\"}}'                                ║");
+    println!("║ 2. Activate with code & get JWT:                                 ║");
+    println!("║    curl 'http://localhost:3000/redeem?code=<code>&device_id=dev-1║");
+    println!("║          &device_type=uuid&project_id=<project_id>'              ║");
     println!("╠══════════════════════════════════════════════════════════════════╣");
     println!("║ For real Stripe payments:                                        ║");
     println!("║ • Update org with stripe_secret_key and stripe_webhook_secret    ║");
@@ -359,13 +365,17 @@ fn rotate_master_key(
 
     let orgs_with_configs: Vec<_> = organizations
         .iter()
-        .filter(|o| o.stripe_config_encrypted.is_some() || o.ls_config_encrypted.is_some())
+        .filter(|o| {
+            o.stripe_config_encrypted.is_some()
+                || o.ls_config_encrypted.is_some()
+                || o.resend_api_key_encrypted.is_some()
+        })
         .collect();
 
     if !orgs_with_configs.is_empty() {
         println!();
         println!(
-            "Found {} organization(s) with payment configs.",
+            "Found {} organization(s) with encrypted configs.",
             orgs_with_configs.len()
         );
 
@@ -411,43 +421,36 @@ fn rotate_master_key(
                 None
             };
 
-            queries::update_organization_payment_configs(
+            let new_resend = if let Some(ref encrypted) = org.resend_api_key_encrypted {
+                let plaintext = old_key
+                    .decrypt_private_key(&org.id, encrypted)
+                    .map_err(|e| {
+                        format!("Failed to decrypt Resend API key for org {}: {}", org.id, e)
+                    })?;
+                let new_enc = new_key
+                    .encrypt_private_key(&org.id, &plaintext)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to re-encrypt Resend API key for org {}: {}",
+                            org.id, e
+                        )
+                    })?;
+                Some(new_enc)
+            } else {
+                None
+            };
+
+            queries::update_organization_encrypted_configs(
                 &tx,
                 &org.id,
                 new_stripe.as_deref(),
                 new_ls.as_deref(),
+                new_resend.as_deref(),
             )
-            .map_err(|e| format!("Failed to update payment configs for org {}: {}", org.id, e))?;
+            .map_err(|e| format!("Failed to update encrypted configs for org {}: {}", org.id, e))?;
 
             println!("  [OK] Org: {} ({})", org.name, org.id);
         }
-    }
-
-    // Rotate license keys
-    let license_rows = queries::list_all_license_key_rows(&tx)
-        .map_err(|e| format!("Failed to list license keys: {}", e))?;
-
-    if !license_rows.is_empty() {
-        println!();
-        println!("Found {} license key(s) to rotate.", license_rows.len());
-
-        for row in &license_rows {
-            // Decrypt with old key (using project_id as DEK info)
-            let plaintext = old_key
-                .decrypt_private_key(&row.project_id, &row.encrypted_key)
-                .map_err(|e| format!("Failed to decrypt license key {}: {}", row.id, e))?;
-
-            // Re-encrypt with new key
-            let new_encrypted = new_key
-                .encrypt_private_key(&row.project_id, &plaintext)
-                .map_err(|e| format!("Failed to re-encrypt license key {}: {}", row.id, e))?;
-
-            // Update in database
-            queries::update_license_key_encrypted(&tx, &row.id, &new_encrypted)
-                .map_err(|e| format!("Failed to update license key {}: {}", row.id, e))?;
-        }
-
-        println!("  [OK] {} license key(s) rotated", license_rows.len());
     }
 
     // Commit the transaction
@@ -463,9 +466,6 @@ fn rotate_master_key(
             orgs_with_configs.len()
         );
     }
-    if !license_rows.is_empty() {
-        println!("  {} license key(s)", license_rows.len());
-    }
     println!();
     println!("Next steps:");
     println!("  1. Update PAYCHECK_MASTER_KEY_FILE to point to the new key file");
@@ -475,7 +475,7 @@ fn rotate_master_key(
     Ok(())
 }
 
-/// Spawns a background task that periodically cleans up expired redemption codes.
+/// Spawns a background task that periodically cleans up expired activation codes.
 /// Runs every 5 minutes to remove codes that have expired or been used.
 fn spawn_cleanup_task(state: AppState) {
     tokio::spawn(async move {
@@ -484,21 +484,25 @@ fn spawn_cleanup_task(state: AppState) {
         loop {
             tokio::time::sleep(interval).await;
 
+            // Clean up expired activation codes
             match state.db.get() {
-                Ok(conn) => match queries::cleanup_expired_redemption_codes(&conn) {
+                Ok(conn) => match queries::cleanup_expired_activation_codes(&conn) {
                     Ok(count) => {
                         if count > 0 {
-                            tracing::debug!("Cleaned up {} expired redemption codes", count);
+                            tracing::debug!("Cleaned up {} expired activation codes", count);
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to cleanup redemption codes: {}", e);
+                        tracing::warn!("Failed to cleanup activation codes: {}", e);
                     }
                 },
                 Err(e) => {
                     tracing::warn!("Failed to get db connection for cleanup: {}", e);
                 }
             }
+
+            // Also clean up rate limiter expired entries
+            state.activation_rate_limiter.cleanup();
         }
     });
 
@@ -577,6 +581,12 @@ async fn main() {
         tracing::info!("Running in DEVELOPMENT mode");
     }
 
+    if config.console_origins.is_empty() {
+        tracing::warn!("No PAYCHECK_CONSOLE_ORIGINS configured - admin APIs will reject browser requests");
+    } else {
+        tracing::info!("Console CORS origins: {:?}", config.console_origins);
+    }
+
     // Create database connection pools
     let db_pool = create_pool(&config.database_path).expect("Failed to create database pool");
     let audit_pool =
@@ -592,6 +602,12 @@ async fn main() {
         init_audit_db(&conn).expect("Failed to initialize audit database");
     }
 
+    // Initialize email service with system-level Resend API key
+    let email_service = EmailService::new(
+        config.resend_api_key.clone(),
+        config.default_from_email.clone(),
+    );
+
     let state = AppState {
         db: db_pool,
         audit: audit_pool,
@@ -599,6 +615,8 @@ async fn main() {
         audit_log_enabled: config.audit_log_enabled,
         master_key: config.master_key.clone(),
         success_page_url: config.success_page_url.clone(),
+        activation_rate_limiter: Arc::new(ActivationRateLimiter::default()),
+        email_service: Arc::new(email_service),
     };
 
     // Purge old audit logs on startup (0 = never purge)
@@ -640,15 +658,16 @@ async fn main() {
     spawn_cleanup_task(state.clone());
 
     // Build the application router
+    let console_cors = config.console_cors_layer();
     let mut app = Router::new()
-        // Public endpoints (no auth)
+        // Public endpoints (no auth, permissive CORS for customer websites)
         .merge(handlers::public::router(config.rate_limit))
-        // Webhook endpoints (provider-specific auth)
+        // Webhook endpoints (provider-specific auth, no CORS needed - server-to-server)
         .merge(handlers::webhooks::router())
-        // Operator API (operator key auth)
-        .merge(handlers::operators::router(state.clone()))
-        // Organization API (org member key auth)
-        .merge(handlers::orgs::router(state.clone()));
+        // Operator API (operator key auth, console CORS only)
+        .merge(handlers::operators::router(state.clone()).layer(console_cors.clone()))
+        // Organization API (org member key auth, console CORS only)
+        .merge(handlers::orgs::router(state.clone()).layer(console_cors));
 
     // Dev-only endpoints (only in dev mode)
     if config.dev_mode {

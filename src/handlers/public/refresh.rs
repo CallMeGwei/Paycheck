@@ -67,7 +67,7 @@ pub async fn refresh_token(
     let device = queries::get_device_by_jti(&conn, &jti)?.ok_or(AppError::Unauthorized)?;
 
     // Get the license
-    let license = queries::get_license_key_by_id(&conn, &device.license_key_id, &state.master_key)?
+    let license = queries::get_license_by_id(&conn, &device.license_id)?
         .ok_or(AppError::Unauthorized)?;
 
     // Check if license is revoked

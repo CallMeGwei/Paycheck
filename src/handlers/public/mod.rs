@@ -1,3 +1,4 @@
+mod activation;
 mod buy;
 mod callback;
 mod devices;
@@ -6,6 +7,7 @@ mod redeem;
 mod refresh;
 mod validate;
 
+pub use activation::*;
 pub use buy::*;
 pub use callback::*;
 pub use devices::*;
@@ -15,8 +17,10 @@ pub use refresh::*;
 pub use validate::*;
 
 use axum::Router;
+use axum::http::{HeaderName, Method};
 use axum::routing::{get, post};
 use serde::Serialize;
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::RateLimitConfig;
 use crate::db::AppState;
@@ -37,17 +41,16 @@ async fn health() -> Json<HealthResponse> {
 }
 
 pub fn router(rate_limit_config: RateLimitConfig) -> Router<AppState> {
-    // Strict tier: external API calls
+    // Strict tier: external API calls + activation requests
     let strict_routes = Router::new()
         .route("/buy", post(initiate_buy))
+        .route("/activation/request-code", post(request_activation_code))
         .layer(rate_limit::strict_layer(rate_limit_config.strict_rpm));
 
     // Standard tier: crypto + DB operations
     let standard_routes = Router::new()
         .route("/callback", get(payment_callback))
         .route("/redeem", get(redeem_with_code))
-        .route("/redeem/key", post(redeem_with_key))
-        .route("/redeem/code", post(generate_redemption_code))
         .route("/refresh", post(refresh_token))
         .route("/validate", get(validate_license))
         .route("/license", get(get_license_info))
@@ -59,8 +62,18 @@ pub fn router(rate_limit_config: RateLimitConfig) -> Router<AppState> {
         .route("/health", get(health))
         .layer(rate_limit::relaxed_layer(rate_limit_config.relaxed_rpm));
 
+    // CORS: Allow any origin since public endpoints are called from customer websites
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([
+            HeaderName::from_static("authorization"),
+            HeaderName::from_static("content-type"),
+        ]);
+
     Router::new()
         .merge(strict_routes)
         .merge(standard_routes)
         .merge(relaxed_routes)
+        .layer(cors)
 }

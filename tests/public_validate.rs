@@ -29,9 +29,7 @@ fn setup_validate_test() -> (axum::Router, String, String, String, String) {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -121,9 +119,7 @@ async fn test_validate_with_revoked_license_returns_invalid() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -131,7 +127,7 @@ async fn test_validate_with_revoked_license_returns_invalid() {
         project_id = project.id.clone();
 
         // Revoke the license
-        queries::revoke_license_key(&conn, &license.id).unwrap();
+        queries::revoke_license(&conn, &license.id).unwrap();
     }
 
     let app = public_app(state);
@@ -174,9 +170,7 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -184,7 +178,7 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
         project_id = project.id.clone();
 
         // Revoke this specific JTI (not the whole license)
-        queries::add_revoked_jti(&conn, &license.id, &jti, &master_key).unwrap();
+        queries::add_revoked_jti(&conn, &license.id, &jti).unwrap();
     }
 
     let app = public_app(state);
@@ -228,9 +222,7 @@ async fn test_validate_with_expired_license_returns_invalid() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(past_timestamp(1)), // Expired 1 day ago
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -277,9 +269,7 @@ async fn test_validate_with_wrong_project_returns_invalid() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -346,9 +336,7 @@ async fn test_validate_updates_last_seen_timestamp() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -429,9 +417,7 @@ async fn test_validate_perpetual_license_returns_valid() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             None, // Perpetual
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 

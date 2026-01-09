@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Payment session tracks a purchase flow from /buy to webhook completion.
 /// Device info is NOT stored here - purchase ≠ activation.
-/// Device is created when user activates via /redeem/key.
+/// Device is created when user activates via /redeem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentSession {
     pub id: String,
@@ -13,8 +13,8 @@ pub struct PaymentSession {
     pub redirect_url: Option<String>,
     pub created_at: i64,
     pub completed: bool,
-    /// License key ID created by webhook (set when checkout completes)
-    pub license_key_id: Option<String>,
+    /// License ID created by webhook (set when checkout completes)
+    pub license_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

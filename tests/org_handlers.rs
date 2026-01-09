@@ -45,6 +45,10 @@ fn org_app() -> (Router, AppState) {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = handlers::orgs::router(state.clone()).with_state(state.clone());
@@ -439,7 +443,7 @@ mod license_tests {
         let licenses = json["licenses"].as_array().unwrap();
         assert_eq!(licenses.len(), 1);
         assert!(licenses[0]["id"].as_str().is_some());
-        assert!(licenses[0]["key"].as_str().is_some());
+        // Note: "key" field no longer exists (email-only activation model)
         assert!(licenses[0]["expires_at"].as_i64().is_some()); // Product has 365 day expiration
     }
 
@@ -495,13 +499,13 @@ mod license_tests {
         let licenses = json["licenses"].as_array().unwrap();
         assert_eq!(licenses.len(), 5);
 
-        // All keys should be unique
-        let keys: Vec<&str> = licenses
+        // All IDs should be unique
+        let ids: Vec<&str> = licenses
             .iter()
-            .map(|l| l["key"].as_str().unwrap())
+            .map(|l| l["id"].as_str().unwrap())
             .collect();
-        let unique_keys: std::collections::HashSet<&str> = keys.iter().cloned().collect();
-        assert_eq!(keys.len(), unique_keys.len());
+        let unique_ids: std::collections::HashSet<&str> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), unique_ids.len());
     }
 
     #[tokio::test]
@@ -693,7 +697,7 @@ mod license_tests {
 
         let org_id: String;
         let project_id: String;
-        let license_key: String;
+        let license_id: String;
         let api_key: String;
 
         {
@@ -707,9 +711,7 @@ mod license_tests {
                 &conn,
                 &project.id,
                 &product.id,
-                &project.license_key_prefix,
                 Some(future_timestamp(365)),
-                &master_key,
             );
 
             // Create a device for the license
@@ -717,7 +719,7 @@ mod license_tests {
 
             org_id = org.id;
             project_id = project.id;
-            license_key = license.key;
+            license_id = license.id;
             api_key = key;
         }
 
@@ -727,7 +729,7 @@ mod license_tests {
                     .method("GET")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}",
-                        org_id, project_id, license_key
+                        org_id, project_id, license_id
                     ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
@@ -744,7 +746,7 @@ mod license_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         // Verify license fields
-        assert_eq!(json["key"], license_key);
+        assert_eq!(json["id"], license_id);
         assert!(json["product_name"].as_str().is_some());
 
         // Verify devices array
@@ -760,7 +762,6 @@ mod license_tests {
 
         let org_id: String;
         let project_id: String;
-        let license_key: String;
         let license_id: String;
         let api_key: String;
 
@@ -775,15 +776,12 @@ mod license_tests {
                 &conn,
                 &project.id,
                 &product.id,
-                &project.license_key_prefix,
                 Some(future_timestamp(365)),
-                &master_key,
             );
 
             org_id = org.id;
             project_id = project.id;
-            license_key = license.key.clone();
-            license_id = license.id.clone();
+            license_id = license.id;
             api_key = key;
         }
 
@@ -793,7 +791,7 @@ mod license_tests {
                     .method("POST")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/revoke",
-                        org_id, project_id, license_key
+                        org_id, project_id, license_id
                     ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
@@ -813,7 +811,7 @@ mod license_tests {
 
         // Verify in database
         let conn = state.db.get().unwrap();
-        let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+        let license = queries::get_license_by_id(&conn, &license_id)
             .unwrap()
             .unwrap();
         assert!(license.revoked);
@@ -826,7 +824,7 @@ mod license_tests {
 
         let org_id: String;
         let project_id: String;
-        let license_key: String;
+        let license_id: String;
         let api_key: String;
 
         {
@@ -840,17 +838,15 @@ mod license_tests {
                 &conn,
                 &project.id,
                 &product.id,
-                &project.license_key_prefix,
                 Some(future_timestamp(365)),
-                &master_key,
             );
 
             // Pre-revoke the license
-            queries::revoke_license_key(&conn, &license.id).unwrap();
+            queries::revoke_license(&conn, &license.id).unwrap();
 
             org_id = org.id;
             project_id = project.id;
-            license_key = license.key;
+            license_id = license.id;
             api_key = key;
         }
 
@@ -860,7 +856,7 @@ mod license_tests {
                     .method("POST")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/revoke",
-                        org_id, project_id, license_key
+                        org_id, project_id, license_id
                     ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
@@ -872,82 +868,8 @@ mod license_tests {
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn test_replace_license_creates_new_key() {
-        let (app, state) = org_app();
-        let master_key = test_master_key();
-
-        let org_id: String;
-        let project_id: String;
-        let old_license_key: String;
-        let old_license_id: String;
-        let api_key: String;
-
-        {
-            let conn = state.db.get().unwrap();
-            let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
-                create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
-            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
-            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-            let license = create_test_license(
-                &conn,
-                &project.id,
-                &product.id,
-                &project.license_key_prefix,
-                Some(future_timestamp(365)),
-                &master_key,
-            );
-
-            org_id = org.id;
-            project_id = project.id;
-            old_license_key = license.key.clone();
-            old_license_id = license.id.clone();
-            api_key = key;
-        }
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!(
-                        "/orgs/{}/projects/{}/licenses/{}/replace",
-                        org_id, project_id, old_license_key
-                    ))
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let json: Value = serde_json::from_slice(&body).unwrap();
-
-        let old_key = json["old_key"].as_str().unwrap();
-        let new_key = json["new_key"].as_str().unwrap();
-
-        assert_eq!(old_key, old_license_key);
-        assert_ne!(new_key, old_license_key);
-        assert!(json["new_license_id"].as_str().is_some());
-
-        // Verify old license is revoked
-        let conn = state.db.get().unwrap();
-        let old_license = queries::get_license_key_by_id(&conn, &old_license_id, &master_key)
-            .unwrap()
-            .unwrap();
-        assert!(old_license.revoked);
-
-        // Verify new license exists
-        let new_license = queries::get_license_key_by_key(&conn, new_key, &master_key)
-            .unwrap()
-            .unwrap();
-        assert!(!new_license.revoked);
-    }
+    // NOTE: test_replace_license removed - license replacement endpoint no longer exists
+    // (email-only activation model has no permanent license keys to replace)
 
     #[tokio::test]
     async fn test_deactivate_device_removes_device() {
@@ -956,7 +878,6 @@ mod license_tests {
 
         let org_id: String;
         let project_id: String;
-        let license_key: String;
         let license_id: String;
         let device_id: String;
         let api_key: String;
@@ -972,9 +893,7 @@ mod license_tests {
                 &conn,
                 &project.id,
                 &product.id,
-                &project.license_key_prefix,
                 Some(future_timestamp(365)),
-                &master_key,
             );
 
             // Create devices
@@ -983,8 +902,7 @@ mod license_tests {
 
             org_id = org.id;
             project_id = project.id;
-            license_key = license.key;
-            license_id = license.id;
+            license_id = license.id.clone();
             device_id = "device-1".to_string();
             api_key = key;
         }
@@ -995,7 +913,7 @@ mod license_tests {
                     .method("DELETE")
                     .uri(format!(
                         "/orgs/{}/projects/{}/licenses/{}/devices/{}",
-                        org_id, project_id, license_key, device_id
+                        org_id, project_id, license_id, device_id
                     ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())

@@ -62,9 +62,7 @@ async fn test_deactivate_with_valid_jwt_removes_device() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
@@ -120,9 +118,7 @@ async fn test_deactivate_adds_jti_to_revoked_list() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
@@ -149,7 +145,7 @@ async fn test_deactivate_adds_jti_to_revoked_list() {
 
     // Verify JTI was added to revoked list
     let conn = state.db.get().unwrap();
-    let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+    let license = queries::get_license_by_id(&conn, &license_id)
         .unwrap()
         .unwrap();
     assert!(
@@ -174,9 +170,7 @@ async fn test_deactivate_returns_remaining_device_count() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
 
         // Create multiple devices
@@ -274,9 +268,7 @@ async fn test_deactivate_invalid_signature_returns_error() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let _device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
     }
@@ -322,9 +314,7 @@ async fn test_deactivate_device_not_found_returns_error() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
@@ -367,16 +357,14 @@ async fn test_deactivate_already_revoked_jti_returns_forbidden() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
         token = create_test_jwt(&state, &project, &product, &license.id, &device);
 
         // Pre-revoke the JTI (but keep the device record)
-        queries::add_revoked_jti(&conn, &license.id, &device.jti, &master_key).unwrap();
+        queries::add_revoked_jti(&conn, &license.id, &device.jti).unwrap();
     }
 
     let app = public_app(state);
@@ -412,9 +400,7 @@ async fn test_deactivate_machine_type_device() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
         // Create a machine-type device
         let device = create_test_device(&conn, &license.id, "machine-id-hash", DeviceType::Machine);

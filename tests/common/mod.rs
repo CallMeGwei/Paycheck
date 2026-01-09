@@ -7,16 +7,19 @@ use axum::routing::{get, post};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
+use std::sync::Arc;
 
 // Re-export the main library crate
 pub use paycheck::crypto::MasterKey;
 pub use paycheck::db::{AppState, init_audit_db, init_db, queries};
+pub use paycheck::email::EmailService;
 pub use paycheck::handlers::public::{
-    deactivate_device, generate_redemption_code, get_license_info, initiate_buy, payment_callback,
-    redeem_with_code, redeem_with_key, validate_license,
+    deactivate_device, get_license_info, initiate_buy, payment_callback,
+    redeem_with_code, request_activation_code, validate_license,
 };
 pub use paycheck::jwt;
 pub use paycheck::models::*;
+pub use paycheck::rate_limit::ActivationRateLimiter;
 
 /// Create a test master key (deterministic for testing)
 pub fn test_master_key() -> MasterKey {
@@ -88,6 +91,9 @@ pub fn create_test_project(
         domain: format!("{}.example.com", name.to_lowercase().replace(' ', "-")),
         license_key_prefix: "TEST".to_string(),
         allowed_redirect_urls: vec![],
+        email_from: None,
+        email_enabled: true,
+        email_webhook_url: None,
     };
     let (private_key, public_key) = jwt::generate_keypair();
     queries::create_project(conn, org_id, &input, &private_key, &public_key, master_key)
@@ -130,16 +136,15 @@ pub fn create_test_payment_config(
         .expect("Failed to create test payment config")
 }
 
-/// Create a test license key
+/// Create a test license (no longer uses master_key - email hash is the identity)
 pub fn create_test_license(
     conn: &Connection,
     project_id: &str,
     product_id: &str,
-    prefix: &str,
     expires_at: Option<i64>,
-    master_key: &MasterKey,
-) -> LicenseKey {
-    let input = CreateLicenseKey {
+) -> License {
+    let input = CreateLicense {
+        email_hash: Some(queries::hash_email("test@example.com")),
         customer_id: Some("test-customer".to_string()),
         expires_at,
         updates_expires_at: expires_at,
@@ -148,21 +153,21 @@ pub fn create_test_license(
         payment_provider_subscription_id: None,
         payment_provider_order_id: None,
     };
-    queries::create_license_key(conn, project_id, product_id, prefix, &input, master_key)
+    queries::create_license(conn, project_id, product_id, &input)
         .expect("Failed to create test license")
 }
 
 /// Create a test device for a license
 pub fn create_test_device(
     conn: &Connection,
-    license_key_id: &str,
+    license_id: &str,
     device_id: &str,
     device_type: DeviceType,
 ) -> Device {
     let jti = uuid::Uuid::new_v4().to_string();
     queries::create_device(
         conn,
-        license_key_id,
+        license_id,
         device_id,
         device_type,
         &jti,
@@ -211,6 +216,8 @@ pub fn create_test_app_state() -> AppState {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: Arc::new(ActivationRateLimiter::default()),
+        email_service: Arc::new(EmailService::new(None, "test@example.com".to_string())),
     }
 }
 
@@ -220,8 +227,7 @@ pub fn public_app(state: AppState) -> Router {
         .route("/buy", post(initiate_buy))
         .route("/callback", get(payment_callback))
         .route("/redeem", get(redeem_with_code))
-        .route("/redeem/key", post(redeem_with_key))
-        .route("/redeem/code", post(generate_redemption_code))
+        .route("/activation/request-code", post(request_activation_code))
         .route("/validate", get(validate_license))
         .route("/license", get(get_license_info))
         .route("/devices/deactivate", post(deactivate_device))
@@ -245,9 +251,9 @@ pub fn create_test_payment_session(
 }
 
 /// Mark a payment session as completed and associate it with a license
-pub fn complete_payment_session(conn: &Connection, session_id: &str, license_key_id: &str) {
+pub fn complete_payment_session(conn: &Connection, session_id: &str, license_id: &str) {
     queries::try_claim_payment_session(conn, session_id).expect("Failed to claim payment session");
-    queries::set_payment_session_license(conn, session_id, license_key_id)
+    queries::set_payment_session_license(conn, session_id, license_id)
         .expect("Failed to set payment session license");
 }
 
@@ -262,7 +268,7 @@ pub fn setup_stripe_config(conn: &Connection, org_id: &str, master_key: &MasterK
     let encrypted = master_key
         .encrypt_private_key(org_id, &config_json)
         .expect("Failed to encrypt Stripe config");
-    queries::update_organization_payment_configs(conn, org_id, Some(&encrypted), None)
+    queries::update_organization_encrypted_configs(conn, org_id, Some(&encrypted), None, None)
         .expect("Failed to set Stripe config");
 }
 
@@ -277,7 +283,7 @@ pub fn setup_lemonsqueezy_config(conn: &Connection, org_id: &str, master_key: &M
     let encrypted = master_key
         .encrypt_private_key(org_id, &config_json)
         .expect("Failed to encrypt LS config");
-    queries::update_organization_payment_configs(conn, org_id, None, Some(&encrypted))
+    queries::update_organization_encrypted_configs(conn, org_id, None, Some(&encrypted), None)
         .expect("Failed to set LemonSqueezy config");
 }
 
@@ -304,11 +310,12 @@ pub fn setup_both_payment_configs(conn: &Connection, org_id: &str, master_key: &
         .encrypt_private_key(org_id, &ls_json)
         .expect("Failed to encrypt LS config");
 
-    queries::update_organization_payment_configs(
+    queries::update_organization_encrypted_configs(
         conn,
         org_id,
         Some(&stripe_encrypted),
         Some(&ls_encrypted),
+        None,
     )
     .expect("Failed to set payment configs");
 }
@@ -318,13 +325,12 @@ pub fn create_test_license_with_subscription(
     conn: &Connection,
     project_id: &str,
     product_id: &str,
-    prefix: &str,
     expires_at: Option<i64>,
     provider: &str,
     subscription_id: &str,
-    master_key: &MasterKey,
-) -> LicenseKey {
-    let input = CreateLicenseKey {
+) -> License {
+    let input = CreateLicense {
+        email_hash: Some(queries::hash_email("test@example.com")),
         customer_id: Some("test-customer".to_string()),
         expires_at,
         updates_expires_at: expires_at,
@@ -333,6 +339,16 @@ pub fn create_test_license_with_subscription(
         payment_provider_subscription_id: Some(subscription_id.to_string()),
         payment_provider_order_id: Some("order_test".to_string()),
     };
-    queries::create_license_key(conn, project_id, product_id, prefix, &input, master_key)
+    queries::create_license(conn, project_id, product_id, &input)
         .expect("Failed to create test license with subscription")
+}
+
+/// Create a test activation code for a license
+pub fn create_test_activation_code(
+    conn: &Connection,
+    license_id: &str,
+    prefix: &str,
+) -> ActivationCode {
+    queries::create_activation_code(conn, license_id, prefix)
+        .expect("Failed to create test activation code")
 }

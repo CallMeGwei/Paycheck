@@ -2,11 +2,13 @@
 //!
 //! These tests verify that all encrypted data is properly re-encrypted
 //! when the master key is rotated.
+//!
+//! Note: Licenses are no longer encrypted, so only project private keys
+//! and organization payment configs need rotation.
 
 mod common;
 
 use common::*;
-use paycheck::db::LicenseKeyRow;
 use rusqlite::Connection;
 
 /// Simulate key rotation for a project's private key
@@ -77,46 +79,14 @@ fn rotate_org_payment_configs(
     };
 
     // Update in database
-    queries::update_organization_payment_configs(
+    queries::update_organization_encrypted_configs(
         conn,
         &org.id,
         new_stripe.as_deref(),
         new_ls.as_deref(),
+        None, // resend_api_key - not rotated in this helper
     )
     .map_err(|e| format!("Failed to update: {}", e))?;
-
-    Ok(())
-}
-
-/// Simulate key rotation for all license keys in a project
-fn rotate_license_keys(
-    conn: &Connection,
-    project_id: &str,
-    old_key: &MasterKey,
-    new_key: &MasterKey,
-) -> Result<(), String> {
-    // Get all license key rows (encrypted)
-    let rows: Vec<LicenseKeyRow> = queries::list_all_license_key_rows(conn)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|r| r.project_id == project_id)
-        .collect();
-
-    for row in rows {
-        // Decrypt with old key
-        let plaintext = old_key
-            .decrypt_private_key(&row.project_id, &row.encrypted_key)
-            .map_err(|e| format!("Failed to decrypt license key {}: {}", row.id, e))?;
-
-        // Re-encrypt with new key
-        let new_encrypted = new_key
-            .encrypt_private_key(&row.project_id, &plaintext)
-            .map_err(|e| format!("Failed to re-encrypt license key {}: {}", row.id, e))?;
-
-        // Update in database
-        queries::update_license_key_encrypted(conn, &row.id, &new_encrypted)
-            .map_err(|e| format!("Failed to update license key {}: {}", row.id, e))?;
-    }
 
     Ok(())
 }
@@ -139,6 +109,9 @@ fn test_project_private_key_rotation_works() {
         domain: "test.example.com".to_string(),
         license_key_prefix: "TEST".to_string(),
         allowed_redirect_urls: vec![],
+        email_from: None,
+        email_enabled: true,
+        email_webhook_url: None,
     };
     let project = queries::create_project(
         &conn,
@@ -193,7 +166,7 @@ fn test_org_stripe_config_rotation_works() {
         .encrypt_private_key(&org.id, stripe_config.as_bytes())
         .unwrap();
 
-    queries::update_organization_payment_configs(&conn, &org.id, Some(&encrypted_stripe), None)
+    queries::update_organization_encrypted_configs(&conn, &org.id, Some(&encrypted_stripe), None, None)
         .unwrap();
 
     // Verify we can decrypt with old key
@@ -239,7 +212,7 @@ fn test_org_lemonsqueezy_config_rotation_works() {
         .encrypt_private_key(&org.id, ls_config.as_bytes())
         .unwrap();
 
-    queries::update_organization_payment_configs(&conn, &org.id, None, Some(&encrypted_ls))
+    queries::update_organization_encrypted_configs(&conn, &org.id, None, Some(&encrypted_ls), None)
         .unwrap();
 
     // Verify we can decrypt with old key
@@ -268,159 +241,4 @@ fn test_org_lemonsqueezy_config_rotation_works() {
         .decrypt_private_key(&org.id, fetched.ls_config_encrypted.as_ref().unwrap())
         .expect("New key should decrypt");
     assert_eq!(decrypted, ls_config.as_bytes());
-}
-
-// ============ License Key Rotation ============
-
-#[test]
-fn test_license_key_unreadable_without_rotation() {
-    // This test demonstrates what happens if license keys are NOT rotated
-    // during master key rotation - they become unreadable. This documents
-    // the importance of the license key rotation step.
-
-    let conn = setup_test_db();
-    let old_key = MasterKey::from_bytes([1u8; 32]);
-    let new_key = MasterKey::from_bytes([2u8; 32]);
-
-    // Create org, project, product with old key
-    let org = create_test_org(&conn, "Test Org");
-
-    // Create project - encryption happens internally with correct project ID
-    let (private_key_bytes, public_key) = jwt::generate_keypair();
-    let input = CreateProject {
-        name: "Test Project".to_string(),
-        domain: "test.example.com".to_string(),
-        license_key_prefix: "TEST".to_string(),
-        allowed_redirect_urls: vec![],
-    };
-    let project = queries::create_project(
-        &conn,
-        &org.id,
-        &input,
-        &private_key_bytes,
-        &public_key,
-        &old_key,
-    )
-    .expect("Failed to create project");
-
-    let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-
-    // Create license key with old master key
-    let license = create_test_license(
-        &conn,
-        &project.id,
-        &product.id,
-        &project.license_key_prefix,
-        Some(future_timestamp(365)),
-        &old_key,
-    );
-
-    // Store the original plaintext key for comparison
-    let original_key = license.key.clone();
-
-    // Verify we can read the license key with old master key
-    let fetched = queries::get_license_key_by_id(&conn, &license.id, &old_key)
-        .expect("Query should succeed")
-        .expect("License should exist");
-    assert_eq!(fetched.key, original_key);
-
-    // Simulate what happens after key rotation:
-    // Project keys get rotated, but license keys do NOT
-    rotate_project_key(&conn, &project.id, &old_key, &new_key)
-        .expect("Project rotation should succeed");
-
-    // License keys are still encrypted with old key (we didn't rotate them)
-    // Attempting to read with new key should FAIL
-    let result = queries::get_license_key_by_id(&conn, &license.id, &new_key);
-
-    // Without license key rotation, decryption fails
-    assert!(
-        result.is_err() || result.unwrap().is_none() || {
-            // If we get here, check if the key is corrupted/wrong
-            let maybe_license = queries::get_license_key_by_id(&conn, &license.id, &new_key);
-            match maybe_license {
-                Ok(Some(l)) => l.key != original_key, // Key is corrupted
-                _ => true,                            // Error or not found
-            }
-        },
-        "License key should not be readable with new key when not rotated"
-    );
-
-    // Double-check: the license key IS still readable with the OLD key
-    // (which would be unavailable in production after rotation)
-    let still_works_with_old = queries::get_license_key_by_id(&conn, &license.id, &old_key)
-        .expect("Query should succeed")
-        .expect("License should exist");
-    assert_eq!(still_works_with_old.key, original_key);
-}
-
-#[test]
-fn test_license_key_should_be_readable_after_rotation() {
-    // This test verifies that license keys are properly rotated
-    // and can be decrypted with the new master key.
-
-    let conn = setup_test_db();
-    let old_key = MasterKey::from_bytes([1u8; 32]);
-    let new_key = MasterKey::from_bytes([2u8; 32]);
-
-    // Setup
-    let org = create_test_org(&conn, "Test Org");
-    let (private_key_bytes, public_key) = jwt::generate_keypair();
-    let input = CreateProject {
-        name: "Test Project".to_string(),
-        domain: "test.example.com".to_string(),
-        license_key_prefix: "TEST".to_string(),
-        allowed_redirect_urls: vec![],
-    };
-    let project = queries::create_project(
-        &conn,
-        &org.id,
-        &input,
-        &private_key_bytes,
-        &public_key,
-        &old_key,
-    )
-    .unwrap();
-
-    let product = create_test_product(&conn, &project.id, "Pro", "pro");
-    let license = create_test_license(
-        &conn,
-        &project.id,
-        &product.id,
-        &project.license_key_prefix,
-        Some(future_timestamp(365)),
-        &old_key,
-    );
-    let original_key = license.key.clone();
-
-    // Rotate project key
-    rotate_project_key(&conn, &project.id, &old_key, &new_key).unwrap();
-
-    // Rotate license keys
-    rotate_license_keys(&conn, &project.id, &old_key, &new_key).unwrap();
-
-    // After rotation, license key should be readable with new key
-    let result = queries::get_license_key_by_id(&conn, &license.id, &new_key);
-
-    match result {
-        Ok(Some(fetched)) => {
-            assert_eq!(
-                fetched.key, original_key,
-                "License key should be readable after rotation"
-            );
-        }
-        Ok(None) => {
-            panic!("License key not found after rotation");
-        }
-        Err(e) => {
-            panic!("License key decryption failed after rotation: {}", e);
-        }
-    }
-
-    // Verify old key no longer works
-    let old_result = queries::get_license_key_by_id(&conn, &license.id, &old_key);
-    assert!(
-        old_result.is_err(),
-        "Old key should no longer decrypt license key after rotation"
-    );
 }

@@ -1,0 +1,36 @@
+meta {
+  name: Lookup Licenses by Email
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{base_url}}/operators/organizations/{{org_id}}/projects/{{project_id}}/licenses/lookup?email=customer@example.com
+  body: none
+  auth: bearer
+}
+
+params:query {
+  email: customer@example.com
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  Look up all licenses for a customer by email (super admin support).
+
+  Required query params:
+  - email: Customer email to look up
+
+  Returns ALL licenses including expired and revoked so support
+  can see the full history.
+
+  Response includes:
+  - org_id, org_name
+  - project_id, project_name
+  - licenses: array of all licenses for this email
+
+  Requires operator admin role.
+}

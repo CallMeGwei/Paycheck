@@ -46,11 +46,11 @@ pub fn query_all<T: FromRow>(
 pub const OPERATOR_COLS: &str = "id, email, name, role, api_key_hash, created_at, created_by";
 
 pub const ORGANIZATION_COLS: &str =
-    "id, name, stripe_config, ls_config, default_provider, created_at, updated_at";
+    "id, name, stripe_config, ls_config, resend_api_key, default_provider, created_at, updated_at";
 
 pub const ORG_MEMBER_COLS: &str = "id, org_id, email, name, role, api_key_hash, created_at";
 
-pub const PROJECT_COLS: &str = "id, org_id, name, domain, license_key_prefix, private_key, public_key, allowed_redirect_urls, created_at, updated_at";
+pub const PROJECT_COLS: &str = "id, org_id, name, domain, license_key_prefix, private_key, public_key, allowed_redirect_urls, email_from, email_enabled, email_webhook_url, created_at, updated_at";
 
 pub const PROJECT_MEMBER_COLS: &str = "id, org_member_id, project_id, role, created_at";
 
@@ -58,18 +58,16 @@ pub const PRODUCT_COLS: &str = "id, project_id, name, tier, license_exp_days, up
 
 pub const PAYMENT_CONFIG_COLS: &str = "id, product_id, provider, stripe_price_id, price_cents, currency, ls_variant_id, created_at, updated_at";
 
-/// Columns for license_keys table.
-/// Note: encrypted_key requires decryption with MasterKey, so use LicenseKeyRow
-/// and decrypt manually rather than using the FromRow trait.
-pub const LICENSE_KEY_COLS: &str = "id, key_hash, encrypted_key, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
+/// Columns for licenses table (no encryption - email_hash instead of key)
+pub const LICENSE_COLS: &str = "id, email_hash, project_id, product_id, customer_id, activation_count, revoked, revoked_jtis, created_at, expires_at, updates_expires_at, payment_provider, payment_provider_customer_id, payment_provider_subscription_id, payment_provider_order_id";
 
 pub const DEVICE_COLS: &str =
-    "id, license_key_id, device_id, device_type, name, jti, activated_at, last_seen_at";
+    "id, license_id, device_id, device_type, name, jti, activated_at, last_seen_at";
 
-pub const PAYMENT_SESSION_COLS: &str = "id, product_id, customer_id, redirect_url, created_at, completed, license_key_id";
+pub const PAYMENT_SESSION_COLS: &str = "id, product_id, customer_id, redirect_url, created_at, completed, license_id";
 
-pub const REDEMPTION_CODE_COLS: &str =
-    "id, code_hash, license_key_id, expires_at, used, created_at";
+pub const ACTIVATION_CODE_COLS: &str =
+    "id, code_hash, license_id, expires_at, used, created_at";
 
 // ============ FromRow Implementations ============
 
@@ -92,14 +90,16 @@ impl FromRow for Organization {
         // Read config data as raw bytes (encrypted)
         let stripe_data: Option<Vec<u8>> = row.get(2)?;
         let ls_data: Option<Vec<u8>> = row.get(3)?;
+        let resend_data: Option<Vec<u8>> = row.get(4)?;
         Ok(Organization {
             id: row.get(0)?,
             name: row.get(1)?,
             stripe_config_encrypted: stripe_data,
             ls_config_encrypted: ls_data,
-            default_provider: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
+            resend_api_key_encrypted: resend_data,
+            default_provider: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
         })
     }
 }
@@ -130,8 +130,11 @@ impl FromRow for Project {
             private_key: row.get(5)?,
             public_key: row.get(6)?,
             allowed_redirect_urls: serde_json::from_str(&redirect_urls_str).unwrap_or_default(),
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
+            email_from: row.get(8)?,
+            email_enabled: row.get::<_, i32>(9)? != 0,
+            email_webhook_url: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
         })
     }
 }
@@ -202,47 +205,25 @@ impl FromRow for ProductPaymentConfig {
     }
 }
 
-/// Raw license key row from database, with encrypted key.
-/// Use `decrypt_license_key_row` to convert to `LicenseKey`.
-pub struct LicenseKeyRow {
-    pub id: String,
-    pub key_hash: String,
-    pub encrypted_key: Vec<u8>,
-    pub project_id: String,
-    pub product_id: String,
-    pub customer_id: Option<String>,
-    pub activation_count: i32,
-    pub revoked: bool,
-    pub revoked_jtis: Vec<String>,
-    pub created_at: i64,
-    pub expires_at: Option<i64>,
-    pub updates_expires_at: Option<i64>,
-    pub payment_provider: Option<String>,
-    pub payment_provider_customer_id: Option<String>,
-    pub payment_provider_subscription_id: Option<String>,
-    pub payment_provider_order_id: Option<String>,
-}
-
-impl FromRow for LicenseKeyRow {
+impl FromRow for License {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        let jtis_str: String = row.get(8)?;
-        Ok(LicenseKeyRow {
+        let jtis_str: String = row.get(7)?;
+        Ok(License {
             id: row.get(0)?,
-            key_hash: row.get(1)?,
-            encrypted_key: row.get(2)?,
-            project_id: row.get(3)?,
-            product_id: row.get(4)?,
-            customer_id: row.get(5)?,
-            activation_count: row.get(6)?,
-            revoked: row.get::<_, i32>(7)? != 0,
+            email_hash: row.get(1)?,
+            project_id: row.get(2)?,
+            product_id: row.get(3)?,
+            customer_id: row.get(4)?,
+            activation_count: row.get(5)?,
+            revoked: row.get::<_, i32>(6)? != 0,
             revoked_jtis: serde_json::from_str(&jtis_str).unwrap_or_default(),
-            created_at: row.get(9)?,
-            expires_at: row.get(10)?,
-            updates_expires_at: row.get(11)?,
-            payment_provider: row.get(12)?,
-            payment_provider_customer_id: row.get(13)?,
-            payment_provider_subscription_id: row.get(14)?,
-            payment_provider_order_id: row.get(15)?,
+            created_at: row.get(8)?,
+            expires_at: row.get(9)?,
+            updates_expires_at: row.get(10)?,
+            payment_provider: row.get(11)?,
+            payment_provider_customer_id: row.get(12)?,
+            payment_provider_subscription_id: row.get(13)?,
+            payment_provider_order_id: row.get(14)?,
         })
     }
 }
@@ -251,7 +232,7 @@ impl FromRow for Device {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
         Ok(Device {
             id: row.get(0)?,
-            license_key_id: row.get(1)?,
+            license_id: row.get(1)?,
             device_id: row.get(2)?,
             device_type: row.get::<_, String>(3)?.parse::<DeviceType>().unwrap(),
             name: row.get(4)?,
@@ -271,17 +252,17 @@ impl FromRow for PaymentSession {
             redirect_url: row.get(3)?,
             created_at: row.get(4)?,
             completed: row.get::<_, i32>(5)? != 0,
-            license_key_id: row.get(6)?,
+            license_id: row.get(6)?,
         })
     }
 }
 
-impl FromRow for RedemptionCode {
+impl FromRow for ActivationCode {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        Ok(RedemptionCode {
+        Ok(ActivationCode {
             id: row.get(0)?,
             code: row.get(1)?,
-            license_key_id: row.get(2)?,
+            license_id: row.get(2)?,
             expires_at: row.get(3)?,
             used: row.get::<_, i32>(4)? != 0,
             created_at: row.get(5)?,

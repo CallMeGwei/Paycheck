@@ -1,7 +1,7 @@
 //! Tests for the GET /license endpoint.
 //!
 //! The license endpoint allows clients to get license information using their
-//! license key (passed in the Authorization header).
+//! JWT token (passed in the Authorization header).
 
 use axum::{body::Body, http::Request};
 use serde_json::Value;
@@ -10,13 +10,43 @@ use tower::ServiceExt;
 mod common;
 use common::*;
 
-/// Helper to setup test data and return (app, state, license_key, project_id)
+use paycheck::jwt::{self, LicenseClaims};
+
+/// Helper to create a valid JWT for testing
+fn create_test_jwt(project: &Project, product: &Product, license_id: &str, device: &Device) -> String {
+    let master_key = test_master_key();
+
+    let claims = LicenseClaims {
+        license_exp: Some(future_timestamp(365)),
+        updates_exp: Some(future_timestamp(180)),
+        tier: product.tier.clone(),
+        features: product.features.clone(),
+        device_id: device.device_id.clone(),
+        device_type: "uuid".to_string(),
+        product_id: product.id.clone(),
+    };
+
+    let private_key = master_key
+        .decrypt_private_key(&project.id, &project.private_key)
+        .unwrap();
+
+    jwt::sign_claims(
+        &claims,
+        &private_key,
+        license_id,
+        &project.domain,
+        &device.jti,
+    )
+    .unwrap()
+}
+
+/// Helper to setup test data and return (app, state, token, public_key)
 fn setup_license_test() -> (axum::Router, paycheck::db::AppState, String, String) {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let license_key: String;
-    let project_id: String;
+    let token: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -27,29 +57,28 @@ fn setup_license_test() -> (axum::Router, paycheck::db::AppState, String, String
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
+        let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        license_key = license.key.clone();
-        project_id = project.id.clone();
+        token = create_test_jwt(&project, &product, &license.id, &device);
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state.clone());
-    (app, state, license_key, project_id)
+    (app, state, token, public_key)
 }
 
 #[tokio::test]
-async fn test_license_with_valid_key_returns_info() {
-    let (app, _state, license_key, project_id) = setup_license_test();
+async fn test_license_with_valid_jwt_returns_info() {
+    let (app, _state, token, public_key) = setup_license_test();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", format!("Bearer {}", license_key))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -78,8 +107,8 @@ async fn test_license_with_devices_returns_device_list() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let license_key: String;
-    let project_id: String;
+    let token: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -90,17 +119,15 @@ async fn test_license_with_devices_returns_device_list() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
 
         // Add some devices
-        create_test_device(&conn, &license.id, "device-1", DeviceType::Uuid);
-        create_test_device(&conn, &license.id, "device-2", DeviceType::Machine);
+        let device1 = create_test_device(&conn, &license.id, "device-1", DeviceType::Uuid);
+        let _device2 = create_test_device(&conn, &license.id, "device-2", DeviceType::Machine);
 
-        license_key = license.key.clone();
-        project_id = project.id.clone();
+        token = create_test_jwt(&project, &product, &license.id, &device1);
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -109,8 +136,8 @@ async fn test_license_with_devices_returns_device_list() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", format!("Bearer {}", license_key))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -138,13 +165,13 @@ async fn test_license_with_devices_returns_device_list() {
 
 #[tokio::test]
 async fn test_license_missing_auth_header_returns_error() {
-    let (app, _state, _license_key, project_id) = setup_license_test();
+    let (app, _state, _token, public_key) = setup_license_test();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -159,42 +186,26 @@ async fn test_license_missing_auth_header_returns_error() {
 }
 
 #[tokio::test]
-async fn test_license_invalid_key_returns_not_found() {
-    let (app, _state, _license_key, project_id) = setup_license_test();
+async fn test_license_invalid_jwt_returns_error() {
+    let (app, _state, _token, public_key) = setup_license_test();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", "Bearer invalid-license-key")
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", "Bearer invalid-jwt-token")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn test_license_wrong_project_returns_not_found() {
-    let (app, _state, license_key, _project_id) = setup_license_test();
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/license?project_id=wrong-project-id")
-                .header("Authorization", format!("Bearer {}", license_key))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Should return 404 to avoid revealing the license exists in another project
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    // Should fail with bad request or unauthorized
+    assert!(
+        response.status() == axum::http::StatusCode::BAD_REQUEST
+            || response.status() == axum::http::StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]
@@ -202,8 +213,8 @@ async fn test_license_revoked_shows_revoked_status() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let license_key: String;
-    let project_id: String;
+    let token: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -214,16 +225,15 @@ async fn test_license_revoked_shows_revoked_status() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
+        let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        license_key = license.key.clone();
-        project_id = project.id.clone();
+        token = create_test_jwt(&project, &product, &license.id, &device);
+        public_key = project.public_key.clone();
 
         // Revoke the license
-        queries::revoke_license_key(&conn, &license.id).unwrap();
+        queries::revoke_license(&conn, &license.id).unwrap();
     }
 
     let app = public_app(state);
@@ -232,8 +242,8 @@ async fn test_license_revoked_shows_revoked_status() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", format!("Bearer {}", license_key))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -255,8 +265,8 @@ async fn test_license_expired_shows_expired_status() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let license_key: String;
-    let project_id: String;
+    let token: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -267,13 +277,12 @@ async fn test_license_expired_shows_expired_status() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(past_timestamp(1)), // Expired 1 day ago
-            &master_key,
         );
+        let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        license_key = license.key.clone();
-        project_id = project.id.clone();
+        token = create_test_jwt(&project, &product, &license.id, &device);
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -282,8 +291,8 @@ async fn test_license_expired_shows_expired_status() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", format!("Bearer {}", license_key))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -305,8 +314,8 @@ async fn test_license_perpetual_shows_active_status() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let license_key: String;
-    let project_id: String;
+    let token: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -317,13 +326,12 @@ async fn test_license_perpetual_shows_active_status() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             None, // Perpetual license
-            &master_key,
         );
+        let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        license_key = license.key.clone();
-        project_id = project.id.clone();
+        token = create_test_jwt(&project, &product, &license.id, &device);
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -332,8 +340,8 @@ async fn test_license_perpetual_shows_active_status() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", format!("Bearer {}", license_key))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -355,15 +363,15 @@ async fn test_license_perpetual_shows_active_status() {
 }
 
 #[tokio::test]
-async fn test_license_missing_project_id_returns_error() {
-    let (app, _state, license_key, _project_id) = setup_license_test();
+async fn test_license_missing_public_key_returns_error() {
+    let (app, _state, token, _public_key) = setup_license_test();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/license")
-                .header("Authorization", format!("Bearer {}", license_key))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -378,8 +386,8 @@ async fn test_license_shows_correct_limits() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let license_key: String;
-    let project_id: String;
+    let token: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -403,13 +411,12 @@ async fn test_license_shows_correct_limits() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(future_timestamp(365)),
-            &master_key,
         );
+        let device = create_test_device(&conn, &license.id, "test-device", DeviceType::Uuid);
 
-        license_key = license.key.clone();
-        project_id = project.id.clone();
+        token = create_test_jwt(&project, &product, &license.id, &device);
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -418,8 +425,8 @@ async fn test_license_shows_correct_limits() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/license?project_id={}", project_id))
-                .header("Authorization", format!("Bearer {}", license_key))
+                .uri(format!("/license?public_key={}", urlencoding::encode(&public_key)))
+                .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
         )

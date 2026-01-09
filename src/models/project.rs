@@ -27,6 +27,14 @@ pub struct Project {
     pub public_key: String,
     /// Allowlist of URLs that can be used as post-payment redirects
     pub allowed_redirect_urls: Vec<String>,
+    /// Email "from" address for activation emails (e.g., "noreply@myapp.com")
+    /// Falls back to system default if not set
+    pub email_from: Option<String>,
+    /// Whether email delivery is enabled for this project
+    pub email_enabled: bool,
+    /// Webhook URL to POST activation data to (instead of sending email)
+    /// If set, Paycheck calls this URL and dev handles email delivery themselves
+    pub email_webhook_url: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -40,6 +48,9 @@ pub struct ProjectPublic {
     pub license_key_prefix: String,
     pub public_key: String,
     pub allowed_redirect_urls: Vec<String>,
+    pub email_from: Option<String>,
+    pub email_enabled: bool,
+    pub email_webhook_url: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -54,6 +65,9 @@ impl From<Project> for ProjectPublic {
             license_key_prefix: p.license_key_prefix,
             public_key: p.public_key,
             allowed_redirect_urls: p.allowed_redirect_urls,
+            email_from: p.email_from,
+            email_enabled: p.email_enabled,
+            email_webhook_url: p.email_webhook_url,
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -68,10 +82,23 @@ pub struct CreateProject {
     pub license_key_prefix: String,
     #[serde(default)]
     pub allowed_redirect_urls: Vec<String>,
+    /// Email "from" address for activation emails (e.g., "noreply@myapp.com")
+    #[serde(default)]
+    pub email_from: Option<String>,
+    /// Whether email delivery is enabled (default: true)
+    #[serde(default = "default_email_enabled")]
+    pub email_enabled: bool,
+    /// Webhook URL to POST activation data to (instead of sending email)
+    #[serde(default)]
+    pub email_webhook_url: Option<String>,
 }
 
 fn default_prefix() -> String {
     "PC".to_string()
+}
+
+fn default_email_enabled() -> bool {
+    true
 }
 
 /// Masked Stripe config for display (hides sensitive parts of keys)
@@ -126,4 +153,25 @@ pub struct UpdateProject {
     pub domain: Option<String>,
     pub license_key_prefix: Option<String>,
     pub allowed_redirect_urls: Option<Vec<String>>,
+    /// Email "from" address (use Some(None) to clear, None to leave unchanged)
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub email_from: Option<Option<String>>,
+    /// Whether email delivery is enabled
+    pub email_enabled: Option<bool>,
+    /// Webhook URL (use Some(None) to clear, None to leave unchanged)
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub email_webhook_url: Option<Option<String>>,
+}
+
+/// Deserialize a field that can be:
+/// - absent (None) - leave unchanged
+/// - null (Some(None)) - clear the value
+/// - present (Some(Some(value))) - set to value
+fn deserialize_optional_field<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::deserialize(deserializer)?))
 }

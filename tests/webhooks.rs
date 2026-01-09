@@ -365,9 +365,7 @@ fn test_renewal_webhook_replay_prevented() {
         &conn,
         &project.id,
         &product.id,
-        &project.license_key_prefix,
         Some(initial_expiration),
-        &master_key,
     );
 
     // Simulate a renewal webhook with a unique event ID
@@ -380,14 +378,13 @@ fn test_renewal_webhook_replay_prevented() {
         "test_provider",
         &product,
         &license.id,
-        &license.key,
         subscription_id,
         Some(event_id),
     );
     assert_eq!(status1, StatusCode::OK, "First renewal should succeed");
 
     // Check license was extended (product has 365 day license_exp_days)
-    let updated_license = queries::get_license_key_by_id(&conn, &license.id, &master_key)
+    let updated_license = queries::get_license_by_id(&conn, &license.id)
         .expect("Query should succeed")
         .expect("License should exist");
     let first_expiration = updated_license.expires_at.expect("Should have expiration");
@@ -405,7 +402,6 @@ fn test_renewal_webhook_replay_prevented() {
         "test_provider",
         &product,
         &license.id,
-        &license.key,
         subscription_id,
         Some(event_id), // Same event ID = replay
     );
@@ -423,7 +419,7 @@ fn test_renewal_webhook_replay_prevented() {
     );
 
     // Verify license expiration was NOT extended again
-    let final_license = queries::get_license_key_by_id(&conn, &license.id, &master_key)
+    let final_license = queries::get_license_by_id(&conn, &license.id)
         .expect("Query should succeed")
         .expect("License should exist");
     let final_expiration = final_license.expires_at.expect("Should have expiration");
@@ -452,9 +448,7 @@ fn test_different_renewal_events_both_processed() {
         &conn,
         &project.id,
         &product.id,
-        &project.license_key_prefix,
         Some(initial_expiration),
-        &master_key,
     );
 
     let subscription_id = "sub_test_123";
@@ -465,7 +459,6 @@ fn test_different_renewal_events_both_processed() {
         "test_provider",
         &product,
         &license.id,
-        &license.key,
         subscription_id,
         Some("invoice_001"),
     );
@@ -477,7 +470,6 @@ fn test_different_renewal_events_both_processed() {
         "test_provider",
         &product,
         &license.id,
-        &license.key,
         subscription_id,
         Some("invoice_002"), // Different event ID
     );
@@ -508,6 +500,7 @@ fn test_checkout_creates_license_and_device() {
         session_id: session.id.clone(),
         project_id: project.id.clone(),
         customer_id: Some("cust_stripe".to_string()),
+        customer_email: Some("test@example.com".to_string()),
         subscription_id: Some("sub_123".to_string()),
         order_id: Some("cs_test_123".to_string()),
     };
@@ -519,7 +512,6 @@ fn test_checkout_creates_license_and_device() {
         &session,
         &product,
         &checkout_data,
-        &master_key,
     );
 
     assert_eq!(status, StatusCode::OK);
@@ -530,11 +522,11 @@ fn test_checkout_creates_license_and_device() {
         .unwrap()
         .unwrap();
     assert!(updated_session.completed);
-    assert!(updated_session.license_key_id.is_some());
+    assert!(updated_session.license_id.is_some());
 
     // Verify license has correct metadata
-    let license_id = updated_session.license_key_id.unwrap();
-    let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+    let license_id = updated_session.license_id.unwrap();
+    let license = queries::get_license_by_id(&conn, &license_id)
         .unwrap()
         .unwrap();
     assert_eq!(license.payment_provider.as_deref(), Some("stripe"));
@@ -574,6 +566,7 @@ fn test_checkout_concurrent_webhooks_create_only_one_license() {
         session_id: session.id.clone(),
         project_id: project.id.clone(),
         customer_id: None,
+        customer_email: Some("test@example.com".to_string()),
         subscription_id: None,
         order_id: None,
     };
@@ -586,7 +579,6 @@ fn test_checkout_concurrent_webhooks_create_only_one_license() {
         &session,
         &product,
         &checkout_data,
-        &master_key,
     );
     assert_eq!(status1, StatusCode::OK);
     assert_eq!(msg1, "OK");
@@ -599,7 +591,6 @@ fn test_checkout_concurrent_webhooks_create_only_one_license() {
         &session,
         &product,
         &checkout_data,
-        &master_key,
     );
     assert_eq!(status2, StatusCode::OK);
     assert_eq!(msg2, "Already processed");
@@ -608,7 +599,7 @@ fn test_checkout_concurrent_webhooks_create_only_one_license() {
     let updated_session = queries::get_payment_session(&conn, &session.id)
         .unwrap()
         .unwrap();
-    let license_id = updated_session.license_key_id.unwrap();
+    let license_id = updated_session.license_id.unwrap();
 
     // Device creation is deferred to activation time (/redeem/key)
     // Verify NO device was created during checkout
@@ -648,6 +639,7 @@ fn test_checkout_creates_license_with_product_expirations() {
         session_id: session.id.clone(),
         project_id: project.id.clone(),
         customer_id: None,
+        customer_email: Some("test@example.com".to_string()),
         subscription_id: None,
         order_id: None,
     };
@@ -660,17 +652,15 @@ fn test_checkout_creates_license_with_product_expirations() {
         &session,
         &product,
         &checkout_data,
-        &master_key,
     );
     assert_eq!(status, StatusCode::OK);
 
     let updated_session = queries::get_payment_session(&conn, &session.id)
         .unwrap()
         .unwrap();
-    let license = queries::get_license_key_by_id(
+    let license = queries::get_license_by_id(
         &conn,
-        &updated_session.license_key_id.unwrap(),
-        &master_key,
+        &updated_session.license_id.unwrap(),
     )
     .unwrap()
     .unwrap();
@@ -714,6 +704,7 @@ fn test_checkout_perpetual_license() {
         session_id: session.id.clone(),
         project_id: project.id.clone(),
         customer_id: None,
+        customer_email: Some("test@example.com".to_string()),
         subscription_id: None,
         order_id: None,
     };
@@ -725,17 +716,15 @@ fn test_checkout_perpetual_license() {
         &session,
         &product,
         &checkout_data,
-        &master_key,
     );
     assert_eq!(status, StatusCode::OK);
 
     let updated_session = queries::get_payment_session(&conn, &session.id)
         .unwrap()
         .unwrap();
-    let license = queries::get_license_key_by_id(
+    let license = queries::get_license_by_id(
         &conn,
-        &updated_session.license_key_id.unwrap(),
-        &master_key,
+        &updated_session.license_id.unwrap(),
     )
     .unwrap()
     .unwrap();
@@ -769,9 +758,7 @@ fn test_renewal_extends_license_expiration() {
         &conn,
         &project.id,
         &product.id,
-        &project.license_key_prefix,
         Some(initial_exp),
-        &master_key,
     );
 
     let (status, _) = process_renewal(
@@ -779,13 +766,12 @@ fn test_renewal_extends_license_expiration() {
         "stripe",
         &product,
         &license.id,
-        &license.key,
         "sub_123",
         Some("invoice_001"),
     );
     assert_eq!(status, StatusCode::OK);
 
-    let updated = queries::get_license_key_by_id(&conn, &license.id, &master_key)
+    let updated = queries::get_license_by_id(&conn, &license.id)
         .unwrap()
         .unwrap();
     let new_exp = updated.expires_at.unwrap();
@@ -815,9 +801,7 @@ fn test_renewal_without_event_id_always_processes() {
         &conn,
         &project.id,
         &product.id,
-        &project.license_key_prefix,
         Some(now() + 86400),
-        &master_key,
     );
 
     // First call without event_id
@@ -826,7 +810,6 @@ fn test_renewal_without_event_id_always_processes() {
         "stripe",
         &product,
         &license.id,
-        &license.key,
         "sub_123",
         None, // No event_id - no replay prevention
     );
@@ -839,7 +822,6 @@ fn test_renewal_without_event_id_always_processes() {
         "stripe",
         &product,
         &license.id,
-        &license.key,
         "sub_123",
         None,
     );
@@ -865,17 +847,15 @@ fn test_cancellation_returns_ok_without_modifying_license() {
         &conn,
         &project.id,
         &product.id,
-        &project.license_key_prefix,
         Some(original_exp),
-        &master_key,
     );
 
-    let (status, msg) = process_cancellation("stripe", &license.key, license.expires_at, "sub_123");
+    let (status, msg) = process_cancellation("stripe", &license.id, license.expires_at, "sub_123");
     assert_eq!(status, StatusCode::OK);
     assert_eq!(msg, "OK");
 
     // Verify license was NOT modified
-    let unchanged = queries::get_license_key_by_id(&conn, &license.id, &master_key)
+    let unchanged = queries::get_license_by_id(&conn, &license.id)
         .unwrap()
         .unwrap();
     assert_eq!(unchanged.expires_at, Some(original_exp));
@@ -961,10 +941,10 @@ async fn test_stripe_webhook_checkout_completed_creates_license() {
         .unwrap()
         .unwrap();
     assert!(session.completed);
-    assert!(session.license_key_id.is_some());
+    assert!(session.license_id.is_some());
 
     let license =
-        queries::get_license_key_by_id(&conn, &session.license_key_id.unwrap(), &master_key)
+        queries::get_license_by_id(&conn, &session.license_id.unwrap())
             .unwrap()
             .unwrap();
     assert_eq!(license.payment_provider.as_deref(), Some("stripe"));
@@ -1141,11 +1121,9 @@ async fn test_stripe_webhook_invoice_paid_extends_license() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(original_exp),
             "stripe",
             "sub_test_renewal",
-            &master_key,
         );
         license_id = license.id.clone();
     }
@@ -1185,7 +1163,7 @@ async fn test_stripe_webhook_invoice_paid_extends_license() {
 
     // Verify license was extended
     let conn = state.db.get().unwrap();
-    let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+    let license = queries::get_license_by_id(&conn, &license_id)
         .unwrap()
         .unwrap();
     let new_exp = license.expires_at.unwrap();
@@ -1217,11 +1195,9 @@ async fn test_stripe_webhook_subscription_deleted_returns_ok() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(original_exp),
             "stripe",
             "sub_cancel_test",
-            &master_key,
         );
         license_id = license.id.clone();
     }
@@ -1260,7 +1236,7 @@ async fn test_stripe_webhook_subscription_deleted_returns_ok() {
 
     // License should be unchanged (expires naturally)
     let conn = state.db.get().unwrap();
-    let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+    let license = queries::get_license_by_id(&conn, &license_id)
         .unwrap()
         .unwrap();
     assert_eq!(license.expires_at, Some(original_exp));
@@ -1375,10 +1351,10 @@ async fn test_lemonsqueezy_webhook_order_created_creates_license() {
         .unwrap()
         .unwrap();
     assert!(session.completed);
-    assert!(session.license_key_id.is_some());
+    assert!(session.license_id.is_some());
 
     let license =
-        queries::get_license_key_by_id(&conn, &session.license_key_id.unwrap(), &master_key)
+        queries::get_license_by_id(&conn, &session.license_id.unwrap())
             .unwrap()
             .unwrap();
     assert_eq!(license.payment_provider.as_deref(), Some("lemonsqueezy"));
@@ -1483,11 +1459,9 @@ async fn test_lemonsqueezy_webhook_subscription_payment_extends_license() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(original_exp),
             "lemonsqueezy",
             "12345", // subscription_id as string
-            &master_key,
         );
         license_id = license.id.clone();
     }
@@ -1527,7 +1501,7 @@ async fn test_lemonsqueezy_webhook_subscription_payment_extends_license() {
 
     // Verify license was extended
     let conn = state.db.get().unwrap();
-    let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+    let license = queries::get_license_by_id(&conn, &license_id)
         .unwrap()
         .unwrap();
     let new_exp = license.expires_at.unwrap();
@@ -1554,11 +1528,9 @@ async fn test_lemonsqueezy_webhook_subscription_cancelled_returns_ok() {
             &conn,
             &project.id,
             &product.id,
-            &project.license_key_prefix,
             Some(original_exp),
             "lemonsqueezy",
             "sub_ls_cancel",
-            &master_key,
         );
         license_id = license.id.clone();
     }
@@ -1597,7 +1569,7 @@ async fn test_lemonsqueezy_webhook_subscription_cancelled_returns_ok() {
 
     // License should be unchanged
     let conn = state.db.get().unwrap();
-    let license = queries::get_license_key_by_id(&conn, &license_id, &master_key)
+    let license = queries::get_license_by_id(&conn, &license_id)
         .unwrap()
         .unwrap();
     assert_eq!(license.expires_at, Some(original_exp));

@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LicenseKey {
+pub struct License {
     pub id: String,
-    pub key: String,
+    /// SHA-256 hash of the purchase email (no PII stored)
+    pub email_hash: Option<String>,
     pub project_id: String,
     pub product_id: String,
     /// Developer-managed customer identifier (optional)
@@ -22,15 +23,17 @@ pub struct LicenseKey {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct LicenseKeyWithProduct {
+pub struct LicenseWithProduct {
     #[serde(flatten)]
-    pub license: LicenseKey,
+    pub license: License,
     pub product_name: String,
-    // Note: project_id is now part of LicenseKey, so no separate field needed
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateLicenseKey {
+pub struct CreateLicense {
+    /// SHA-256 hash of the purchase email (computed from webhook data)
+    #[serde(default)]
+    pub email_hash: Option<String>,
     /// Developer-managed customer identifier (optional)
     #[serde(default)]
     pub customer_id: Option<String>,
@@ -47,10 +50,10 @@ pub struct CreateLicenseKey {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RedemptionCode {
+pub struct ActivationCode {
     pub id: String,
     pub code: String,
-    pub license_key_id: String,
+    pub license_id: String,
     pub expires_at: i64,
     pub used: bool,
     pub created_at: i64,

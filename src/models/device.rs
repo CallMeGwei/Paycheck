@@ -12,7 +12,7 @@ pub enum DeviceType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Device {
     pub id: String,
-    pub license_key_id: String,
+    pub license_id: String,
     pub device_id: String,
     pub device_type: DeviceType,
     pub name: Option<String>,

@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_key}}/revoke
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_id}}/revoke
   body: none
   auth: bearer
 }
@@ -17,11 +17,14 @@ auth:bearer {
 docs {
   Revoke a license (requires write access).
 
-  Sets the revoked flag - all tokens become invalid
-  on next online validation check.
+  Path params:
+  - license_id: The license ID
+
+  Sets the revoked flag - all existing JWTs become invalid
+  on next online validation check via /validate.
 
   For offline-only apps, revocation won't take effect
-  until the token expires naturally.
+  until the user attempts to refresh their token.
 
   Returns: { "revoked": true }
 }

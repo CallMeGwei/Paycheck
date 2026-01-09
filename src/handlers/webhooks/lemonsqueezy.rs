@@ -118,6 +118,7 @@ fn parse_order_created(event: &LemonSqueezyWebhookEvent) -> Result<WebhookEvent,
         session_id,
         project_id,
         customer_id: order.customer_id.map(|id| id.to_string()),
+        customer_email: order.user_email,
         subscription_id,
         order_id: Some(event.data.id.clone()),
     }))

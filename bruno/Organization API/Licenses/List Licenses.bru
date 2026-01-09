@@ -10,11 +10,30 @@ get {
   auth: bearer
 }
 
+params:query {
+  ~email: customer@example.com
+  ~limit: 50
+  ~offset: 0
+}
+
 auth:bearer {
   token: {{org_api_key}}
 }
 
 docs {
-  List all licenses for a project.
-  Returns license keys with associated product info.
+  List licenses for a project with pagination.
+
+  Query params:
+  - email: (optional) Filter by customer email for support lookups.
+           When set, returns ALL licenses including expired/revoked.
+  - limit: (optional) Max results, default 50, max 100
+  - offset: (optional) Pagination offset, default 0
+
+  Response:
+  {
+    "licenses": [...],
+    "total": 150,
+    "limit": 50,
+    "offset": 0
+  }
 }

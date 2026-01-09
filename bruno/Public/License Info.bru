@@ -5,29 +5,25 @@ meta {
 }
 
 get {
-  url: {{base_url}}/license?project_id={{project_id}}
+  url: {{base_url}}/license
   body: none
   auth: bearer
 }
 
 auth:bearer {
-  token: {{license_key}}
+  token: {{jwt_token}}
 }
 
 docs {
-  Get complete license information including devices.
-  License key is passed in Authorization header, never exposed in URL.
+  Get license information for the authenticated device.
+  JWT token is passed in Authorization header.
 
   Headers:
-  - Authorization: Bearer <license_key>
-
-  Query params:
-  - project_id: The project identifier
+  - Authorization: Bearer <jwt_token>
 
   Returns:
   {
     "status": "active",
-    "email": "user@example.com",
     "created_at": 1704067200,
     "expires_at": null,
     "updates_expires_at": 1735689600,
@@ -35,6 +31,8 @@ docs {
     "activation_limit": 0,
     "device_count": 2,
     "device_limit": 5,
+    "tier": "pro",
+    "features": ["feature1", "feature2"],
     "devices": [
       {
         "device_id": "...",

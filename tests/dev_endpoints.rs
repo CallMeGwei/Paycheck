@@ -53,6 +53,7 @@ fn operator_app_with_payment_configs() -> (Router, String) {
                 store_id: "store_123".to_string(),
                 webhook_secret: "ls_whsec_test_secret".to_string(),
             }),
+            resend_api_key: None,
             default_provider: Some(Some("stripe".to_string())),
         };
 
@@ -74,6 +75,10 @@ fn operator_app_with_payment_configs() -> (Router, String) {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     // Note: Testing without auth middleware - auth is tested separately
@@ -182,6 +187,10 @@ async fn test_operator_get_payment_config_no_configs() {
         audit_log_enabled: false,
         master_key,
         success_page_url: "http://localhost:3000/success".to_string(),
+        activation_rate_limiter: std::sync::Arc::new(
+            paycheck::rate_limit::ActivationRateLimiter::default(),
+        ),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
     };
 
     let app = Router::new()
