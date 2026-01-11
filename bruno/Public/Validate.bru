@@ -4,33 +4,38 @@ meta {
   seq: 5
 }
 
-get {
-  url: {{base_url}}/validate?project_id={{project_id}}&jti={{jti}}
-  body: none
+post {
+  url: {{base_url}}/validate
+  body: json
   auth: none
 }
 
+body:json {
+  {
+    "public_key": "{{project_pub_key}}",
+    "jti": "{{jti}}"
+  }
+}
+
 docs {
-  Online validation check for licenses with online_checks enabled.
+  Online validation check for licenses.
   Checks revocation status, expiration, and updates last_seen timestamp.
 
-  Required params:
-  - project_id: The project identifier
+  Required fields:
+  - public_key: Project's public key
   - jti: JWT ID from the token's "jti" claim
 
   Returns (valid):
   {
     "valid": true,
-    "reason": null,
     "license_exp": 1735689600,
     "updates_exp": 1735689600
   }
 
   Returns (invalid):
   {
-    "valid": false,
-    "reason": "License has been revoked",
-    "license_exp": null,
-    "updates_exp": null
+    "valid": false
   }
+
+  Note: Invalid responses intentionally omit the reason to prevent information disclosure.
 }

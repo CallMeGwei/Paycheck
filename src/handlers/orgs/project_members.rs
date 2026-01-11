@@ -8,16 +8,16 @@ use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
 use crate::models::{
-    ActorType, CreateProjectMember, ProjectMemberWithDetails, UpdateProjectMember,
+    ActorType, AuditAction, CreateProjectMember, ProjectMemberWithDetails, UpdateProjectMember,
 };
 use crate::pagination::{Paginated, PaginationQuery};
-use crate::util::audit_log;
+use crate::util::AuditLogBuilder;
 
 #[derive(serde::Deserialize)]
 pub struct ProjectMemberPath {
     pub org_id: String,
     pub project_id: String,
-    pub id: String,
+    pub member_id: String,
 }
 
 pub async fn create_project_member(
@@ -34,8 +34,8 @@ pub async fn create_project_member(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    // Verify the org member exists and belongs to the same org
-    let target_member = queries::get_org_member_by_id(&conn, &input.org_member_id)?
+    // Verify the org member exists and belongs to the same org (with user details for audit)
+    let target_member = queries::get_org_member_with_user_by_id(&conn, &input.org_member_id)?
         .ok_or_else(|| AppError::NotFound("Org member not found".into()))?;
 
     if target_member.org_id != path.org_id {
@@ -53,23 +53,15 @@ pub async fn create_project_member(
 
     let project_member = queries::create_project_member(&conn, &path.project_id, &input)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "create_project_member",
-        "project_member",
-        &project_member.id,
-        Some(
-            &serde_json::json!({ "org_member_id": input.org_member_id, "project_id": path.project_id, "role": input.role }),
-        ),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(target_member.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::CreateProjectMember)
+        .resource("project_member", &project_member.id)
+        .details(&serde_json::json!({ "org_member_id": input.org_member_id, "project_id": path.project_id, "role": input.role }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(target_member.name.clone()))
+        .save()?;
 
     Ok(Json(ProjectMemberWithDetails {
         id: project_member.id,
@@ -101,7 +93,7 @@ pub async fn get_project_member(
 ) -> Result<Json<ProjectMemberWithDetails>> {
     let conn = state.db.get()?;
 
-    let member = queries::get_project_member_by_id(&conn, &path.id)?
+    let member = queries::get_project_member_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Project member not found".into()))?;
 
     // Verify it belongs to the specified project
@@ -127,33 +119,27 @@ pub async fn update_project_member(
     let audit_conn = state.audit.get()?;
 
     // Fetch member first for audit log (before update)
-    let existing = queries::get_project_member_by_id(&conn, &path.id)?
+    let existing = queries::get_project_member_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Project member not found".into()))?;
 
     if existing.project_id != path.project_id {
         return Err(AppError::NotFound("Project member not found".into()));
     }
 
-    let updated = queries::update_project_member(&conn, &path.id, &path.project_id, &input)?;
+    let updated = queries::update_project_member(&conn, &path.member_id, &path.project_id, &input)?;
     if !updated {
         return Err(AppError::NotFound("Project member not found".into()));
     }
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "update_project_member",
-        "project_member",
-        &path.id,
-        Some(&serde_json::json!({ "role": input.role })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(existing.name),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::UpdateProjectMember)
+        .resource("project_member", &path.member_id)
+        .details(&serde_json::json!({ "role": input.role }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(existing.name))
+        .save()?;
 
     Ok(Json(serde_json::json!({ "updated": true })))
 }
@@ -172,33 +158,26 @@ pub async fn delete_project_member(
     let audit_conn = state.audit.get()?;
 
     // Fetch member first for audit log (before delete)
-    let existing = queries::get_project_member_by_id(&conn, &path.id)?
+    let existing = queries::get_project_member_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Project member not found".into()))?;
 
     if existing.project_id != path.project_id {
         return Err(AppError::NotFound("Project member not found".into()));
     }
 
-    let deleted = queries::delete_project_member(&conn, &path.id, &path.project_id)?;
+    let deleted = queries::delete_project_member(&conn, &path.member_id, &path.project_id)?;
     if !deleted {
         return Err(AppError::NotFound("Project member not found".into()));
     }
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "delete_project_member",
-        "project_member",
-        &path.id,
-        None,
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(existing.name),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::DeleteProjectMember)
+        .resource("project_member", &path.member_id)
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(existing.name))
+        .save()?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(serde_json::json!({ "success": true })))
 }

@@ -4,21 +4,21 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::db::{AppState, queries};
+use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
 use crate::models::{
-    ActorType, CreateOrgMember, CreateOrganization, OrgMember, OrgMemberRole, Organization,
+    ActorType, AuditAction, CreateOrgMember, CreateOrganization, OrgMember, OrgMemberRole, Organization,
     UpdateOrganization,
 };
-use crate::pagination::{Paginated, PaginationQuery};
-use crate::util::audit_log;
+use crate::pagination::Paginated;
+use crate::util::AuditLogBuilder;
 
 #[derive(Serialize)]
 pub struct OrganizationCreated {
     pub organization: Organization,
-    /// Owner member (if owner_email provided). No API key - use Console or create one later.
+    /// Owner member (if owner_user_id provided). No API key - use Console or create one later.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<OrgMember>,
 }
@@ -29,47 +29,56 @@ pub async fn create_organization(
     headers: HeaderMap,
     Json(input): Json<CreateOrganization>,
 ) -> Result<Json<OrganizationCreated>> {
+    input.validate()?;
+
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
     let organization = queries::create_organization(&conn, &input)?;
 
-    // If owner email is provided, create the first org member as owner
+    // If owner_user_id is provided, create the first org member as owner
+    // The user must already exist in the users table
     // No API key is created - owner uses Console (impersonation) or creates a key later
-    let owner = if let (Some(email), Some(name)) = (&input.owner_email, &input.owner_name) {
+    let owner = if let Some(owner_user_id) = &input.owner_user_id {
+        // Verify the user exists
+        let user = queries::get_user_by_id(&conn, owner_user_id)?
+            .ok_or_else(|| AppError::BadRequest("Owner user not found".into()))?;
+
         let member = queries::create_org_member(
             &conn,
             &organization.id,
             &CreateOrgMember {
-                email: email.clone(),
-                name: name.clone(),
+                user_id: owner_user_id.clone(),
                 role: OrgMemberRole::Owner,
-                external_user_id: input.external_user_id.clone(),
             },
         )?;
+
+        // Log details with user info
+        AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+            .actor(ActorType::User, Some(&ctx.user.id))
+            .action(AuditAction::CreateOrganization)
+            .resource("organization", &organization.id)
+            .details(&serde_json::json!({
+                "name": input.name,
+                "owner_user_id": owner_user_id,
+                "owner_email": user.email
+            }))
+            .names(&ctx.audit_names().resource(organization.name.clone()))
+            .save()?;
+
         Some(member)
     } else {
+        AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+            .actor(ActorType::User, Some(&ctx.user.id))
+            .action(AuditAction::CreateOrganization)
+            .resource("organization", &organization.id)
+            .details(&serde_json::json!({
+                "name": input.name
+            }))
+            .names(&ctx.audit_names().resource(organization.name.clone()))
+            .save()?;
+
         None
     };
-
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        None, // Operators don't use impersonation
-        &headers,
-        "create_organization",
-        "organization",
-        &organization.id,
-        Some(&serde_json::json!({
-            "name": input.name,
-            "owner_email": input.owner_email,
-            "external_user_id": input.external_user_id
-        })),
-        None, // No org context - the org IS the resource
-        None,
-        &ctx.audit_names().resource(organization.name.clone()),
-    )?;
 
     Ok(Json(OrganizationCreated { organization, owner }))
 }
@@ -77,8 +86,8 @@ pub async fn create_organization(
 /// Query parameters for listing organizations
 #[derive(Deserialize)]
 pub struct ListOrgsQuery {
-    /// Filter by external user ID (returns orgs where user is a member)
-    pub external_user_id: Option<String>,
+    /// Filter by user ID (returns orgs where user is a member)
+    pub user_id: Option<String>,
     /// Pagination: max items to return (default: 50, max: 100)
     pub limit: Option<i64>,
     /// Pagination: items to skip (default: 0)
@@ -103,9 +112,9 @@ pub async fn list_organizations(
     let limit = query.limit();
     let offset = query.offset();
 
-    let (organizations, total) = if let Some(external_user_id) = &query.external_user_id {
-        // Filter by external user ID - returns orgs where user is a member
-        queries::list_orgs_by_external_user_id_paginated(&conn, external_user_id, limit, offset)?
+    let (organizations, total) = if let Some(user_id) = &query.user_id {
+        // Filter by user ID - returns orgs where user is a member
+        queries::list_orgs_by_user_id_paginated(&conn, user_id, limit, offset)?
     } else {
         queries::list_organizations_paginated(&conn, limit, offset)?
     };
@@ -130,6 +139,8 @@ pub async fn update_organization(
     Path(id): Path<String>,
     Json(input): Json<UpdateOrganization>,
 ) -> Result<Json<Organization>> {
+    input.validate()?;
+
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
@@ -143,23 +154,13 @@ pub async fn update_organization(
     let organization = queries::get_organization_by_id(&conn, &id)?
         .ok_or_else(|| AppError::Internal("Organization not found after update".into()))?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        None, // Operators don't use impersonation
-        &headers,
-        "update_organization",
-        "organization",
-        &id,
-        Some(
-            &serde_json::json!({ "old_name": existing.name, "new_name": input.name, "stripe_updated": input.stripe_config.is_some(), "ls_updated": input.ls_config.is_some() }),
-        ),
-        None, // No org context - the org IS the resource
-        None,
-        &ctx.audit_names().resource(organization.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.user.id))
+        .action(AuditAction::UpdateOrganization)
+        .resource("organization", &id)
+        .details(&serde_json::json!({ "old_name": existing.name, "new_name": input.name, "stripe_updated": input.stripe_config.is_some(), "ls_updated": input.ls_config.is_some() }))
+        .names(&ctx.audit_names().resource(organization.name.clone()))
+        .save()?;
 
     Ok(Json(organization))
 }
@@ -178,39 +179,13 @@ pub async fn delete_organization(
 
     queries::delete_organization(&conn, &id)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Operator,
-        Some(&ctx.operator.id),
-        None, // Operators don't use impersonation
-        &headers,
-        "delete_organization",
-        "organization",
-        &id,
-        Some(&serde_json::json!({ "name": existing.name })),
-        None, // No org context - the org IS the resource
-        None,
-        &ctx.audit_names().resource(existing.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.user.id))
+        .action(AuditAction::DeleteOrganization)
+        .resource("organization", &id)
+        .details(&serde_json::json!({ "name": existing.name }))
+        .names(&ctx.audit_names().resource(existing.name.clone()))
+        .save()?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
-}
-
-/// List members of an organization (operator endpoint - no impersonation needed)
-pub async fn list_org_members(
-    State(state): State<AppState>,
-    Path(org_id): Path<String>,
-    Query(pagination): Query<PaginationQuery>,
-) -> Result<Json<Paginated<OrgMember>>> {
-    let conn = state.db.get()?;
-
-    // Verify organization exists
-    queries::get_organization_by_id(&conn, &org_id)?
-        .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
-
-    let limit = pagination.limit();
-    let offset = pagination.offset();
-    let (members, total) = queries::list_org_members_paginated(&conn, &org_id, limit, offset)?;
-    Ok(Json(Paginated::new(members, total, limit, offset)))
+    Ok(Json(serde_json::json!({ "success": true })))
 }

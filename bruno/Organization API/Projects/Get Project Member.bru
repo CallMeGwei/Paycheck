@@ -1,0 +1,36 @@
+meta {
+  name: Get Project Member
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/members/{{member_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_member_api_key}}
+}
+
+docs {
+  Get a specific project member by ID.
+
+  Returns the project member with org member details.
+
+  Response:
+  {
+    "id": "pm_xxx",
+    "org_member_id": "member_xxx",
+    "project_id": "proj_xxx",
+    "role": "admin",
+    "created_at": 1234567890,
+    "email": "member@example.com",
+    "name": "Member Name"
+  }
+
+  Roles:
+  - admin: Can manage products, licenses, devices
+  - view: Read-only access to project data
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Delete User
+  type: http
+  seq: 24
+}
+
+delete {
+  url: {{base_url}}/operators/users/{{user_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  Delete a user (requires admin+ operator role).
+
+  This will cascade delete:
+  - Their operator record (if any)
+  - All org memberships
+  - All API keys
+
+  You cannot delete yourself.
+
+  Returns:
+  { "deleted": true }
+}

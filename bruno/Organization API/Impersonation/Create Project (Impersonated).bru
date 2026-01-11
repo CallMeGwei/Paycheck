@@ -1,0 +1,36 @@
+meta {
+  name: Create Project (Impersonated)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/orgs/{{org_id}}/projects
+  body: json
+  auth: bearer
+}
+
+headers {
+  X-On-Behalf-Of: {{member_id}}
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+body:json {
+  {
+    "name": "Paycheck",
+    "license_key_prefix": "PC"
+  }
+}
+
+docs {
+  Create a project using operator impersonation.
+  
+  Requirements:
+  - Operator must have admin or owner role
+  - X-On-Behalf-Of must be a member with owner/admin role in the org
+  
+  Returns the project with its public key.
+}

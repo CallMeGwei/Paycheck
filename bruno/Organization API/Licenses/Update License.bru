@@ -1,0 +1,50 @@
+meta {
+  name: Update License
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_member_api_key}}
+}
+
+body:json {
+  {
+    "email": "corrected-email@example.com"
+  }
+}
+
+docs {
+  Update a license's email hash to fix typo'd purchase emails.
+
+  This enables self-service recovery with the corrected email address.
+  Customers who misspelled their email during checkout can now use
+  the activation code request flow with their correct email.
+
+  Request body:
+  {
+    "email": "corrected-email@example.com"  // New email to hash and store
+  }
+
+  Response:
+  {
+    "id": "...",
+    "email_hash": "...",
+    "product_id": "...",
+    "product_name": "Pro Plan",
+    ... other license fields ...,
+    "message": "License email updated. Customer can now use self-service recovery with the new email."
+  }
+
+  Requires: write access to the project (admin or owner role)
+
+  Use case: Customer contacts support saying "I typo'd my email during checkout".
+  Admin looks up their license by order ID from their receipt, then updates the
+  email to the correct one so the customer can use self-service recovery.
+}

@@ -1,0 +1,34 @@
+meta {
+  name: Update User
+  type: http
+  seq: 23
+}
+
+put {
+  url: {{base_url}}/operators/users/{{user_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+body:json {
+  {
+    "email": "updated@example.com",
+    "name": "Updated Name"
+  }
+}
+
+docs {
+  Update a user (requires admin+ operator role).
+
+  Both fields are optional - only include fields you want to update.
+
+  Request body:
+  - email: Optional. Must be unique if provided
+  - name: Optional. Display name
+
+  Returns updated user with roles.
+}

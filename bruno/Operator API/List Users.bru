@@ -1,0 +1,50 @@
+meta {
+  name: List Users
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{base_url}}/operators/users
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~limit: 50
+  ~offset: 0
+  ~email: user@example.com
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  List users with their roles (requires admin+ operator role).
+
+  Query parameters:
+  - limit: Max items to return (default: 50, max: 100)
+  - offset: Items to skip (default: 0)
+  - email: Filter by exact email match
+
+  Returns paginated list of users with their operator role and org memberships:
+  {
+    "items": [
+      {
+        "id": "user_123",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "created_at": 1234567890,
+        "updated_at": 1234567890,
+        "operator": { "id": "op_1", "role": "admin" },
+        "memberships": [
+          { "id": "mem_1", "org_id": "org_1", "org_name": "Acme", "role": "owner" }
+        ]
+      }
+    ],
+    "total": 100,
+    "limit": 50,
+    "offset": 0
+  }
+}

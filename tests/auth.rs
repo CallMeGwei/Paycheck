@@ -176,7 +176,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
+        let (_user, _view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
 
         let response = app
             .oneshot(
@@ -198,7 +198,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_admin_op, admin_key) =
+        let (_user, _admin_op, admin_key) =
             create_test_operator(&conn, "admin@test.com", OperatorRole::Admin);
 
         let response = app
@@ -221,7 +221,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_owner_op, owner_key) =
+        let (_user, _owner_op, owner_key) =
             create_test_operator(&conn, "owner@test.com", OperatorRole::Owner);
 
         let response = app
@@ -244,8 +244,11 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_admin_op, admin_key) =
+        let (_user, _admin_op, admin_key) =
             create_test_operator(&conn, "admin@test.com", OperatorRole::Admin);
+
+        // Create a user to add as operator
+        let new_user = create_test_user(&conn, "new@test.com", "New Op");
 
         let response = app
             .oneshot(
@@ -254,9 +257,10 @@ mod operator_auth {
                     .uri("/operators")
                     .header("Authorization", format!("Bearer {}", admin_key))
                     .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"email": "new@test.com", "name": "New Op", "role": "view"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"user_id": "{}", "role": "view"}}"#,
+                        new_user.id
+                    )))
                     .unwrap(),
             )
             .await
@@ -270,8 +274,11 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_owner_op, owner_key) =
+        let (_user, _owner_op, owner_key) =
             create_test_operator(&conn, "owner@test.com", OperatorRole::Owner);
+
+        // Create a user to add as operator
+        let new_user = create_test_user(&conn, "new@test.com", "New Op");
 
         let response = app
             .oneshot(
@@ -280,9 +287,10 @@ mod operator_auth {
                     .uri("/operators")
                     .header("Authorization", format!("Bearer {}", owner_key))
                     .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"email": "new@test.com", "name": "New Op", "role": "view"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"user_id": "{}", "role": "view"}}"#,
+                        new_user.id
+                    )))
                     .unwrap(),
             )
             .await
@@ -300,7 +308,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
+        let (_user, _view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
 
         let response = app
             .oneshot(
@@ -322,7 +330,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_admin_op, admin_key) =
+        let (_user, _admin_op, admin_key) =
             create_test_operator(&conn, "admin@test.com", OperatorRole::Admin);
 
         let response = app
@@ -345,7 +353,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_owner_op, owner_key) =
+        let (_user, _owner_op, owner_key) =
             create_test_operator(&conn, "owner@test.com", OperatorRole::Owner);
 
         let response = app
@@ -368,7 +376,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
+        let (_user, _view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
 
         let response = app
             .oneshot(
@@ -391,7 +399,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_admin_op, admin_key) =
+        let (_user, _admin_op, admin_key) =
             create_test_operator(&conn, "admin@test.com", OperatorRole::Admin);
 
         let response = app
@@ -419,7 +427,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
+        let (_user, _view_op, view_key) = create_test_operator(&conn, "view@test.com", OperatorRole::View);
 
         let response = app
             .oneshot(
@@ -441,7 +449,7 @@ mod operator_auth {
         let (app, state) = operator_app();
         let conn = state.db.get().unwrap();
 
-        let (_admin_op, admin_key) =
+        let (_user, _admin_op, admin_key) =
             create_test_operator(&conn, "admin@test.com", OperatorRole::Admin);
 
         let response = app
@@ -546,7 +554,7 @@ mod org_member_auth {
         let org2 = create_test_org(&conn, "Org 2");
 
         // Create member in org1
-        let (_member1, key1) =
+        let (_user, _member1, key1) =
             create_test_org_member(&conn, &org1.id, "user@org1.com", OrgMemberRole::Owner);
 
         // Try to access org2's members with org1's key
@@ -573,7 +581,7 @@ mod org_member_auth {
         let org1 = create_test_org(&conn, "Org 1");
         let org2 = create_test_org(&conn, "Org 2");
 
-        let (_member1, key1) =
+        let (_user, _member1, key1) =
             create_test_org_member(&conn, &org1.id, "user@org1.com", OrgMemberRole::Owner);
 
         // Create a project in org2
@@ -605,8 +613,11 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
+
+        // Create a user to add as org member
+        let new_user = create_test_user(&conn, "new@org.com", "New Member");
 
         let response = app
             .oneshot(
@@ -615,9 +626,10 @@ mod org_member_auth {
                     .uri(format!("/orgs/{}/members", org.id))
                     .header("Authorization", format!("Bearer {}", member_key))
                     .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"email": "new@org.com", "name": "New Member", "role": "member"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"user_id": "{}", "role": "member"}}"#,
+                        new_user.id
+                    )))
                     .unwrap(),
             )
             .await
@@ -632,8 +644,11 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_admin, admin_key) =
+        let (_user, _admin, admin_key) =
             create_test_org_member(&conn, &org.id, "admin@org.com", OrgMemberRole::Admin);
+
+        // Create a user to add as org member
+        let new_user = create_test_user(&conn, "new@org.com", "New Member");
 
         let response = app
             .oneshot(
@@ -642,9 +657,10 @@ mod org_member_auth {
                     .uri(format!("/orgs/{}/members", org.id))
                     .header("Authorization", format!("Bearer {}", admin_key))
                     .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"email": "new@org.com", "name": "New Member", "role": "member"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"user_id": "{}", "role": "member"}}"#,
+                        new_user.id
+                    )))
                     .unwrap(),
             )
             .await
@@ -659,8 +675,11 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_owner, owner_key) =
+        let (_user, _owner, owner_key) =
             create_test_org_member(&conn, &org.id, "owner@org.com", OrgMemberRole::Owner);
+
+        // Create a user to add as org member
+        let new_user = create_test_user(&conn, "new@org.com", "New Member");
 
         let response = app
             .oneshot(
@@ -669,9 +688,10 @@ mod org_member_auth {
                     .uri(format!("/orgs/{}/members", org.id))
                     .header("Authorization", format!("Bearer {}", owner_key))
                     .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"email": "new@org.com", "name": "New Member", "role": "member"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"user_id": "{}", "role": "member"}}"#,
+                        new_user.id
+                    )))
                     .unwrap(),
             )
             .await
@@ -686,9 +706,9 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (target, _target_key) =
+        let (_user1, target, _target_key) =
             create_test_org_member(&conn, &org.id, "target@org.com", OrgMemberRole::Member);
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -713,9 +733,9 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (target, _target_key) =
+        let (_user1, target, _target_key) =
             create_test_org_member(&conn, &org.id, "target@org.com", OrgMemberRole::Member);
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -743,7 +763,7 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -770,7 +790,7 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_admin, admin_key) =
+        let (_user, _admin, admin_key) =
             create_test_org_member(&conn, &org.id, "admin@org.com", OrgMemberRole::Admin);
 
         let response = app
@@ -801,7 +821,7 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -825,7 +845,7 @@ mod org_member_auth {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -864,7 +884,7 @@ mod project_permissions {
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
         // Create a member with no project membership
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -879,7 +899,8 @@ mod project_permissions {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        // Returns 404 (not 403) to avoid leaking project existence to unauthorized users
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -889,7 +910,7 @@ mod project_permissions {
 
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -904,7 +925,8 @@ mod project_permissions {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        // Returns 404 (not 403) to avoid leaking project existence to unauthorized users
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     // ------------------------------------------------------------------------
@@ -919,7 +941,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         // Add project membership with View role
@@ -952,7 +974,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -984,7 +1006,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1022,7 +1044,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1059,7 +1081,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1097,7 +1119,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1130,7 +1152,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1168,7 +1190,7 @@ mod project_permissions {
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
         // Admin org member - no project_members entry needed
-        let (_admin, admin_key) =
+        let (_user, _admin, admin_key) =
             create_test_org_member(&conn, &org.id, "admin@org.com", OrgMemberRole::Admin);
 
         let response = app
@@ -1200,7 +1222,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (_owner, owner_key) =
+        let (_user, _owner, owner_key) =
             create_test_org_member(&conn, &org.id, "owner@org.com", OrgMemberRole::Owner);
 
         let response = app
@@ -1232,7 +1254,7 @@ mod project_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (_admin, admin_key) =
+        let (_user, _admin, admin_key) =
             create_test_org_member(&conn, &org.id, "admin@org.com", OrgMemberRole::Admin);
 
         let response = app
@@ -1270,7 +1292,7 @@ mod cross_project_boundaries {
         // Create product in project1
         let product = create_test_product(&conn, &project1.id, "Product 1", "pro");
 
-        let (_owner, owner_key) =
+        let (_user, _owner, owner_key) =
             create_test_org_member(&conn, &org.id, "owner@org.com", OrgMemberRole::Owner);
 
         // Try to access product1 via project2's URL
@@ -1310,7 +1332,7 @@ mod cross_project_boundaries {
             None,
         );
 
-        let (_owner, owner_key) =
+        let (_user, _owner, owner_key) =
             create_test_org_member(&conn, &org.id, "owner@org.com", OrgMemberRole::Owner);
 
         // Try to access license via project2's URL
@@ -1341,7 +1363,7 @@ mod cross_project_boundaries {
         let project1 = create_test_project(&conn, &org.id, "Project 1", &state.master_key);
         let project2 = create_test_project(&conn, &org.id, "Project 2", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         // Give member access to project1 only
@@ -1367,6 +1389,7 @@ mod cross_project_boundaries {
         assert_eq!(response.status(), StatusCode::OK);
 
         // Should NOT be able to access project2
+        // Returns 404 (not 403) to avoid leaking project existence to unauthorized users
         let response = app
             .oneshot(
                 Request::builder()
@@ -1378,7 +1401,7 @@ mod cross_project_boundaries {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
 
@@ -1398,7 +1421,7 @@ mod license_permissions {
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
         let _product = create_test_product(&conn, &project.id, "Pro", "pro");
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1431,7 +1454,7 @@ mod license_permissions {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1470,7 +1493,7 @@ mod license_permissions {
             None,
         );
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1512,7 +1535,7 @@ mod license_permissions {
             None,
         );
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1564,7 +1587,7 @@ mod device_permissions {
         );
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1607,7 +1630,7 @@ mod device_permissions {
         );
         let device = create_test_device(&conn, &license.id, "device-123", DeviceType::Uuid);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1650,9 +1673,9 @@ mod project_member_management {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
-        let (other_member, _) =
+        let (_user2, other_member, _) =
             create_test_org_member(&conn, &org.id, "other@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1688,9 +1711,9 @@ mod project_member_management {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
-        let (other_member, _) =
+        let (_user2, other_member, _) =
             create_test_org_member(&conn, &org.id, "other@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1726,7 +1749,7 @@ mod project_member_management {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &state.master_key);
 
-        let (member, member_key) =
+        let (_user, member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let pm_input = CreateProjectMember {
@@ -1801,7 +1824,7 @@ mod org_audit_log_isolation {
         let conn = state.db.get().unwrap();
 
         let org = create_test_org(&conn, "Test Org");
-        let (_member, member_key) =
+        let (_user, _member, member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
         let response = app
@@ -1829,7 +1852,7 @@ mod org_audit_log_isolation {
         let org2 = create_test_org(&conn, "Org 2");
 
         // Create member in org1
-        let (_member1, key1) =
+        let (_user, _member1, key1) =
             create_test_org_member(&conn, &org1.id, "user@org1.com", OrgMemberRole::Owner);
 
         // Try to access org2's audit logs with org1's key
@@ -1860,18 +1883,17 @@ mod org_audit_log_isolation {
         let org1 = create_test_org(&conn, "Org 1");
         let org2 = create_test_org(&conn, "Org 2");
 
-        let (_member1, key1) =
+        let (_user, _member1, key1) =
             create_test_org_member(&conn, &org1.id, "user@org1.com", OrgMemberRole::Owner);
-        let (_member2, _key2) =
+        let (_user2, _member2, _key2) =
             create_test_org_member(&conn, &org2.id, "user@org2.com", OrgMemberRole::Owner);
 
         // Create audit logs for both orgs
         queries::create_audit_log(
             &audit_conn,
             true,
-            ActorType::OrgMember,
+            ActorType::User,
             Some("member1"),
-            None, // impersonator_id
             "test_action_org1",
             "test_resource",
             "resource1",
@@ -1887,9 +1909,8 @@ mod org_audit_log_isolation {
         queries::create_audit_log(
             &audit_conn,
             true,
-            ActorType::OrgMember,
+            ActorType::User,
             Some("member2"),
-            None, // impersonator_id
             "test_action_org2",
             "test_resource",
             "resource2",
@@ -1939,16 +1960,15 @@ mod org_audit_log_isolation {
         let org1 = create_test_org(&conn, "Org 1");
         let org2 = create_test_org(&conn, "Org 2");
 
-        let (_member1, key1) =
+        let (_user, _member1, key1) =
             create_test_org_member(&conn, &org1.id, "user@org1.com", OrgMemberRole::Owner);
 
         // Create audit logs for both orgs
         queries::create_audit_log(
             &audit_conn,
             true,
-            ActorType::OrgMember,
+            ActorType::User,
             Some("member1"),
-            None, // impersonator_id
             "org1_action",
             "test_resource",
             "resource1",
@@ -1964,9 +1984,8 @@ mod org_audit_log_isolation {
         queries::create_audit_log(
             &audit_conn,
             true,
-            ActorType::OrgMember,
+            ActorType::User,
             Some("member2"),
-            None, // impersonator_id
             "org2_action",
             "test_resource",
             "resource2",
@@ -2040,12 +2059,12 @@ mod operator_impersonation {
         let conn = state.db.get().unwrap();
 
         // Create an operator with admin role
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "admin@platform.com", OperatorRole::Admin);
 
         // Create an org and member
         let org = create_test_org(&conn, "Test Org");
-        let (member, _member_key) =
+        let (_user2, member, _member_key) =
             create_test_org_member(&conn, &org.id, "user@org.com", OrgMemberRole::Owner);
 
         // Operator impersonates the member
@@ -2070,11 +2089,11 @@ mod operator_impersonation {
         let (app, state) = org_app();
         let conn = state.db.get().unwrap();
 
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "owner@platform.com", OperatorRole::Owner);
 
         let org = create_test_org(&conn, "Test Org");
-        let (member, _member_key) =
+        let (_user2, member, _member_key) =
             create_test_org_member(&conn, &org.id, "user@org.com", OrgMemberRole::Owner);
 
         let response = app
@@ -2098,11 +2117,11 @@ mod operator_impersonation {
         let (app, state) = org_app();
         let conn = state.db.get().unwrap();
 
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "view@platform.com", OperatorRole::View);
 
         let org = create_test_org(&conn, "Test Org");
-        let (member, _member_key) =
+        let (_user2, member, _member_key) =
             create_test_org_member(&conn, &org.id, "user@org.com", OrgMemberRole::Owner);
 
         let response = app
@@ -2122,18 +2141,19 @@ mod operator_impersonation {
     }
 
     #[tokio::test]
-    async fn operator_key_without_impersonation_header_is_rejected() {
+    async fn operator_can_access_org_endpoints_directly() {
         let (app, state) = org_app();
         let conn = state.db.get().unwrap();
 
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "admin@platform.com", OperatorRole::Admin);
 
         let org = create_test_org(&conn, "Test Org");
-        let (_member, _member_key) =
+        let (_user2, _member, _member_key) =
             create_test_org_member(&conn, &org.id, "user@org.com", OrgMemberRole::Owner);
 
-        // Using operator key without X-On-Behalf-Of header should fail
+        // Operators with admin+ role can access org endpoints directly (without impersonation)
+        // They get synthetic owner-level access
         let response = app
             .oneshot(
                 Request::builder()
@@ -2146,7 +2166,33 @@ mod operator_impersonation {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn view_operator_cannot_access_org_endpoints_directly() {
+        let (app, state) = org_app();
+        let conn = state.db.get().unwrap();
+
+        // View-only operator should NOT be able to access org endpoints
+        let (_user, _operator, operator_key) =
+            create_test_operator(&conn, "viewer@platform.com", OperatorRole::View);
+
+        let org = create_test_org(&conn, "Test Org");
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/orgs/{}/members", org.id))
+                    .header("Authorization", format!("Bearer {}", operator_key))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -2154,14 +2200,14 @@ mod operator_impersonation {
         let (app, state) = org_app();
         let conn = state.db.get().unwrap();
 
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "admin@platform.com", OperatorRole::Admin);
 
         let org1 = create_test_org(&conn, "Org 1");
         let org2 = create_test_org(&conn, "Org 2");
 
         // Member is in org1
-        let (member, _member_key) =
+        let (_user2, member, _member_key) =
             create_test_org_member(&conn, &org1.id, "user@org1.com", OrgMemberRole::Owner);
 
         // Try to access org2's endpoints while impersonating org1's member
@@ -2186,13 +2232,16 @@ mod operator_impersonation {
         let (app, state) = org_app();
         let conn = state.db.get().unwrap();
 
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "admin@platform.com", OperatorRole::Admin);
 
         let org = create_test_org(&conn, "Test Org");
         // Member role can't create org members (owner-only operation)
-        let (member, _member_key) =
+        let (_user2, member, _member_key) =
             create_test_org_member(&conn, &org.id, "member@org.com", OrgMemberRole::Member);
+
+        // Create a user to add as org member
+        let new_user = create_test_user(&conn, "new@org.com", "New Member");
 
         // Try to create org member while impersonating a member-role user
         let response = app
@@ -2203,9 +2252,10 @@ mod operator_impersonation {
                     .header("Authorization", format!("Bearer {}", operator_key))
                     .header("X-On-Behalf-Of", &member.id)
                     .header("Content-Type", "application/json")
-                    .body(Body::from(
-                        r#"{"email": "new@org.com", "name": "New Member", "role": "member"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"user_id": "{}", "role": "member"}}"#,
+                        new_user.id
+                    )))
                     .unwrap(),
             )
             .await
@@ -2220,7 +2270,7 @@ mod operator_impersonation {
         let (app, state) = org_app();
         let conn = state.db.get().unwrap();
 
-        let (_operator, operator_key) =
+        let (_user, _operator, operator_key) =
             create_test_operator(&conn, "admin@platform.com", OperatorRole::Admin);
 
         let org = create_test_org(&conn, "Test Org");
@@ -2249,9 +2299,9 @@ mod operator_impersonation {
         let conn = state.db.get().unwrap();
 
         // Create two operators - one admin and one owner
-        let (target_operator, _target_key) =
+        let (_user1, target_operator, _target_key) =
             create_test_operator(&conn, "owner@platform.com", OperatorRole::Owner);
-        let (_admin_operator, admin_key) =
+        let (_user2, _admin_operator, admin_key) =
             create_test_operator(&conn, "admin@platform.com", OperatorRole::Admin);
 
         // Admin tries to access owner-only endpoint by "impersonating" the owner

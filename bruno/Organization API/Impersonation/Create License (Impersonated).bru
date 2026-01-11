@@ -1,0 +1,66 @@
+meta {
+  name: Create License (Impersonated)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses
+  body: json
+  auth: bearer
+}
+
+headers {
+  X-On-Behalf-Of: {{member_id}}
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+body:json {
+  {
+    "product_id": "{{product_id}}",
+    "email": "customer@example.com",
+    "customer_id": "your-customer-123",
+    "count": 1
+  }
+}
+
+docs {
+  Create a license using operator impersonation.
+
+  This is the recommended way to create test licenses during development.
+
+  Requirements:
+  - Operator must have admin or owner role
+  - X-On-Behalf-Of must be a member with owner/admin role in the org
+
+  Request fields:
+  - product_id: (required) Product ID to create license for
+  - email: (optional) Customer email - enables license recovery via /activation/request-code
+  - customer_id: (optional) Your internal customer identifier
+  - license_exp_days: (optional) Override license expiration (days from now, null for perpetual)
+  - updates_exp_days: (optional) Override updates expiration (days from now)
+  - count: (optional) Number of licenses to create (1-100, default: 1)
+
+  Returns (when count=1):
+  {
+    "licenses": [{
+      "id": "lic_xxx",
+      "activation_code": "PREFIX-XXXX-XXXX-XXXX-XXXX",
+      "activation_code_expires_at": 1735693200,
+      "expires_at": 1767229200,
+      "updates_expires_at": 1767229200
+    }]
+  }
+
+  The activation_code:
+  - Expires in 30 minutes
+  - Can be redeemed via POST /redeem with code, device_id, device_type in JSON body
+  - Format: PREFIX-XXXX-XXXX-XXXX-XXXX (prefix from project's license_key_prefix)
+
+  If email is provided:
+  - User can request new activation codes via POST /activation/request-code
+  - Email is stored as SHA-256 hash (no PII in database)
+}

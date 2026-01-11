@@ -9,11 +9,11 @@ use crate::extractors::{Json, Path};
 use crate::jwt;
 use crate::middleware::OrgMemberContext;
 use crate::models::{
-    ActorType, CreateProject, LemonSqueezyConfigMasked, ProjectPublic, StripeConfigMasked,
+    ActorType, AuditAction, CreateProject, LemonSqueezyConfigMasked, ProjectPublic, StripeConfigMasked,
     UpdateProject,
 };
 use crate::pagination::{Paginated, PaginationQuery};
-use crate::util::audit_log;
+use crate::util::AuditLogBuilder;
 
 pub async fn create_project(
     State(state): State<AppState>,
@@ -23,6 +23,7 @@ pub async fn create_project(
     Json(input): Json<CreateProject>,
 ) -> Result<Json<ProjectPublic>> {
     ctx.require_admin()?;
+    input.validate()?;
 
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
@@ -43,23 +44,15 @@ pub async fn create_project(
         &state.master_key,
     )?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "create_project",
-        "project",
-        &project.id,
-        Some(&serde_json::json!({ "name": input.name })),
-        Some(&org_id),
-        Some(&project.id),
-        &ctx.audit_names()
-            .resource(project.name.clone())
-            .org(org.name),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::CreateProject)
+        .resource("project", &project.id)
+        .details(&serde_json::json!({ "name": input.name }))
+        .org(&org_id)
+        .project(&project.id)
+        .names(&ctx.audit_names().resource(project.name.clone()).org(org.name))
+        .save()?;
 
     Ok(Json(project.into()))
 }
@@ -117,6 +110,7 @@ pub async fn update_project(
     if !ctx.can_write_project() {
         return Err(AppError::Forbidden("Insufficient permissions".into()));
     }
+    input.validate()?;
 
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
@@ -129,23 +123,15 @@ pub async fn update_project(
 
     queries::update_project(&conn, &path.project_id, &input)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "update_project",
-        "project",
-        &path.project_id,
-        Some(&serde_json::json!({ "name": input.name })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names()
-            .resource(existing.name)
-            .org(org.name),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::UpdateProject)
+        .resource("project", &path.project_id)
+        .details(&serde_json::json!({ "name": input.name }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(existing.name).org(org.name))
+        .save()?;
 
     let project = queries::get_project_by_id(&conn, &path.project_id)?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
@@ -172,25 +158,17 @@ pub async fn delete_project(
 
     queries::delete_project(&conn, &path.project_id)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "delete_project",
-        "project",
-        &path.project_id,
-        Some(&serde_json::json!({ "name": existing.name })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names()
-            .resource(existing.name)
-            .org(org.name),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::DeleteProject)
+        .resource("project", &path.project_id)
+        .details(&serde_json::json!({ "name": existing.name }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(existing.name).org(org.name))
+        .save()?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 #[derive(Debug, serde::Serialize)]

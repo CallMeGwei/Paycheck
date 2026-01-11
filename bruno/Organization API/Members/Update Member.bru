@@ -11,12 +11,11 @@ put {
 }
 
 auth:bearer {
-  token: {{org_api_key}}
+  token: {{org_member_api_key}}
 }
 
 body:json {
   {
-    "name": "Updated Name",
     "role": "admin"
   }
 }
@@ -24,4 +23,9 @@ body:json {
 docs {
   Update a member (requires owner role).
   Cannot change your own role.
+
+  Request body:
+  - role: Optional. One of "owner", "admin", "member"
+
+  Note: To update user name/email, update the user record directly.
 }

@@ -7,8 +7,8 @@ use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::Json;
 use crate::jwt::{self, LicenseClaims};
-use crate::models::{ActorType, AuditLogNames};
-use crate::util::{LicenseExpirations, audit_log, extract_bearer_token};
+use crate::models::{ActorType, AuditAction, AuditLogNames};
+use crate::util::{AuditLogBuilder, LicenseExpirations, extract_bearer_token};
 
 /// Validate that a string is a valid UUID format.
 /// This is a cheap check to reject garbage before hitting the database.
@@ -122,25 +122,19 @@ pub async fn refresh_token(
     let new_token = jwt::sign_claims(&claims, &private_key, &license.id, &project.name, &jti)?;
 
     // Audit log the refresh
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::Public,
-        Some(&jti),
-        None, // Public endpoints don't use impersonation
-        &headers,
-        "refresh_token",
-        "device",
-        &device.id,
-        Some(&serde_json::json!({ "license_id": license.id, "product_id": product.id })),
-        Some(&project.org_id),
-        Some(&project.id),
-        &AuditLogNames {
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::Public, None)
+        .action(AuditAction::RefreshToken)
+        .resource("device", &device.id)
+        .details(&serde_json::json!({ "license_id": license.id, "product_id": product.id, "jti": jti }))
+        .org(&project.org_id)
+        .project(&project.id)
+        .names(&AuditLogNames {
             resource_name: device.name.clone(),
             project_name: Some(project.name.clone()),
             ..Default::default()
-        },
-    )?;
+        })
+        .save()?;
 
     Ok(Json(RefreshResponse { token: new_token }))
 }

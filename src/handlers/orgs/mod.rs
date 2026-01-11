@@ -31,9 +31,9 @@ pub fn router(state: AppState, rate_limit_config: RateLimitConfig) -> Router<App
     let org_routes = Router::new()
         .route("/orgs/{org_id}/members", post(create_org_member))
         .route("/orgs/{org_id}/members", get(list_org_members))
-        .route("/orgs/{org_id}/members/{id}", get(get_org_member))
-        .route("/orgs/{org_id}/members/{id}", put(update_org_member))
-        .route("/orgs/{org_id}/members/{id}", delete(delete_org_member))
+        .route("/orgs/{org_id}/members/{member_id}", get(get_org_member))
+        .route("/orgs/{org_id}/members/{member_id}", put(update_org_member))
+        .route("/orgs/{org_id}/members/{member_id}", delete(delete_org_member))
         // Member API keys
         .route(
             "/orgs/{org_id}/members/{member_id}/api-keys",
@@ -76,15 +76,15 @@ pub fn router(state: AppState, rate_limit_config: RateLimitConfig) -> Router<App
             get(list_project_members),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/members/{id}",
+            "/orgs/{org_id}/projects/{project_id}/members/{member_id}",
             get(get_project_member),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/members/{id}",
+            "/orgs/{org_id}/projects/{project_id}/members/{member_id}",
             put(update_project_member),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/members/{id}",
+            "/orgs/{org_id}/projects/{project_id}/members/{member_id}",
             delete(delete_project_member),
         )
         // Products
@@ -97,15 +97,15 @@ pub fn router(state: AppState, rate_limit_config: RateLimitConfig) -> Router<App
             get(list_products),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/products/{id}",
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}",
             get(get_product),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/products/{id}",
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}",
             put(update_product),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/products/{id}",
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}",
             delete(delete_product),
         )
         // Product payment config
@@ -118,15 +118,15 @@ pub fn router(state: AppState, rate_limit_config: RateLimitConfig) -> Router<App
             get(list_payment_configs),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{id}",
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{config_id}",
             get(get_payment_config_handler),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{id}",
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{config_id}",
             put(update_payment_config_handler),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{id}",
+            "/orgs/{org_id}/projects/{project_id}/products/{product_id}/payment-config/{config_id}",
             delete(delete_payment_config_handler),
         )
         // Licenses

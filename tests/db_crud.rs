@@ -9,47 +9,46 @@ use common::*;
 #[test]
 fn test_create_operator() {
     let conn = setup_test_db();
-    let (operator, api_key) = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
+    let (user, operator, api_key) = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
 
     assert!(!operator.id.is_empty());
-    assert_eq!(operator.email, "test@example.com");
+    assert_eq!(user.email, "test@example.com");
     assert_eq!(operator.role, OperatorRole::Admin);
     assert!(!api_key.is_empty());
-    assert!(api_key.starts_with("pco_")); // Operator keys use pco_ prefix
+    assert!(api_key.starts_with("pc_")); // All keys use pc_ prefix
 }
 
 #[test]
 fn test_get_operator_by_id() {
     let conn = setup_test_db();
-    let (created, _) = create_test_operator(&conn, "test@example.com", OperatorRole::Owner);
+    let (_user, created, _) = create_test_operator(&conn, "test@example.com", OperatorRole::Owner);
 
     let fetched = queries::get_operator_by_id(&conn, &created.id)
         .expect("Query failed")
         .expect("Operator not found");
 
     assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.email, created.email);
     assert_eq!(fetched.role, created.role);
 }
 
 #[test]
-fn test_get_operator_by_api_key() {
+fn test_get_user_by_api_key() {
     let conn = setup_test_db();
-    let (created, api_key) = create_test_operator(&conn, "test@example.com", OperatorRole::View);
+    let (created_user, _operator, api_key) = create_test_operator(&conn, "test@example.com", OperatorRole::View);
 
-    let fetched = queries::get_operator_by_api_key(&conn, &api_key)
+    let (fetched_user, _api_key) = queries::get_user_by_api_key(&conn, &api_key)
         .expect("Query failed")
-        .expect("Operator not found");
+        .expect("User not found");
 
-    assert_eq!(fetched.id, created.id);
+    assert_eq!(fetched_user.id, created_user.id);
 }
 
 #[test]
-fn test_get_operator_with_invalid_api_key_returns_none() {
+fn test_get_user_with_invalid_api_key_returns_none() {
     let conn = setup_test_db();
     let _ = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
 
-    let result = queries::get_operator_by_api_key(&conn, "invalid_key").expect("Query failed");
+    let result = queries::get_user_by_api_key(&conn, "invalid_key").expect("Query failed");
 
     assert!(result.is_none());
 }
@@ -69,12 +68,10 @@ fn test_list_operators() {
 #[test]
 fn test_update_operator() {
     let conn = setup_test_db();
-    let (operator, _) = create_test_operator(&conn, "test@example.com", OperatorRole::View);
+    let (_user, operator, _) = create_test_operator(&conn, "test@example.com", OperatorRole::View);
 
     let update = UpdateOperator {
-        name: Some("Updated Name".to_string()),
         role: Some(OperatorRole::Admin),
-        external_user_id: None,
     };
     queries::update_operator(&conn, &operator.id, &update).expect("Update failed");
 
@@ -82,14 +79,13 @@ fn test_update_operator() {
         .expect("Query failed")
         .expect("Operator not found");
 
-    assert_eq!(updated.name, "Updated Name");
     assert_eq!(updated.role, OperatorRole::Admin);
 }
 
 #[test]
 fn test_delete_operator() {
     let conn = setup_test_db();
-    let (operator, _) = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
+    let (_user, operator, _) = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
 
     let deleted = queries::delete_operator(&conn, &operator.id).expect("Delete failed");
     assert!(deleted);
@@ -173,29 +169,28 @@ fn test_delete_organization() {
 fn test_create_org_member() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Org");
-    let (member, api_key) =
+    let (user, member, api_key) =
         create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
 
     assert!(!member.id.is_empty());
     assert_eq!(member.org_id, org.id);
-    assert_eq!(member.email, "member@test.com");
+    assert_eq!(user.email, "member@test.com");
     assert_eq!(member.role, OrgMemberRole::Owner);
-    assert!(api_key.starts_with("pc_")); // Org member keys use pc_ prefix
+    assert!(api_key.starts_with("pc_")); // All keys use pc_ prefix
 }
 
 #[test]
-fn test_get_org_member_by_api_key() {
+fn test_get_user_by_api_key_for_member() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Org");
-    let (created, api_key) =
+    let (created_user, _member, api_key) =
         create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Admin);
 
-    let fetched = queries::get_org_member_by_api_key(&conn, &api_key)
+    let (fetched_user, _api_key) = queries::get_user_by_api_key(&conn, &api_key)
         .expect("Query failed")
-        .expect("Member not found");
+        .expect("User not found");
 
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.org_id, org.id);
+    assert_eq!(fetched_user.id, created_user.id);
 }
 
 #[test]
@@ -211,33 +206,23 @@ fn test_list_org_members() {
 }
 
 #[test]
-fn test_unique_email_per_org() {
-    let conn = setup_test_db();
-    let org = create_test_org(&conn, "Test Org");
-    create_test_org_member(&conn, &org.id, "same@test.com", OrgMemberRole::Owner);
-
-    // Creating another member with the same email in the same org should fail
-    let input = CreateOrgMember {
-        email: "same@test.com".to_string(),
-        name: "Duplicate".to_string(),
-        role: OrgMemberRole::Member,
-        external_user_id: None,
-    };
-    let result = queries::create_org_member(&conn, &org.id, &input);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_same_email_different_orgs() {
+fn test_same_user_different_orgs() {
     let conn = setup_test_db();
     let org1 = create_test_org(&conn, "Org 1");
     let org2 = create_test_org(&conn, "Org 2");
 
-    // Same email should work in different orgs
-    let (m1, _) = create_test_org_member(&conn, &org1.id, "same@test.com", OrgMemberRole::Owner);
-    let (m2, _) = create_test_org_member(&conn, &org2.id, "same@test.com", OrgMemberRole::Owner);
+    // Create first user and member
+    let (user1, m1, _) = create_test_org_member(&conn, &org1.id, "same@test.com", OrgMemberRole::Owner);
 
-    assert_eq!(m1.email, m2.email);
+    // Same user can be member of another org
+    let m2_input = CreateOrgMember {
+        user_id: user1.id.clone(),
+        role: OrgMemberRole::Owner,
+    };
+    let m2 = queries::create_org_member(&conn, &org2.id, &m2_input).expect("Should allow same user in different org");
+
+    // Same user_id, different orgs
+    assert_eq!(m1.user_id, m2.user_id);
     assert_ne!(m1.org_id, m2.org_id);
 }
 
@@ -558,7 +543,7 @@ fn test_delete_product() {
 fn test_delete_org_cascades_to_members() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Org");
-    let (member, _) =
+    let (_user, member, _) =
         create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
 
     queries::delete_organization(&conn, &org.id).expect("Delete failed");
@@ -614,14 +599,14 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
 
     conn.execute(
         "INSERT INTO audit_logs (id, timestamp, actor_type, action, resource_type, resource_id)
-         VALUES ('log_operator', ?1, 'operator', 'create', 'organization', 'org1')",
+         VALUES ('log_internal', ?1, 'user', 'create', 'organization', 'org1')",
         [old_timestamp],
     )
     .unwrap();
 
     conn.execute(
         "INSERT INTO audit_logs (id, timestamp, actor_type, action, resource_type, resource_id)
-         VALUES ('log_org_member', ?1, 'org_member', 'create', 'license', 'lic2')",
+         VALUES ('log_user', ?1, 'user', 'create', 'license', 'lic2')",
         [old_timestamp],
     )
     .unwrap();
@@ -662,23 +647,23 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
     assert!(!public_exists);
 
     // Verify internal logs still exist
-    let operator_exists: bool = conn
+    let internal_exists: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM audit_logs WHERE id = 'log_operator')",
+            "SELECT EXISTS(SELECT 1 FROM audit_logs WHERE id = 'log_internal')",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert!(operator_exists);
+    assert!(internal_exists);
 
-    let org_member_exists: bool = conn
+    let user_exists: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM audit_logs WHERE id = 'log_org_member')",
+            "SELECT EXISTS(SELECT 1 FROM audit_logs WHERE id = 'log_user')",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert!(org_member_exists);
+    assert!(user_exists);
 
     let system_exists: bool = conn
         .query_row(

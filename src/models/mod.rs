@@ -10,6 +10,7 @@ mod product;
 mod product_payment_config;
 mod project;
 mod project_member;
+mod user;
 
 pub use api_key::*;
 pub use audit_log::*;
@@ -23,3 +24,4 @@ pub use product::*;
 pub use product_payment_config::*;
 pub use project::*;
 pub use project_member::*;
+pub use user::*;

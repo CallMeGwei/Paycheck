@@ -1,0 +1,33 @@
+meta {
+  name: Get User
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{base_url}}/operators/users/{{user_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  Get a user by ID with their roles (requires admin+ operator role).
+
+  Returns user with their operator role (if any) and org memberships:
+  {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "User Name",
+    "created_at": 1234567890,
+    "updated_at": 1234567890,
+    "operator": { "id": "op_1", "role": "admin" },
+    "memberships": [
+      { "id": "mem_1", "org_id": "org_1", "org_name": "Acme", "role": "owner" },
+      { "id": "mem_2", "org_id": "org_2", "org_name": "Beta", "role": "member" }
+    ]
+  }
+}

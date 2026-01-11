@@ -17,7 +17,7 @@ async fn test_redeem_with_valid_code_returns_token() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -37,7 +37,7 @@ async fn test_redeem_with_valid_code_returns_token() {
             queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)
                 .unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -50,7 +50,7 @@ async fn test_redeem_with_valid_code_returns_token() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "test-device",
                     "device_type": "uuid"
@@ -81,7 +81,7 @@ async fn test_redeem_with_invalid_device_type_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -100,7 +100,7 @@ async fn test_redeem_with_invalid_device_type_returns_error() {
             queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)
                 .unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -113,7 +113,7 @@ async fn test_redeem_with_invalid_device_type_returns_error() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "test-device",
                     "device_type": "invalid"
@@ -131,14 +131,14 @@ async fn test_redeem_code_not_found_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -150,7 +150,7 @@ async fn test_redeem_code_not_found_returns_error() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": "invalid-code",
                     "device_id": "test-device",
                     "device_type": "uuid"
@@ -168,7 +168,7 @@ async fn test_redeem_code_already_used_returns_forbidden() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -190,7 +190,7 @@ async fn test_redeem_code_already_used_returns_forbidden() {
         // Mark the code as used
         queries::mark_activation_code_used(&conn, &activation_code.id).unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -203,7 +203,7 @@ async fn test_redeem_code_already_used_returns_forbidden() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "test-device",
                     "device_type": "uuid"
@@ -221,7 +221,7 @@ async fn test_redeem_code_creates_device_record() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
     let license_id: String;
 
@@ -241,7 +241,7 @@ async fn test_redeem_code_creates_device_record() {
             queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)
                 .unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
         license_id = license.id.clone();
     }
@@ -255,7 +255,7 @@ async fn test_redeem_code_creates_device_record() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "new-device-123",
                     "device_type": "uuid",
@@ -281,7 +281,7 @@ async fn test_redeem_revoked_license_returns_forbidden() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -303,7 +303,7 @@ async fn test_redeem_revoked_license_returns_forbidden() {
         // Revoke the license
         queries::revoke_license(&conn, &license.id).unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -316,7 +316,7 @@ async fn test_redeem_revoked_license_returns_forbidden() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "test-device",
                     "device_type": "uuid"
@@ -334,7 +334,7 @@ async fn test_redeem_expired_license_returns_forbidden() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -353,7 +353,7 @@ async fn test_redeem_expired_license_returns_forbidden() {
             queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)
                 .unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -366,7 +366,7 @@ async fn test_redeem_expired_license_returns_forbidden() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "test-device",
                     "device_type": "uuid"
@@ -384,7 +384,7 @@ async fn test_redeem_device_limit_exceeded_returns_error() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -419,7 +419,7 @@ async fn test_redeem_device_limit_exceeded_returns_error() {
             queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)
                 .unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -432,7 +432,7 @@ async fn test_redeem_device_limit_exceeded_returns_error() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "device-2",
                     "device_type": "uuid"
@@ -454,7 +454,7 @@ async fn test_redeem_same_device_returns_token() {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
-    let project_id: String;
+    let public_key: String;
     let code: String;
 
     {
@@ -476,7 +476,7 @@ async fn test_redeem_same_device_returns_token() {
             queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)
                 .unwrap();
 
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         code = activation_code.code.clone();
     }
 
@@ -490,7 +490,7 @@ async fn test_redeem_same_device_returns_token() {
                 .uri("/redeem")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&json!({
-                    "project_id": project_id,
+                    "public_key": public_key,
                     "code": code,
                     "device_id": "existing-device",
                     "device_type": "uuid"

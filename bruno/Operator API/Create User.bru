@@ -1,0 +1,43 @@
+meta {
+  name: Create User
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{base_url}}/operators/users
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+body:json {
+  {
+    "email": "newuser@example.com",
+    "name": "New User"
+  }
+}
+
+docs {
+  Create a new user (requires admin+ operator role).
+
+  Users are the identity layer - they must exist before creating
+  operators or org members.
+
+  Request body:
+  - email: Required. Must be unique
+  - name: Required. Display name
+
+  Returns user with their roles (empty for new user):
+  {
+    "id": "user_123",
+    "email": "newuser@example.com",
+    "name": "New User",
+    "created_at": 1234567890,
+    "updated_at": 1234567890,
+    "memberships": []
+  }
+}

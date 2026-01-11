@@ -16,8 +16,7 @@ auth:bearer {
 
 body:json {
   {
-    "email": "admin@example.com",
-    "name": "Admin User",
+    "user_id": "{{user_id}}",
     "role": "admin"
   }
 }
@@ -25,16 +24,23 @@ body:json {
 docs {
   Create a new operator (requires owner role).
 
+  The user must already exist in the users table.
+  No API key is created - use Console or create one separately.
+
   Roles:
   - owner: Full access, can manage operators
   - admin: Can create orgs, manage most things
   - view: Read-only access
 
-  Returns:
-  {
-    "operator": { ... },
-    "api_key": "NEW_API_KEY"
-  }
+  Request body:
+  - user_id: Required. ID of existing user to link as operator
+  - role: Required. One of "owner", "admin", "view"
 
-  Save the api_key - it's only shown once!
+  Returns the operator record (with user details via join):
+  {
+    "id": "...",
+    "user_id": "...",
+    "role": "admin",
+    "created_at": 1234567890
+  }
 }

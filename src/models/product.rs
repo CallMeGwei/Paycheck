@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AppError, Result};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Product {
     pub id: String,
@@ -30,6 +32,18 @@ pub struct CreateProduct {
     pub features: Vec<String>,
 }
 
+impl CreateProduct {
+    pub fn validate(&self) -> Result<()> {
+        if self.name.trim().is_empty() {
+            return Err(AppError::BadRequest("name cannot be empty".into()));
+        }
+        if self.tier.trim().is_empty() {
+            return Err(AppError::BadRequest("tier cannot be empty".into()));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateProduct {
     pub name: Option<String>,
@@ -39,4 +53,20 @@ pub struct UpdateProduct {
     pub activation_limit: Option<i32>,
     pub device_limit: Option<i32>,
     pub features: Option<Vec<String>>,
+}
+
+impl UpdateProduct {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(ref name) = self.name {
+            if name.trim().is_empty() {
+                return Err(AppError::BadRequest("name cannot be empty".into()));
+            }
+        }
+        if let Some(ref tier) = self.tier {
+            if tier.trim().is_empty() {
+                return Err(AppError::BadRequest("tier cannot be empty".into()));
+            }
+        }
+        Ok(())
+    }
 }

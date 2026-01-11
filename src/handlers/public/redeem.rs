@@ -14,12 +14,8 @@ use crate::util::LicenseExpirations;
 /// Request body for POST /redeem (using short-lived activation code)
 #[derive(Debug, Deserialize)]
 pub struct RedeemRequest {
-    /// Public key - identifies the project (preferred)
-    #[serde(default)]
-    pub public_key: Option<String>,
-    /// Project ID - deprecated, use public_key instead
-    #[serde(default)]
-    pub project_id: Option<String>,
+    /// Public key - identifies the project
+    pub public_key: String,
     /// Short-lived activation code (PREFIX-XXXX-XXXX-XXXX-XXXX format)
     pub code: String,
     pub device_id: String,
@@ -41,24 +37,6 @@ pub struct RedeemResponse {
     pub activation_code_expires_at: i64,
 }
 
-/// Resolve project ID from public_key or project_id, returning an error if neither is provided.
-fn resolve_project_id(
-    conn: &rusqlite::Connection,
-    public_key: Option<&str>,
-    project_id: Option<&str>,
-) -> Result<String> {
-    if let Some(public_key) = public_key {
-        let project = queries::get_project_by_public_key(conn, public_key)?
-            .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
-        Ok(project.id)
-    } else if let Some(project_id) = project_id {
-        Ok(project_id.to_string())
-    } else {
-        Err(AppError::BadRequest(
-            "Either public_key or project_id is required".into(),
-        ))
-    }
-}
 
 /// POST /redeem - Redeem using a short-lived activation code
 ///
@@ -70,12 +48,10 @@ pub async fn redeem_with_code(
 ) -> Result<Json<RedeemResponse>> {
     let mut conn = state.db.get()?;
 
-    // Resolve project ID from public_key or project_id
-    let project_id = resolve_project_id(
-        &conn,
-        req.public_key.as_deref(),
-        req.project_id.as_deref(),
-    )?;
+    // Look up project by public key
+    let project = queries::get_project_by_public_key(&conn, &req.public_key)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+    let project_id = project.id;
 
     // Validate device type
     let device_type = req

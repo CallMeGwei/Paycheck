@@ -8,9 +8,9 @@ use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, CreateLicense, Device, LicenseWithProduct};
+use crate::models::{ActorType, AuditAction, CreateLicense, Device, LicenseWithProduct};
 use crate::pagination::Paginated;
-use crate::util::{LicenseExpirations, audit_log};
+use crate::util::{AuditLogBuilder, LicenseExpirations};
 
 #[derive(serde::Deserialize)]
 pub struct LicensePath {
@@ -226,23 +226,15 @@ pub async fn create_license(
         });
 
         // Audit log for each license
-        audit_log(
-            &audit_conn,
-            state.audit_log_enabled,
-            ActorType::OrgMember,
-            Some(&ctx.member.id),
-            ctx.impersonated_by.as_deref(),
-            &headers,
-            "create_license",
-            "license",
-            &license.id,
-            Some(
-                &serde_json::json!({ "product_id": body.product_id, "expires_at": exps.license_exp, "has_email": email_hash.is_some() }),
-            ),
-            Some(&path.org_id),
-            Some(&path.project_id),
-            &ctx.audit_names().project(project.name.clone()),
-        )?;
+        AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+            .actor(ActorType::User, Some(&ctx.member.user_id))
+            .action(AuditAction::CreateLicense)
+            .resource("license", &license.id)
+            .details(&serde_json::json!({ "product_id": body.product_id, "expires_at": exps.license_exp, "has_email": email_hash.is_some() }))
+            .org(&path.org_id)
+            .project(&path.project_id)
+            .names(&ctx.audit_names().project(project.name.clone()))
+            .save()?;
     }
 
     tracing::info!(
@@ -310,24 +302,18 @@ pub async fn update_license(
         queries::update_license_email_hash(&conn, &license.id, &new_email_hash)?;
 
         // Audit log the email change (log old hash for investigation, not new email for privacy)
-        audit_log(
-            &audit_conn,
-            state.audit_log_enabled,
-            ActorType::OrgMember,
-            Some(&ctx.member.id),
-            ctx.impersonated_by.as_deref(),
-            &headers,
-            "update_license_email",
-            "license",
-            &license.id,
-            Some(&serde_json::json!({
+        AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+            .actor(ActorType::User, Some(&ctx.member.user_id))
+            .action(AuditAction::UpdateLicenseEmail)
+            .resource("license", &license.id)
+            .details(&serde_json::json!({
                 "old_email_hash": license.email_hash,
                 "reason": "email_correction"
-            })),
-            Some(&path.org_id),
-            Some(&path.project_id),
-            &ctx.audit_names().project(project.name.clone()),
-        )?;
+            }))
+            .org(&path.org_id)
+            .project(&path.project_id)
+            .names(&ctx.audit_names().project(project.name.clone()))
+            .save()?;
 
         tracing::info!(
             "License email updated by admin: {} (project: {})",
@@ -411,23 +397,16 @@ pub async fn revoke_license(
 
     queries::revoke_license(&conn, &license.id)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "revoke_license",
-        "license",
-        &license.id,
-        None,
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().project(project.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::RevokeLicense)
+        .resource("license", &license.id)
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().project(project.name.clone()))
+        .save()?;
 
-    Ok(Json(serde_json::json!({ "revoked": true })))
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 #[derive(Serialize)]
@@ -474,21 +453,15 @@ pub async fn send_activation_code(
     // Create activation code
     let code = queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "generate_activation_code",
-        "license",
-        &license.id,
-        Some(&serde_json::json!({ "expires_at": code.expires_at })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().project(project.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::GenerateActivationCode)
+        .resource("license", &license.id)
+        .details(&serde_json::json!({ "expires_at": code.expires_at }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().project(project.name.clone()))
+        .save()?;
 
     Ok(Json(SendActivationCodeResponse {
         code: code.code,
@@ -545,23 +518,15 @@ pub async fn deactivate_device_admin(
     let remaining = queries::count_devices_for_license(&conn, &license.id)?;
 
     // Audit log
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "deactivate_device",
-        "device",
-        &device.id,
-        Some(
-            &serde_json::json!({ "license_id": license.id, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" }),
-        ),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(device.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::DeactivateDevice)
+        .resource("device", &device.id)
+        .details(&serde_json::json!({ "license_id": license.id, "device_id": path.device_id, "device_name": device.name, "reason": "admin_remote_deactivation" }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(device.name.clone()))
+        .save()?;
 
     tracing::info!(
         "Device deactivated by admin: {} on license {} (project: {})",

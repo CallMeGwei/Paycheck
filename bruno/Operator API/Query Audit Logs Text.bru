@@ -1,0 +1,33 @@
+meta {
+  name: Query Audit Logs Text
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{base_url}}/operators/audit-logs/text
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  Query audit logs as plain text (one entry per line). Requires view+ role.
+
+  Returns text/plain with each log entry formatted as:
+  [ID] [TIMESTAMP] [ActorType] "Actor" [as "Impersonator"] VERB RESOURCE in "Org" [project "Project"]
+
+  Examples:
+  - [abc12345] [2024-01-15 14:32:05] [Operator] "John Smith" created organization "Acme Corp"
+  - [abc12345] [2024-01-15 14:32:05] [Operator] "John Smith" as "Jane Doe" created project "Desktop App" in "Acme Corp"
+  - [abc12345] [2024-01-15 14:32:05] [Member] "Jane Doe" revoked license "lic001" in "Acme Corp" project "Desktop App"
+  - [abc12345] [2024-01-15 14:32:05] [Operator] (op123) created organization org456 in (org789)  <- ID fallback
+  - [abc12345] [2024-01-15 14:32:05] [System] seeded operator "Dev Operator"
+
+  Supports the same filters as the JSON endpoint:
+  - actor_type, actor_id, impersonator_id, action, resource_type, resource_id
+  - org_id, project_id, from_timestamp, to_timestamp, limit, offset
+}

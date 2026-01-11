@@ -17,28 +17,33 @@ impl OperatorRole {
     }
 }
 
+/// Operator record - links a user to system-level operator role
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operator {
     pub id: String,
+    pub user_id: String,
+    pub role: OperatorRole,
+    pub created_at: i64,
+}
+
+/// Operator with user info joined (for API responses)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorWithUser {
+    pub id: String,
+    pub user_id: String,
     pub email: String,
     pub name: String,
     pub role: OperatorRole,
-    /// Links to external identity system (e.g., Console user ID)
-    pub external_user_id: Option<String>,
     pub created_at: i64,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreateOperator {
-    pub email: String,
-    pub name: String,
+    pub user_id: String,
     pub role: OperatorRole,
-    pub external_user_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateOperator {
-    pub name: Option<String>,
     pub role: Option<OperatorRole>,
-    pub external_user_id: Option<String>,
 }

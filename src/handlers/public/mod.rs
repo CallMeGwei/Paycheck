@@ -52,7 +52,7 @@ pub fn router(rate_limit_config: RateLimitConfig) -> Router<AppState> {
         .route("/callback", get(payment_callback))
         .route("/redeem", post(redeem_with_code))
         .route("/refresh", post(refresh_token))
-        .route("/validate", get(validate_license))
+        .route("/validate", post(validate_license))
         .route("/license", get(get_license_info))
         .route("/devices/deactivate", post(deactivate_device))
         .layer(rate_limit::standard_layer(rate_limit_config.standard_rpm));

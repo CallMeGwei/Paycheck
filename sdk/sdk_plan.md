@@ -161,7 +161,7 @@ interface LicenseClaims {
   // Standard JWT
   iss: string;        // "paycheck"
   sub: string;        // license_id
-  aud: string;        // project domain
+  aud: string;        // project name (for debugging)
   jti: string;        // unique token ID
   iat: number;
   exp: number;

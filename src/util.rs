@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use crate::db::queries;
 use crate::error::Result;
-use crate::models::{ActorType, AuditLog, AuditLogNames, Product};
+use crate::models::{ActorType, AuditAction, AuditLog, AuditLogNames, Product};
 
 const SECONDS_PER_DAY: i64 = 86400;
 
@@ -74,47 +74,117 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
-/// Create an audit log entry, automatically extracting IP and user-agent from headers.
+/// Builder for creating audit log entries.
 ///
-/// This is a thin wrapper around `queries::create_audit_log` that handles the
-/// common pattern of extracting request info from headers.
+/// Provides a fluent API for constructing audit logs with named methods
+/// instead of positional parameters.
 ///
-/// The `impersonator_id` parameter should be set when an operator is acting on behalf
-/// of an org member (via `X-On-Behalf-Of` header). This ensures the audit trail captures
-/// both who requested the action (impersonator) and whose permissions were used (actor).
-///
-/// The `names` parameter provides human-readable names for display in text logs.
-#[allow(clippy::too_many_arguments)]
-pub fn audit_log(
-    conn: &Connection,
+/// # Example
+/// ```ignore
+/// AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+///     .actor(ActorType::User, Some(&user_id))
+///     .action(AuditAction::CreateOrganization)
+///     .resource("organization", &org.id)
+///     .details(&serde_json::json!({ "name": org.name }))
+///     .names(&ctx.audit_names().resource(org.name.clone()))
+///     .save()?;
+/// ```
+pub struct AuditLogBuilder<'a> {
+    conn: &'a Connection,
     enabled: bool,
+    headers: &'a HeaderMap,
     actor_type: ActorType,
-    actor_id: Option<&str>,
-    impersonator_id: Option<&str>,
-    headers: &HeaderMap,
-    action: &str,
-    resource_type: &str,
-    resource_id: &str,
-    details: Option<&serde_json::Value>,
-    org_id: Option<&str>,
-    project_id: Option<&str>,
-    names: &AuditLogNames,
-) -> Result<AuditLog> {
-    let (ip, ua) = extract_request_info(headers);
-    queries::create_audit_log(
-        conn,
-        enabled,
-        actor_type,
-        actor_id,
-        impersonator_id,
-        action,
-        resource_type,
-        resource_id,
-        details,
-        org_id,
-        project_id,
-        ip.as_deref(),
-        ua.as_deref(),
-        names,
-    )
+    user_id: Option<&'a str>,
+    action: AuditAction,
+    resource_type: &'a str,
+    resource_id: &'a str,
+    details: Option<&'a serde_json::Value>,
+    org_id: Option<&'a str>,
+    project_id: Option<&'a str>,
+    names: AuditLogNames,
 }
+
+impl<'a> AuditLogBuilder<'a> {
+    /// Create a new audit log builder with required parameters.
+    pub fn new(conn: &'a Connection, enabled: bool, headers: &'a HeaderMap) -> Self {
+        Self {
+            conn,
+            enabled,
+            headers,
+            actor_type: ActorType::System,
+            user_id: None,
+            action: AuditAction::CreateUser, // Placeholder, should always be set
+            resource_type: "",
+            resource_id: "",
+            details: None,
+            org_id: None,
+            project_id: None,
+            names: AuditLogNames::default(),
+        }
+    }
+
+    /// Set the actor type and optional user ID.
+    pub fn actor(mut self, actor_type: ActorType, user_id: Option<&'a str>) -> Self {
+        self.actor_type = actor_type;
+        self.user_id = user_id;
+        self
+    }
+
+    /// Set the action being performed.
+    pub fn action(mut self, action: AuditAction) -> Self {
+        self.action = action;
+        self
+    }
+
+    /// Set the resource type and ID being acted upon.
+    pub fn resource(mut self, resource_type: &'a str, resource_id: &'a str) -> Self {
+        self.resource_type = resource_type;
+        self.resource_id = resource_id;
+        self
+    }
+
+    /// Set optional details JSON.
+    pub fn details(mut self, details: &'a serde_json::Value) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    /// Set the organization context.
+    pub fn org(mut self, org_id: &'a str) -> Self {
+        self.org_id = Some(org_id);
+        self
+    }
+
+    /// Set the project context.
+    pub fn project(mut self, project_id: &'a str) -> Self {
+        self.project_id = Some(project_id);
+        self
+    }
+
+    /// Set human-readable names for display.
+    pub fn names(mut self, names: &AuditLogNames) -> Self {
+        self.names = names.clone();
+        self
+    }
+
+    /// Save the audit log entry to the database.
+    pub fn save(self) -> Result<AuditLog> {
+        let (ip, ua) = extract_request_info(self.headers);
+        queries::create_audit_log(
+            self.conn,
+            self.enabled,
+            self.actor_type,
+            self.user_id,
+            self.action.as_ref(),
+            self.resource_type,
+            self.resource_id,
+            self.details,
+            self.org_id,
+            self.project_id,
+            ip.as_deref(),
+            ua.as_deref(),
+            &self.names,
+        )
+    }
+}
+

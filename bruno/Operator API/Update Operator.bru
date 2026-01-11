@@ -16,7 +16,6 @@ auth:bearer {
 
 body:json {
   {
-    "name": "Updated Name",
     "role": "view"
   }
 }
@@ -25,5 +24,8 @@ docs {
   Update an operator (requires owner role).
   Cannot change your own role.
 
-  Both fields are optional.
+  Request body:
+  - role: Optional. One of "owner", "admin", "view"
+
+  Note: To update user name/email, update the user record directly.
 }

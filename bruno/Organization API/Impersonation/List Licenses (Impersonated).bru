@@ -1,0 +1,27 @@
+meta {
+  name: List Licenses (Impersonated)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+headers {
+  X-On-Behalf-Of: {{member_id}}
+}
+
+docs {
+  List project licenses using operator impersonation.
+
+  Requires the impersonated member to have access to the project:
+  - Owner/Admin org members have implicit access to all projects
+  - Member role users need explicit project membership
+}

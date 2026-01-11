@@ -1,0 +1,49 @@
+meta {
+  name: Create Operator API Key
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{base_url}}/operators/{{operator_id}}/api-keys
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+body:json {
+  {
+    "name": "CLI Key",
+    "expires_in_days": 365,
+    "user_manageable": true,
+    "scopes": null
+  }
+}
+
+docs {
+  Create a new API key for an operator's user identity.
+
+  Operators can manage their own keys.
+  Owner role can manage any operator's keys.
+
+  Request body:
+  - name: Required. Display name for the key (e.g., "CLI", "CI/CD")
+  - expires_in_days: Optional. TTL in days (null = never expires)
+  - user_manageable: Optional. If false, key is hidden from user self-service (default: true)
+  - scopes: Optional. Array of org/project access restrictions (null = full access)
+
+  Returns the full API key (only shown once!):
+  {
+    "id": "key_abc123",
+    "name": "CLI Key",
+    "key": "pc_...",           // Full key - save this!
+    "prefix": "pc_1234",       // First 8 chars for identification
+    "user_manageable": true,
+    "created_at": 1234567890,
+    "expires_at": 1234567890,
+    "scopes": null
+  }
+}

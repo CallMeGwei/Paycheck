@@ -1,0 +1,27 @@
+meta {
+  name: List Projects (Impersonated)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/projects
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+headers {
+  X-On-Behalf-Of: {{member_id}}
+}
+
+docs {
+  List org projects using operator impersonation.
+
+  The returned projects depend on the impersonated member's role:
+  - Owner/Admin: sees all projects
+  - Member: only sees projects they're explicitly assigned to
+}

@@ -1,0 +1,33 @@
+meta {
+  name: List Members (Impersonated)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/members
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+headers {
+  X-On-Behalf-Of: {{member_id}}
+}
+
+docs {
+  List org members using operator impersonation.
+
+  This demonstrates how Console can call org API endpoints on behalf of a user
+  without storing per-user API keys.
+
+  Requirements:
+  - Operator must have admin or owner role
+  - X-On-Behalf-Of header must contain a valid member_id
+  - The member must belong to the org in the URL path
+
+  The request executes with the impersonated member's permissions.
+}

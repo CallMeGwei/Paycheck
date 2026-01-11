@@ -17,21 +17,25 @@ auth:bearer {
 body:json {
   {
     "name": "Acme Corp",
-    "owner_email": "owner@acme.com",
-    "owner_name": "Jane Doe"
+    "owner_user_id": "{{user_id}}"
   }
 }
 
 docs {
   Create a new organization (requires admin+ role).
 
-  If owner_email is provided, an org member with owner role
-  is created. No API key is returned - the owner uses Console
-  (operator impersonation) or creates a key later via the API.
+  Request body:
+  - name: Required. Organization display name
+  - owner_user_id: Optional. ID of existing user to make owner
+
+  If owner_user_id is provided, an org member with owner role
+  is created. The user must already exist in the users table.
+  No API key is returned - the owner uses Console (operator
+  impersonation) or creates a key later via the API.
 
   Returns:
   {
     "organization": { ... },
-    "owner": { "id": "...", "email": "...", ... }  // if owner_email provided
+    "owner": { "id": "...", "user_id": "...", "org_id": "...", "role": "owner", ... }
   }
 }

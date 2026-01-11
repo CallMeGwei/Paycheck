@@ -4,17 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
-use crate::extractors::{Json, Query};
+use crate::extractors::Json;
 use crate::util::LicenseExpirations;
 
 #[derive(Debug, Deserialize)]
-pub struct ValidateQuery {
-    /// Public key - identifies the project (preferred)
-    #[serde(default)]
-    pub public_key: Option<String>,
-    /// Project ID - deprecated, use public_key instead
-    #[serde(default)]
-    pub project_id: Option<String>,
+pub struct ValidateRequest {
+    /// Public key - identifies the project
+    pub public_key: String,
     pub jti: String,
 }
 
@@ -30,7 +26,7 @@ pub struct ValidateResponse {
 
 pub async fn validate_license(
     State(state): State<AppState>,
-    Query(query): Query<ValidateQuery>,
+    Json(req): Json<ValidateRequest>,
 ) -> Result<Json<ValidateResponse>> {
     let conn = state.db.get()?;
 
@@ -44,23 +40,15 @@ pub async fn validate_license(
         })
     };
 
-    // Resolve project ID from public_key or project_id
-    let project_id = if let Some(ref public_key) = query.public_key {
-        let project = queries::get_project_by_public_key(&conn, public_key)?;
-        match project {
-            Some(p) => p.id,
-            None => return Ok(invalid_response()),
-        }
-    } else if let Some(ref project_id) = query.project_id {
-        project_id.clone()
-    } else {
-        return Err(AppError::BadRequest(
-            "Either public_key or project_id is required".into(),
-        ));
+    // Look up project by public key
+    let project = match queries::get_project_by_public_key(&conn, &req.public_key)? {
+        Some(p) => p,
+        None => return Ok(invalid_response()),
     };
+    let project_id = project.id;
 
     // Find the device by JTI
-    let device = match queries::get_device_by_jti(&conn, &query.jti)? {
+    let device = match queries::get_device_by_jti(&conn, &req.jti)? {
         Some(d) => d,
         None => return Ok(invalid_response()),
     };
@@ -77,7 +65,7 @@ pub async fn validate_license(
     }
 
     // Check if this specific JTI is revoked
-    if license.revoked_jtis.contains(&query.jti) {
+    if license.revoked_jtis.contains(&req.jti) {
         return Ok(invalid_response());
     }
 

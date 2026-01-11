@@ -11,7 +11,7 @@ delete {
 }
 
 auth:bearer {
-  token: {{org_api_key}}
+  token: {{org_member_api_key}}
 }
 
 docs {
@@ -37,5 +37,5 @@ docs {
   - The device's JWT is revoked (jti added to revoked list)
   - The device record is deleted
   - Creates an audit log entry
-  - Use GET /licenses/{id} to list devices first
+  - Use GET /licenses/{license_id} to list devices first
 }

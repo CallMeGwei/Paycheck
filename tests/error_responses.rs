@@ -133,13 +133,13 @@ async fn test_missing_json_fields_returns_json_error() {
 async fn test_invalid_query_params_returns_json_error() {
     let app = test_app();
 
-    // /validate requires project_id and jti query params
+    // /callback requires session_id query param
     // Send request with missing required params
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/validate")
+                .uri("/callback")
                 .body(Body::empty())
                 .unwrap(),
         )

@@ -7,8 +7,8 @@ use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, CreatePaymentConfig, ProductPaymentConfig, UpdatePaymentConfig};
-use crate::util::audit_log;
+use crate::models::{ActorType, AuditAction, CreatePaymentConfig, ProductPaymentConfig, UpdatePaymentConfig};
+use crate::util::AuditLogBuilder;
 
 #[derive(serde::Deserialize)]
 pub struct PaymentConfigPath {
@@ -22,7 +22,7 @@ pub struct PaymentConfigItemPath {
     pub org_id: String,
     pub project_id: String,
     pub product_id: String,
-    pub id: String,
+    pub config_id: String,
 }
 
 pub async fn create_payment_config(
@@ -57,21 +57,15 @@ pub async fn create_payment_config(
 
     let config = queries::create_payment_config(&conn, &path.product_id, &input)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "create_payment_config",
-        "payment_config",
-        &config.id,
-        Some(&serde_json::json!({ "product_id": path.product_id, "provider": input.provider })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(product.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::CreatePaymentConfig)
+        .resource("payment_config", &config.id)
+        .details(&serde_json::json!({ "product_id": path.product_id, "provider": input.provider }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(product.name.clone()))
+        .save()?;
 
     Ok(Json(config))
 }
@@ -100,7 +94,7 @@ pub async fn get_payment_config_handler(
 ) -> Result<Json<ProductPaymentConfig>> {
     let conn = state.db.get()?;
 
-    let config = queries::get_payment_config_by_id(&conn, &path.id)?
+    let config = queries::get_payment_config_by_id(&conn, &path.config_id)?
         .ok_or_else(|| AppError::NotFound("Payment config not found".into()))?;
 
     // Verify it belongs to the specified product
@@ -133,7 +127,7 @@ pub async fn update_payment_config_handler(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    let existing = queries::get_payment_config_by_id(&conn, &path.id)?
+    let existing = queries::get_payment_config_by_id(&conn, &path.config_id)?
         .ok_or_else(|| AppError::NotFound("Payment config not found".into()))?;
 
     // Verify it belongs to the specified product
@@ -149,25 +143,19 @@ pub async fn update_payment_config_handler(
         return Err(AppError::NotFound("Product not found".into()));
     }
 
-    queries::update_payment_config(&conn, &path.id, &input)?;
+    queries::update_payment_config(&conn, &path.config_id, &input)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "update_payment_config",
-        "payment_config",
-        &path.id,
-        Some(&serde_json::json!({ "product_id": path.product_id, "provider": existing.provider })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(product.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::UpdatePaymentConfig)
+        .resource("payment_config", &path.config_id)
+        .details(&serde_json::json!({ "product_id": path.product_id, "provider": existing.provider }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(product.name.clone()))
+        .save()?;
 
-    let config = queries::get_payment_config_by_id(&conn, &path.id)?
+    let config = queries::get_payment_config_by_id(&conn, &path.config_id)?
         .ok_or_else(|| AppError::NotFound("Payment config not found".into()))?;
 
     Ok(Json(config))
@@ -186,7 +174,7 @@ pub async fn delete_payment_config_handler(
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    let existing = queries::get_payment_config_by_id(&conn, &path.id)?
+    let existing = queries::get_payment_config_by_id(&conn, &path.config_id)?
         .ok_or_else(|| AppError::NotFound("Payment config not found".into()))?;
 
     // Verify it belongs to the specified product
@@ -202,23 +190,17 @@ pub async fn delete_payment_config_handler(
         return Err(AppError::NotFound("Product not found".into()));
     }
 
-    queries::delete_payment_config(&conn, &path.id)?;
+    queries::delete_payment_config(&conn, &path.config_id)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "delete_payment_config",
-        "payment_config",
-        &path.id,
-        Some(&serde_json::json!({ "product_id": path.product_id, "provider": existing.provider })),
-        Some(&path.org_id),
-        Some(&path.project_id),
-        &ctx.audit_names().resource(product.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::DeletePaymentConfig)
+        .resource("payment_config", &path.config_id)
+        .details(&serde_json::json!({ "product_id": path.product_id, "provider": existing.provider }))
+        .org(&path.org_id)
+        .project(&path.project_id)
+        .names(&ctx.audit_names().resource(product.name.clone()))
+        .save()?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(serde_json::json!({ "success": true })))
 }

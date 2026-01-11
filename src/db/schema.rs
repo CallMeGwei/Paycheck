@@ -4,33 +4,56 @@ use rusqlite::Connection;
 pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
-        -- Operators (Paycheck ops team)
-        CREATE TABLE IF NOT EXISTS operators (
+        -- Users (identity - source of truth for name/email)
+        CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+        -- Operators (Paycheck ops team - references users for identity)
+        CREATE TABLE IF NOT EXISTS operators (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
             role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'view')),
-            external_user_id TEXT,
             created_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_operators_external_user_id ON operators(external_user_id);
+        CREATE INDEX IF NOT EXISTS idx_operators_user ON operators(user_id);
 
-        -- Operator API keys (multiple keys per operator)
-        CREATE TABLE IF NOT EXISTS operator_api_keys (
+        -- API keys (unified, tied to user identity)
+        CREATE TABLE IF NOT EXISTS api_keys (
             id TEXT PRIMARY KEY,
-            operator_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
-            name TEXT NOT NULL,                   -- "Console", "CLI", etc.
-            key_prefix TEXT NOT NULL,             -- "op_a1b2" (first 8 chars)
-            key_hash TEXT NOT NULL,               -- bcrypt hash
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            key_prefix TEXT NOT NULL,
+            key_hash TEXT NOT NULL,
+            user_manageable INTEGER NOT NULL DEFAULT 1,  -- 0 = Console-managed, hidden from user
             created_at INTEGER NOT NULL,
             last_used_at INTEGER,
             expires_at INTEGER,
             revoked_at INTEGER,
 
-            UNIQUE(operator_id, name)
+            UNIQUE(user_id, name)
         );
-        CREATE INDEX IF NOT EXISTS idx_operator_api_keys_operator ON operator_api_keys(operator_id);
-        CREATE INDEX IF NOT EXISTS idx_operator_api_keys_prefix ON operator_api_keys(key_prefix);
+        CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+        CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
+
+        -- API key scopes (optional restrictions on what a key can access)
+        CREATE TABLE IF NOT EXISTS api_key_scopes (
+            id TEXT PRIMARY KEY,
+            api_key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+            org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+            access TEXT NOT NULL CHECK (access IN ('view', 'admin'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_key_scopes_lookup ON api_key_scopes(api_key_id, org_id);
+        -- Unique constraint for org-level scopes (project_id is NULL)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key_scopes_org_unique ON api_key_scopes(api_key_id, org_id) WHERE project_id IS NULL;
+        -- Unique constraint for project-level scopes (project_id is NOT NULL)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key_scopes_project_unique ON api_key_scopes(api_key_id, org_id, project_id) WHERE project_id IS NOT NULL;
 
         -- Organizations (customers - indie devs, companies)
         CREATE TABLE IF NOT EXISTS organizations (
@@ -44,38 +67,17 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             updated_at INTEGER NOT NULL
         );
 
-        -- Organization members
+        -- Organization members (references users for identity)
         CREATE TABLE IF NOT EXISTS org_members (
             id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-            email TEXT NOT NULL,
-            name TEXT NOT NULL,
             role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
-            external_user_id TEXT,                -- external system user ID (e.g., Console user ID)
             created_at INTEGER NOT NULL,
-            UNIQUE(org_id, email)
+            UNIQUE(user_id, org_id)
         );
         CREATE INDEX IF NOT EXISTS idx_org_members_org ON org_members(org_id);
-        CREATE INDEX IF NOT EXISTS idx_org_members_email ON org_members(email);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_org_members_external_user ON org_members(external_user_id)
-            WHERE external_user_id IS NOT NULL;
-
-        -- Organization member API keys (multiple keys per member)
-        CREATE TABLE IF NOT EXISTS org_member_api_keys (
-            id TEXT PRIMARY KEY,
-            org_member_id TEXT NOT NULL REFERENCES org_members(id) ON DELETE CASCADE,
-            name TEXT NOT NULL,                   -- "Console", "CLI", "CI/CD Prod"
-            key_prefix TEXT NOT NULL,             -- "om_a1b2" (first 8 chars for identification)
-            key_hash TEXT NOT NULL,               -- bcrypt hash of full key
-            created_at INTEGER NOT NULL,
-            last_used_at INTEGER,
-            expires_at INTEGER,                   -- optional TTL (null = never)
-            revoked_at INTEGER,                   -- soft delete (null = active)
-
-            UNIQUE(org_member_id, name)           -- can't have two keys with same name
-        );
-        CREATE INDEX IF NOT EXISTS idx_org_member_api_keys_member ON org_member_api_keys(org_member_id);
-        CREATE INDEX IF NOT EXISTS idx_org_member_api_keys_prefix ON org_member_api_keys(key_prefix);
+        CREATE INDEX IF NOT EXISTS idx_org_members_user ON org_members(user_id);
 
         -- Projects (software products being licensed)
         CREATE TABLE IF NOT EXISTS projects (
@@ -242,11 +244,10 @@ pub fn init_audit_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE TABLE IF NOT EXISTS audit_logs (
             id TEXT PRIMARY KEY,
             timestamp INTEGER NOT NULL,
-            actor_type TEXT NOT NULL CHECK (actor_type IN ('operator', 'org_member', 'public', 'system')),
-            actor_id TEXT,
-            actor_name TEXT,
-            impersonator_id TEXT,
-            impersonator_name TEXT,
+            actor_type TEXT NOT NULL CHECK (actor_type IN ('user', 'public', 'system')),
+            user_id TEXT,                         -- references users.id (null for public/system)
+            user_email TEXT,                      -- denormalized for query convenience
+            user_name TEXT,                       -- denormalized for query convenience
             action TEXT NOT NULL,
             resource_type TEXT NOT NULL,
             resource_id TEXT NOT NULL,
@@ -260,8 +261,7 @@ pub fn init_audit_db(conn: &Connection) -> rusqlite::Result<()> {
             user_agent TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_type, actor_id);
-        CREATE INDEX IF NOT EXISTS idx_audit_logs_impersonator ON audit_logs(impersonator_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_org ON audit_logs(org_id);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_project ON audit_logs(project_id);

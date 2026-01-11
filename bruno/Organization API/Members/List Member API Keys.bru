@@ -1,0 +1,38 @@
+meta {
+  name: List Member API Keys
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}/api-keys
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_member_api_key}}
+}
+
+docs {
+  List API keys for an org member's user identity.
+
+  Members can see their own keys.
+  Owner role can see any member's keys.
+
+  Returns list of keys (without full key values):
+  {
+    "keys": [
+      {
+        "id": "key_abc123",
+        "name": "Console",
+        "prefix": "pc_1234",
+        "user_manageable": true,
+        "created_at": 1234567890,
+        "last_used_at": 1234567890,
+        "expires_at": null,
+        "scopes": null
+      }
+    ]
+  }
+}

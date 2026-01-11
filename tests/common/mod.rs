@@ -41,53 +41,70 @@ pub fn setup_test_audit_db() -> Connection {
     conn
 }
 
-/// Create a test operator with default values
+/// Create a test user
+pub fn create_test_user(conn: &Connection, email: &str, name: &str) -> User {
+    let input = CreateUser {
+        email: email.to_string(),
+        name: name.to_string(),
+    };
+    queries::create_user(conn, &input).expect("Failed to create test user")
+}
+
+/// Create a test operator with default values (returns User, Operator, and API key)
 pub fn create_test_operator(
     conn: &Connection,
     email: &str,
     role: OperatorRole,
-) -> (Operator, String) {
+) -> (User, Operator, String) {
+    // Create user first
+    let user = create_test_user(conn, email, &format!("Test Operator {}", email));
+
+    // Create operator linked to user
     let input = CreateOperator {
-        email: email.to_string(),
-        name: format!("Test Operator {}", email),
+        user_id: user.id.clone(),
         role,
-        external_user_id: None,
     };
-    queries::create_operator(conn, &input).expect("Failed to create test operator")
+    let operator = queries::create_operator(conn, &input).expect("Failed to create test operator");
+
+    // Create API key for the user
+    let (_, api_key) = queries::create_api_key(conn, &user.id, "Default", None, true, None)
+        .expect("Failed to create test operator API key");
+
+    (user, operator, api_key)
 }
 
 /// Create a test organization
 pub fn create_test_org(conn: &Connection, name: &str) -> Organization {
     let input = CreateOrganization {
         name: name.to_string(),
-        owner_email: None,
-        owner_name: None,
-        external_user_id: None,
+        owner_user_id: None,
     };
     queries::create_organization(conn, &input).expect("Failed to create test organization")
 }
 
-/// Create a test org member with default values
+/// Create a test org member with default values (returns User, OrgMember, and API key)
 pub fn create_test_org_member(
     conn: &Connection,
     org_id: &str,
     email: &str,
     role: OrgMemberRole,
-) -> (OrgMember, String) {
+) -> (User, OrgMember, String) {
+    // Create user first
+    let user = create_test_user(conn, email, &format!("Test Member {}", email));
+
+    // Create org member linked to user
     let input = CreateOrgMember {
-        email: email.to_string(),
-        name: format!("Test Member {}", email),
+        user_id: user.id.clone(),
         role,
-        external_user_id: None,
     };
     let member = queries::create_org_member(conn, org_id, &input)
         .expect("Failed to create test org member");
 
-    // Create an API key in the new table
-    let (_, api_key) = queries::create_org_member_api_key(conn, &member.id, "Default", None)
+    // Create an API key for the user
+    let (_, api_key) = queries::create_api_key(conn, &member.user_id, "Default", None, true, None)
         .expect("Failed to create test org member API key");
 
-    (member, api_key)
+    (user, member, api_key)
 }
 
 /// Create a test project with auto-generated keypair and encrypted private key

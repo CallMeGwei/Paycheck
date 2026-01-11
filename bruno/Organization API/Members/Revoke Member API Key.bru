@@ -1,0 +1,28 @@
+meta {
+  name: Revoke Member API Key
+  type: http
+  seq: 12
+}
+
+delete {
+  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}/api-keys/{{key_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{org_member_api_key}}
+}
+
+docs {
+  Revoke a specific API key.
+
+  Members can revoke their own keys.
+  Owner role can revoke any member's keys.
+
+  The key is soft-deleted (revoked_at timestamp set).
+  Revoked keys are excluded from list and cannot authenticate.
+
+  Returns:
+  { "revoked": true }
+}

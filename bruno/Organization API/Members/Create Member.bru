@@ -11,13 +11,12 @@ post {
 }
 
 auth:bearer {
-  token: {{org_api_key}}
+  token: {{org_member_api_key}}
 }
 
 body:json {
   {
-    "email": "member@example.com",
-    "name": "New Member",
+    "user_id": "{{user_id}}",
     "role": "member"
   }
 }
@@ -25,16 +24,24 @@ body:json {
 docs {
   Create a new organization member (requires owner role).
 
+  The user must already exist in the users table.
+  No API key is created - use Console or create one separately.
+
   Roles:
   - owner: Full org access
   - admin: Can manage projects/products
   - member: Limited access
 
-  Returns:
-  {
-    "member": { ... },
-    "api_key": "NEW_API_KEY"
-  }
+  Request body:
+  - user_id: Required. ID of existing user to link as member
+  - role: Required. One of "owner", "admin", "member"
 
-  Save the api_key - it's only shown once!
+  Returns the member record:
+  {
+    "id": "...",
+    "user_id": "...",
+    "org_id": "...",
+    "role": "member",
+    "created_at": 1234567890
+  }
 }

@@ -1,0 +1,28 @@
+meta {
+  name: Revoke Operator API Key
+  type: http
+  seq: 17
+}
+
+delete {
+  url: {{base_url}}/operators/{{operator_id}}/api-keys/{{key_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  Revoke a specific API key.
+  
+  Operators can revoke their own keys.
+  Owner role can revoke any operator's keys.
+  
+  The key is soft-deleted (revoked_at timestamp set).
+  Revoked keys are excluded from list and cannot authenticate.
+  
+  Returns:
+  { "revoked": true }
+}

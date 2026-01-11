@@ -1,0 +1,38 @@
+meta {
+  name: List Operator API Keys
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{base_url}}/operators/{{operator_id}}/api-keys
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  List API keys for an operator's user identity.
+
+  Operators can see their own keys.
+  Owner role can see any operator's keys.
+
+  Returns list of keys (without full key values):
+  {
+    "keys": [
+      {
+        "id": "key_abc123",
+        "name": "CLI Key",
+        "prefix": "pc_1234",
+        "user_manageable": true,
+        "created_at": 1234567890,
+        "last_used_at": 1234567890,
+        "expires_at": 1234567890,
+        "scopes": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+meta {
+  name: Create Member API Key (Impersonated)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}/api-keys
+  body: json
+  auth: bearer
+}
+
+headers {
+  X-On-Behalf-Of: {{member_id}}
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+body:json {
+  {
+    "name": "Console Key",
+    "user_manageable": false
+  }
+}
+
+docs {
+  Create an API key for an org member using operator impersonation.
+
+  Use this when bootstrapping - the org owner doesn't have an API key yet,
+  so we use operator impersonation to create their first key.
+
+  Requirements:
+  - Operator must have admin or owner role
+  - X-On-Behalf-Of header must contain the member_id
+
+  Request body:
+  - name: Required. Display name for the key
+  - expires_in_days: Optional. TTL in days (null = never expires)
+  - user_manageable: Optional. If false, key is hidden from user self-service (default: true)
+  - scopes: Optional. Array of org/project access restrictions (null = full access)
+
+  Returns the full API key (only shown once!):
+  {
+    "id": "...",
+    "name": "Console Key",
+    "key": "pc_...",           // Save this!
+    "prefix": "pc_1234",
+    "user_manageable": false,
+    "created_at": 1234567890,
+    "expires_at": null,
+    "scopes": null
+  }
+}

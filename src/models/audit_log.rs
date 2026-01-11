@@ -5,10 +5,82 @@ use strum::{AsRefStr, EnumString};
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum ActorType {
-    Operator,
-    OrgMember,
+    User,
     Public,
     System,
+}
+
+/// All possible audit log actions.
+/// Using an enum ensures compile-time checking and prevents typos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, AsRefStr, EnumString)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum AuditAction {
+    // User management
+    CreateUser,
+    UpdateUser,
+    DeleteUser,
+
+    // Operator management
+    CreateOperator,
+    UpdateOperator,
+    DeleteOperator,
+    BootstrapOperator,
+
+    // Organization management
+    CreateOrganization,
+    UpdateOrganization,
+    DeleteOrganization,
+
+    // Org member management
+    CreateOrgMember,
+    UpdateOrgMember,
+    DeleteOrgMember,
+
+    // Project management
+    CreateProject,
+    UpdateProject,
+    DeleteProject,
+
+    // Project member management
+    CreateProjectMember,
+    UpdateProjectMember,
+    DeleteProjectMember,
+
+    // Product management
+    CreateProduct,
+    UpdateProduct,
+    DeleteProduct,
+
+    // Payment config management
+    CreatePaymentConfig,
+    UpdatePaymentConfig,
+    DeletePaymentConfig,
+
+    // License management
+    CreateLicense,
+    UpdateLicenseEmail,
+    RevokeLicense,
+
+    // Activation
+    GenerateActivationCode,
+
+    // Device management
+    DeactivateDevice,
+
+    // Token operations
+    RefreshToken,
+
+    // API key management
+    CreateApiKey,
+    RevokeApiKey,
+
+    // Seeding (dev/bootstrap)
+    SeedOperator,
+    SeedOrganization,
+    SeedOrgMember,
+    SeedProject,
+    SeedProduct,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,17 +88,15 @@ pub struct AuditLog {
     pub id: String,
     pub timestamp: i64,
     pub actor_type: ActorType,
-    pub actor_id: Option<String>,
-    /// Name of the actor at the time of the action.
+    /// User ID (references users.id, null for public/system)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub actor_name: Option<String>,
-    /// If set, this action was performed by an operator impersonating the actor.
-    /// Contains the operator ID who performed the impersonation.
+    pub user_id: Option<String>,
+    /// User email (denormalized for query convenience)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub impersonator_id: Option<String>,
-    /// Name of the impersonating operator at the time of the action.
+    pub user_email: Option<String>,
+    /// User name (denormalized for query convenience)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub impersonator_name: Option<String>,
+    pub user_name: Option<String>,
     pub action: String,
     pub resource_type: String,
     pub resource_id: String,
@@ -50,10 +120,10 @@ pub struct AuditLog {
 /// All fields are optional - IDs will be shown as fallback.
 #[derive(Debug, Clone, Default)]
 pub struct AuditLogNames {
-    /// Name of the actor (operator name, member name, etc.)
-    pub actor_name: Option<String>,
-    /// Name of the impersonating operator (if impersonation)
-    pub impersonator_name: Option<String>,
+    /// Name of the user performing the action
+    pub user_name: Option<String>,
+    /// Email of the user performing the action
+    pub user_email: Option<String>,
     /// Name of the resource being acted upon
     pub resource_name: Option<String>,
     /// Name of the organization context
@@ -85,9 +155,7 @@ impl AuditLogNames {
 #[derive(Debug, Deserialize)]
 pub struct AuditLogQuery {
     pub actor_type: Option<ActorType>,
-    pub actor_id: Option<String>,
-    /// Filter to logs where an operator impersonated the actor
-    pub impersonator_id: Option<String>,
+    pub user_id: Option<String>,
     pub action: Option<String>,
     pub resource_type: Option<String>,
     pub resource_id: Option<String>,
@@ -116,13 +184,11 @@ impl AuditLogQuery {
 impl AuditLog {
     /// Format as a human-readable string for display.
     ///
-    /// Format: `[TIMESTAMP] [ActorType] "Actor" VERB RESOURCE in "Org" [project "Project"]`
-    /// With impersonation: `[TIMESTAMP] [ActorType] "Impersonator" as "Actor" VERB RESOURCE in "Org" [project "Project"]`
+    /// Format: `[TIMESTAMP] [ActorType] "User" VERB RESOURCE in "Org" [project "Project"]`
     ///
     /// Examples:
-    /// - `[2024-01-15 14:32:05] [Operator] "John Smith" created organization "Acme Corp"`
-    /// - `[2024-01-15 14:32:05] [Member] "John Smith" as "Jane Doe" created license lic001 in "Acme Corp" project "Desktop App"`
-    ///   (Operator "John Smith" acting as member "Jane Doe")
+    /// - `[2024-01-15 14:32:05] [User] "John Smith" created organization "Acme Corp"`
+    /// - `[2024-01-15 14:32:05] [System] seeded operator "Dev Operator"`
     pub fn formatted(&self) -> String {
         use chrono::{TimeZone, Utc};
 
@@ -133,37 +199,21 @@ impl AuditLog {
             .map(|dt| format!("[{}]", dt.format("%Y-%m-%d %H:%M:%S")))
             .unwrap_or_else(|| format!("[{}]", self.timestamp));
 
-        // Actor type in brackets - fixed width for alignment (10 chars)
-        // [Operator] is longest at 10 chars, pad others to match
-        let actor_type = if self.impersonator_id.is_some() {
-            // Impersonation is always operator -> member, so true actor is operator
-            "[Operator]"
-        } else {
-            match self.actor_type {
-                ActorType::Operator => "[Operator]",
-                ActorType::OrgMember => "[Member]  ",
-                ActorType::Public => "[Public]  ",
-                ActorType::System => "[System]  ",
-            }
+        // Actor type in brackets - fixed width for alignment
+        let actor_type = match self.actor_type {
+            ActorType::User => "[User]  ",
+            ActorType::Public => "[Public]",
+            ActorType::System => "[System]",
         };
 
-        // Actor name quoted, or (id) if no name
-        let actor_display = self
-            .actor_name
+        // User display: prefer name, then email, then ID
+        let user_display = self
+            .user_name
             .as_ref()
             .map(|n| format!("\"{}\"", n))
-            .or_else(|| self.actor_id.as_ref().map(|id| format!("({})", id)))
+            .or_else(|| self.user_email.as_ref().map(|e| format!("<{}>", e)))
+            .or_else(|| self.user_id.as_ref().map(|id| format!("({})", id)))
             .unwrap_or_default();
-
-        // For impersonation: show "Impersonator as Actor" (operator acting as member)
-        let (primary_display, impersonation_suffix) =
-            if let Some(ref name) = self.impersonator_name {
-                (format!("\"{}\"", name), format!(" as {}", actor_display))
-            } else if let Some(ref id) = self.impersonator_id {
-                (format!("({})", id), format!(" as {}", actor_display))
-            } else {
-                (actor_display, String::new())
-            };
 
         // Convert action to past-tense verb + object
         let verb_phrase = Self::action_to_verb_phrase(&self.action, &self.resource_type);
@@ -196,11 +246,10 @@ impl AuditLog {
         };
 
         format!(
-            "{} {} {}{} {} {}{}{}",
+            "{} {} {} {} {}{}{}",
             timestamp,
             actor_type,
-            primary_display,
-            impersonation_suffix,
+            user_display,
             verb_phrase,
             resource_display,
             org_context,
@@ -284,11 +333,10 @@ mod tests {
         let log = AuditLog {
             id: "log12345678".to_string(),
             timestamp: 1704067200, // 2024-01-01T00:00:00Z
-            actor_type: ActorType::Operator,
-            actor_id: Some("op123".to_string()),
-            actor_name: Some("John Smith".to_string()),
-            impersonator_id: None,
-            impersonator_name: None,
+            actor_type: ActorType::User,
+            user_id: Some("user123".to_string()),
+            user_email: Some("john@example.com".to_string()),
+            user_name: Some("John Smith".to_string()),
             action: "create_organization".to_string(),
             resource_type: "organization".to_string(),
             resource_id: "org456".to_string(),
@@ -303,61 +351,23 @@ mod tests {
         };
 
         let formatted = log.formatted();
-        // Expected: [2024-01-01 00:00:00] [Operator] "John Smith" created organization "Acme Corp"
+        // Expected: [2024-01-01 00:00:00] [User]   "John Smith" created organization "Acme Corp"
         assert!(formatted.contains("[2024-01-01 00:00:00]"));
-        assert!(formatted.contains("[Operator]"));
+        assert!(formatted.contains("[User]"));
         assert!(formatted.contains("\"John Smith\""));
         assert!(formatted.contains("created organization"));
         assert!(formatted.contains("\"Acme Corp\""));
-        assert!(!formatted.contains(" as ")); // No impersonation
-        assert!(!formatted.contains("[log12345]")); // No ID prefix
     }
 
     #[test]
-    fn test_formatted_with_impersonator() {
-        let log = AuditLog {
-            id: "log12345678".to_string(),
-            timestamp: 1704067200,
-            actor_type: ActorType::OrgMember,
-            actor_id: Some("member789".to_string()),
-            actor_name: Some("Jane Doe".to_string()),
-            impersonator_id: Some("op123".to_string()),
-            impersonator_name: Some("John Smith".to_string()),
-            action: "create_license".to_string(),
-            resource_type: "license".to_string(),
-            resource_id: "lic001".to_string(),
-            resource_name: None,
-            details: Some(serde_json::json!({"product_id": "prod1"})),
-            org_id: Some("org456".to_string()),
-            org_name: Some("Acme Corp".to_string()),
-            project_id: Some("proj789".to_string()),
-            project_name: Some("Desktop App".to_string()),
-            ip_address: None,
-            user_agent: None,
-        };
-
-        let formatted = log.formatted();
-        // Expected: [2024-01-01 00:00:00] [Operator] "John Smith" as "Jane Doe" created license lic001 in "Acme Corp" project "Desktop App"
-        // (Operator "John Smith" acting as member "Jane Doe")
-        assert!(formatted.contains("[Operator]")); // True actor type (impersonator)
-        assert!(formatted.contains("\"John Smith\"")); // Impersonator shown first
-        assert!(formatted.contains("as \"Jane Doe\"")); // Actor (member) shown after "as"
-        assert!(formatted.contains("created license"));
-        assert!(formatted.contains("lic001"));
-        assert!(formatted.contains("in \"Acme Corp\""));
-        assert!(formatted.contains("project \"Desktop App\""));
-    }
-
-    #[test]
-    fn test_formatted_no_actor_id() {
+    fn test_formatted_system() {
         let log = AuditLog {
             id: "log12345678".to_string(),
             timestamp: 1704067200,
             actor_type: ActorType::System,
-            actor_id: None,
-            actor_name: None,
-            impersonator_id: None,
-            impersonator_name: None,
+            user_id: None,
+            user_email: None,
+            user_name: None,
             action: "seed_operator".to_string(),
             resource_type: "operator".to_string(),
             resource_id: "op123".to_string(),
@@ -384,11 +394,10 @@ mod tests {
         let log = AuditLog {
             id: "log12345678".to_string(),
             timestamp: 1704067200,
-            actor_type: ActorType::OrgMember,
-            actor_id: Some("member123".to_string()),
-            actor_name: Some("Jane Doe".to_string()),
-            impersonator_id: None,
-            impersonator_name: None,
+            actor_type: ActorType::User,
+            user_id: Some("user123".to_string()),
+            user_email: None,
+            user_name: Some("Jane Doe".to_string()),
             action: "create_project".to_string(),
             resource_type: "project".to_string(),
             resource_id: "proj123".to_string(),
@@ -415,11 +424,10 @@ mod tests {
         let log = AuditLog {
             id: "log12345678".to_string(),
             timestamp: 1704067200,
-            actor_type: ActorType::Operator,
-            actor_id: Some("op123".to_string()),
-            actor_name: None, // No name, should fall back to ID
-            impersonator_id: None,
-            impersonator_name: None,
+            actor_type: ActorType::User,
+            user_id: Some("user123".to_string()),
+            user_email: None,
+            user_name: None, // No name, should fall back to ID
             action: "create_organization".to_string(),
             resource_type: "organization".to_string(),
             resource_id: "org456".to_string(),
@@ -434,7 +442,7 @@ mod tests {
         };
 
         let formatted = log.formatted();
-        assert!(formatted.contains("(op123)")); // Actor ID in parens
+        assert!(formatted.contains("(user123)")); // User ID in parens
         assert!(formatted.contains("org456")); // Resource ID without parens
         assert!(formatted.contains("in (org789)")); // Org ID in parens
     }
@@ -464,11 +472,10 @@ mod tests {
         let log = AuditLog {
             id: "log12345678".to_string(),
             timestamp: 1704067200,
-            actor_type: ActorType::Operator,
-            actor_id: Some("op123".to_string()),
-            actor_name: Some("John Smith".to_string()),
-            impersonator_id: None,
-            impersonator_name: None,
+            actor_type: ActorType::User,
+            user_id: Some("user123".to_string()),
+            user_email: Some("john@example.com".to_string()),
+            user_name: Some("John Smith".to_string()),
             action: "create_organization".to_string(),
             resource_type: "organization".to_string(),
             resource_id: "org456".to_string(),
@@ -483,7 +490,7 @@ mod tests {
         };
 
         let response: AuditLogResponse = log.into();
-        assert!(response.formatted.contains("[Operator]"));
+        assert!(response.formatted.contains("[User]"));
         assert!(response.formatted.contains("\"John Smith\""));
         assert!(response.formatted.contains("created organization"));
         assert_eq!(response.log.id, "log12345678");

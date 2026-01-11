@@ -38,16 +38,20 @@ pub struct Paginated<T> {
     pub limit: i64,
     /// Items skipped (as requested)
     pub offset: i64,
+    /// Whether there are more items beyond this page
+    pub has_more: bool,
 }
 
 impl<T> Paginated<T> {
     /// Create a new paginated response
     pub fn new(items: Vec<T>, total: i64, limit: i64, offset: i64) -> Self {
+        let has_more = offset + (items.len() as i64) < total;
         Self {
             items,
             total,
             limit,
             offset,
+            has_more,
         }
     }
 }

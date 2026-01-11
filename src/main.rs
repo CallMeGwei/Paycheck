@@ -13,8 +13,8 @@ use paycheck::email::EmailService;
 use paycheck::handlers;
 use paycheck::jwt;
 use paycheck::models::{
-    self, ActorType, AuditLogNames, CreateOperator, CreateOrgMember, CreatePaymentConfig, CreateProduct,
-    CreateProject, OperatorRole, OrgMemberRole,
+    self, ActorType, AuditAction, AuditLogNames, CreateOperator, CreateOrgMember, CreatePaymentConfig, CreateProduct,
+    CreateProject, CreateUser, OperatorRole, OrgMemberRole,
 };
 use paycheck::rate_limit::ActivationRateLimiter;
 
@@ -59,23 +59,37 @@ fn bootstrap_first_operator(state: &AppState, email: &str) {
         return;
     }
 
-    let input = CreateOperator {
-        email: email.to_string(),
-        name: "Bootstrap Operator".to_string(),
-        role: OperatorRole::Owner,
-        external_user_id: None,
-    };
+    // Create user first
+    let user = queries::create_user(
+        &conn,
+        &CreateUser {
+            email: email.to_string(),
+            name: "Bootstrap Operator".to_string(),
+        },
+    )
+    .expect("Failed to create bootstrap user");
 
-    let (operator, api_key) =
-        queries::create_operator(&conn, &input).expect("Failed to create bootstrap operator");
+    // Create operator linked to user
+    let operator = queries::create_operator(
+        &conn,
+        &CreateOperator {
+            user_id: user.id.clone(),
+            role: OperatorRole::Owner,
+        },
+    )
+    .expect("Failed to create bootstrap operator");
+
+    // Create API key for the operator's user
+    let (_api_key_record, api_key) =
+        queries::create_api_key(&conn, &user.id, "Default", None, true, None)
+            .expect("Failed to create bootstrap API key");
 
     queries::create_audit_log(
         &audit_conn,
         state.audit_log_enabled,
         ActorType::System,
-        None, // actor_id
-        None, // impersonator_id
-        "bootstrap_operator",
+        None, // user_id
+        AuditAction::BootstrapOperator.as_ref(),
         "operator",
         &operator.id,
         Some(&serde_json::json!({
@@ -86,7 +100,7 @@ fn bootstrap_first_operator(state: &AppState, email: &str) {
         None,
         None,
         None,
-        &AuditLogNames::default().resource(operator.name.clone()),
+        &AuditLogNames::default().resource(user.name.clone()),
     )
     .expect("Failed to create audit log for bootstrap");
 
@@ -119,23 +133,36 @@ fn seed_dev_data(state: &AppState) {
         return;
     }
 
-    // 1. Create operator
-    let operator_input = CreateOperator {
-        email: "dev@paycheck.local".to_string(),
-        name: "Dev Operator".to_string(),
-        role: OperatorRole::Owner,
-        external_user_id: None,
-    };
-    let (operator, operator_api_key) =
-        queries::create_operator(&conn, &operator_input).expect("Failed to create dev operator");
+    // 1. Create operator user and operator
+    let operator_user = queries::create_user(
+        &conn,
+        &CreateUser {
+            email: "dev@paycheck.local".to_string(),
+            name: "Dev Operator".to_string(),
+        },
+    )
+    .expect("Failed to create operator user");
+
+    let operator = queries::create_operator(
+        &conn,
+        &CreateOperator {
+            user_id: operator_user.id.clone(),
+            role: OperatorRole::Owner,
+        },
+    )
+    .expect("Failed to create dev operator");
+
+    // Create API key for operator
+    let (_, operator_api_key) =
+        queries::create_api_key(&conn, &operator_user.id, "Default", None, true, None)
+            .expect("Failed to create operator API key");
 
     queries::create_audit_log(
         &audit_conn,
         state.audit_log_enabled,
         ActorType::System,
-        None, // actor_id
-        None, // impersonator_id
-        "seed_operator",
+        None, // user_id
+        AuditAction::SeedOperator.as_ref(),
         "operator",
         &operator.id,
         None,
@@ -143,18 +170,16 @@ fn seed_dev_data(state: &AppState) {
         None,
         None,
         None,
-        &AuditLogNames::default().resource(operator.name.clone()),
+        &AuditLogNames::default().resource(operator_user.name.clone()),
     )
     .expect("Failed to create audit log");
 
-    // 2. Create organization
+    // 2. Create organization (no owner user - just the org)
     let org = queries::create_organization(
         &conn,
         &models::CreateOrganization {
             name: "Dev Org".to_string(),
-            owner_email: None,
-            owner_name: None,
-            external_user_id: None,
+            owner_user_id: None,
         },
     )
     .expect("Failed to create dev organization");
@@ -163,9 +188,8 @@ fn seed_dev_data(state: &AppState) {
         &audit_conn,
         state.audit_log_enabled,
         ActorType::System,
-        None, // actor_id
-        None, // impersonator_id
-        "seed_organization",
+        None, // user_id
+        AuditAction::SeedOrganization.as_ref(),
         "organization",
         &org.id,
         None,
@@ -177,27 +201,37 @@ fn seed_dev_data(state: &AppState) {
     )
     .expect("Failed to create audit log");
 
-    // 3. Create org member
-    let member_input = CreateOrgMember {
-        email: "dev@devorg.local".to_string(),
-        name: "Dev Member".to_string(),
-        role: OrgMemberRole::Owner,
-        external_user_id: None,
-    };
-    let member = queries::create_org_member(&conn, &org.id, &member_input)
-        .expect("Failed to create dev org member");
+    // 3. Create org member user and member
+    let member_user = queries::create_user(
+        &conn,
+        &CreateUser {
+            email: "dev@devorg.local".to_string(),
+            name: "Dev Member".to_string(),
+        },
+    )
+    .expect("Failed to create member user");
+
+    let member = queries::create_org_member(
+        &conn,
+        &org.id,
+        &CreateOrgMember {
+            user_id: member_user.id.clone(),
+            role: OrgMemberRole::Owner,
+        },
+    )
+    .expect("Failed to create dev org member");
 
     // Create an API key for the member
-    let (_, member_api_key) = queries::create_org_member_api_key(&conn, &member.id, "Default", None)
-        .expect("Failed to create dev org member API key");
+    let (_, member_api_key) =
+        queries::create_api_key(&conn, &member_user.id, "Default", None, true, None)
+            .expect("Failed to create dev org member API key");
 
     queries::create_audit_log(
         &audit_conn,
         state.audit_log_enabled,
         ActorType::System,
-        None, // actor_id
-        None, // impersonator_id
-        "seed_org_member",
+        None, // user_id
+        AuditAction::SeedOrgMember.as_ref(),
         "org_member",
         &member.id,
         None,
@@ -206,7 +240,7 @@ fn seed_dev_data(state: &AppState) {
         None,
         None,
         &AuditLogNames::default()
-            .resource(member.name.clone())
+            .resource(member_user.name.clone())
             .org(org.name.clone()),
     )
     .expect("Failed to create audit log");
@@ -235,9 +269,8 @@ fn seed_dev_data(state: &AppState) {
         &audit_conn,
         state.audit_log_enabled,
         ActorType::System,
-        None, // actor_id
-        None, // impersonator_id
-        "seed_project",
+        None, // user_id
+        AuditAction::SeedProject.as_ref(),
         "project",
         &project.id,
         None,
@@ -273,9 +306,8 @@ fn seed_dev_data(state: &AppState) {
         &audit_conn,
         state.audit_log_enabled,
         ActorType::System,
-        None, // actor_id
-        None, // impersonator_id
-        "seed_product",
+        None, // user_id
+        AuditAction::SeedProduct.as_ref(),
         "product",
         &product.id,
         None,
@@ -312,11 +344,12 @@ fn seed_dev_data(state: &AppState) {
     println!("──────────────────────────────────────────────────────────────────");
     println!();
     println!("  operator_api_key: {}", operator_api_key);
-    println!("  org_api_key: {}", member_api_key);
+    println!("  org_member_api_key: {}", member_api_key);
     println!("  org_id: {}", org.id);
     println!("  project_id: {}", project.id);
     println!("  product_id: {}", product.id);
     println!("  project_pub_key: {}", public_key);
+    println!("  operator_id: {}", operator.id);
     println!("  member_id: {}", member.id);
     println!();
     println!("──────────────────────────────────────────────────────────────────");

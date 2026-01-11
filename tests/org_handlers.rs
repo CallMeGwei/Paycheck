@@ -75,7 +75,7 @@ mod product_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_member, key) =
+            let (_user, _member, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -139,7 +139,7 @@ mod product_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -190,7 +190,7 @@ mod product_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -241,7 +241,7 @@ mod product_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -299,7 +299,7 @@ mod product_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -332,7 +332,7 @@ mod product_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["deleted"], true);
+        assert_eq!(json["success"], true);
 
         // Verify product is actually deleted
         let conn = state.db.get().unwrap();
@@ -353,7 +353,7 @@ mod product_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project1 = create_test_project(&conn, &org.id, "Project 1", &master_key);
             let project2 = create_test_project(&conn, &org.id, "Project 2", &master_key);
@@ -405,7 +405,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -461,7 +461,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -522,7 +522,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -567,7 +567,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -633,7 +633,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -704,7 +704,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -769,7 +769,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -808,7 +808,7 @@ mod license_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["revoked"], true);
+        assert_eq!(json["success"], true);
 
         // Verify in database
         let conn = state.db.get().unwrap();
@@ -831,7 +831,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -886,7 +886,7 @@ mod license_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
@@ -959,7 +959,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -1011,7 +1011,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             // Create multiple projects
@@ -1059,7 +1059,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Original Name", &master_key);
 
@@ -1107,7 +1107,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "My Project", &master_key);
 
@@ -1150,7 +1150,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -1185,7 +1185,7 @@ mod project_tests {
             let conn = state.db.get().unwrap();
             let org1 = create_test_org(&conn, "Org 1");
             let org2 = create_test_org(&conn, "Org 2");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org1.id, "admin@test.com", OrgMemberRole::Owner);
             let project2 = create_test_project(&conn, &org2.id, "Org2 Project", &master_key);
 
@@ -1222,7 +1222,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "To Delete", &master_key);
 
@@ -1250,7 +1250,7 @@ mod project_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["deleted"], true);
+        assert_eq!(json["success"], true);
 
         // Verify project is deleted
         let conn = state.db.get().unwrap();
@@ -1268,7 +1268,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -1303,7 +1303,7 @@ mod project_tests {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
             // Create member with "member" role (not admin)
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -1324,7 +1324,8 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+        // Returns 404 (not 403) to avoid leaking project existence to unauthorized users
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -1337,7 +1338,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
 
             org_id = org.id;
@@ -1378,7 +1379,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (member, key) =
+            let (_user, member, key) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
 
             // Create 3 projects
@@ -1435,7 +1436,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             // Setup both payment configs in one call to avoid overwriting
@@ -1507,7 +1508,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -1548,7 +1549,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
 
             org_id = org.id;
@@ -1580,7 +1581,7 @@ mod project_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -1625,7 +1626,7 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
             create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Admin);
             create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
@@ -1659,25 +1660,29 @@ mod org_member_tests {
     }
 
     #[tokio::test]
-    async fn test_create_org_member_returns_member_with_api_key() {
+    async fn test_create_org_member_returns_member() {
         let (app, state) = org_app();
 
         let org_id: String;
         let api_key: String;
+        let new_user_id: String;
 
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+
+            // Create user first (identity-based model)
+            let new_user = create_test_user(&conn, "newmember@test.com", "New Member");
 
             org_id = org.id;
             api_key = key;
+            new_user_id = new_user.id;
         }
 
         let body = json!({
-            "email": "newmember@test.com",
-            "name": "New Member",
+            "user_id": new_user_id,
             "role": "admin"
         });
 
@@ -1701,17 +1706,10 @@ mod org_member_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        // Response is { member: {...}, api_key: { id, name, key, prefix, ... } }
-        assert!(json["member"]["id"].as_str().is_some());
-        assert_eq!(json["member"]["email"], "newmember@test.com");
-        assert_eq!(json["member"]["name"], "New Member");
-        assert_eq!(json["member"]["role"], "admin");
-        // API key should be returned on creation so admin can share it
-        assert!(json["api_key"]["key"].as_str().is_some());
-        assert!(json["api_key"]["key"]
-            .as_str()
-            .unwrap()
-            .starts_with("pc_"));
+        // Response is OrgMember (user_id linked, no email/name in response)
+        assert!(json["id"].as_str().is_some());
+        assert_eq!(json["user_id"], new_user_id);
+        assert_eq!(json["role"], "admin");
     }
 
     #[tokio::test]
@@ -1725,9 +1723,9 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (member, _) =
+            let (_, member, _) =
                 create_test_org_member(&conn, &org.id, "target@test.com", OrgMemberRole::Admin);
 
             org_id = org.id;
@@ -1771,9 +1769,9 @@ mod org_member_tests {
             let conn = state.db.get().unwrap();
             let org1 = create_test_org(&conn, "Org 1");
             let org2 = create_test_org(&conn, "Org 2");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org1.id, "owner@org1.com", OrgMemberRole::Owner);
-            let (member2, _) =
+            let (_, member2, _) =
                 create_test_org_member(&conn, &org2.id, "member@org2.com", OrgMemberRole::Member);
 
             org1_id = org1.id;
@@ -1798,7 +1796,7 @@ mod org_member_tests {
     }
 
     #[tokio::test]
-    async fn test_update_org_member_changes_fields() {
+    async fn test_update_org_member_changes_role() {
         let (app, state) = org_app();
 
         let org_id: String;
@@ -1808,9 +1806,9 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (member, _) =
+            let (_, member, _) =
                 create_test_org_member(&conn, &org.id, "target@test.com", OrgMemberRole::Member);
 
             org_id = org.id;
@@ -1818,8 +1816,8 @@ mod org_member_tests {
             api_key = key;
         }
 
+        // UpdateOrgMember only has role field (name/email are on User now)
         let body = json!({
-            "name": "Updated Name",
             "role": "admin"
         });
 
@@ -1843,7 +1841,6 @@ mod org_member_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["name"], "Updated Name");
         assert_eq!(json["role"], "admin");
     }
 
@@ -1858,7 +1855,7 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (owner, key) =
+            let (_, owner, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -1887,52 +1884,8 @@ mod org_member_tests {
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn test_update_org_member_can_change_own_name() {
-        let (app, state) = org_app();
-
-        let org_id: String;
-        let owner_id: String;
-        let api_key: String;
-
-        {
-            let conn = state.db.get().unwrap();
-            let org = create_test_org(&conn, "Test Org");
-            let (owner, key) =
-                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-
-            org_id = org.id;
-            owner_id = owner.id;
-            api_key = key;
-        }
-
-        // Changing own name is allowed (no role change)
-        let body = json!({
-            "name": "New Owner Name"
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri(format!("/orgs/{}/members/{}", org_id, owner_id))
-                    .header("content-type", "application/json")
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let json: Value = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(json["name"], "New Owner Name");
-    }
+    // NOTE: test_update_org_member_can_change_own_name removed
+    // Name is now on User, not OrgMember. UpdateOrgMember only has role field.
 
     #[tokio::test]
     async fn test_delete_org_member_removes_member() {
@@ -1945,9 +1898,9 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (member, _) =
+            let (_, member, _) =
                 create_test_org_member(&conn, &org.id, "target@test.com", OrgMemberRole::Member);
 
             org_id = org.id;
@@ -1974,7 +1927,7 @@ mod org_member_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["deleted"], true);
+        assert_eq!(json["success"], true);
 
         // Verify member is removed from database
         let conn = state.db.get().unwrap();
@@ -1993,7 +1946,7 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (owner, key) =
+            let (_, owner, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -2026,7 +1979,7 @@ mod org_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
@@ -2069,9 +2022,9 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (target, _) =
+            let (_, target, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2126,9 +2079,9 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (target, _) =
+            let (_, target, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2181,9 +2134,9 @@ mod project_member_tests {
             let conn = state.db.get().unwrap();
             let org1 = create_test_org(&conn, "Org 1");
             let org2 = create_test_org(&conn, "Org 2");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org1.id, "owner@org1.com", OrgMemberRole::Owner);
-            let (org2_member, _) =
+            let (_, org2_member, _) =
                 create_test_org_member(&conn, &org2.id, "member@org2.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org1.id, "Org1 Project", &master_key);
 
@@ -2227,11 +2180,11 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (member1, _) =
+            let (_, member1, _) =
                 create_test_org_member(&conn, &org.id, "member1@test.com", OrgMemberRole::Member);
-            let (member2, _) =
+            let (_, member2, _) =
                 create_test_org_member(&conn, &org.id, "member2@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2293,9 +2246,9 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (member, _) =
+            let (_, member, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2353,7 +2306,7 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2398,9 +2351,9 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (member, _) =
+            let (_, member, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2438,7 +2391,7 @@ mod project_member_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["deleted"], true);
+        assert_eq!(json["success"], true);
 
         // Verify member list is empty
         let conn = state.db.get().unwrap();
@@ -2458,7 +2411,7 @@ mod project_member_tests {
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, key) =
+            let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 

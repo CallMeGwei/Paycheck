@@ -1,22 +1,22 @@
-//! Tests for the GET /validate endpoint.
+//! Tests for the POST /validate endpoint.
 //!
 //! The validate endpoint allows clients to perform online license validation,
 //! checking if a JTI (JWT ID) is still valid for a given project.
 
 use axum::{body::Body, http::Request};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 mod common;
 use common::*;
 
-/// Helper to setup test data and return (app, jti, project_id, license_id, device_id)
+/// Helper to setup test data and return (app, jti, public_key, license_id, device_id)
 fn setup_validate_test() -> (axum::Router, String, String, String, String) {
     let state = create_test_app_state();
     let master_key = test_master_key();
 
     let jti: String;
-    let project_id: String;
+    let public_key: String;
     let license_id: String;
     let device_id: String;
 
@@ -34,25 +34,29 @@ fn setup_validate_test() -> (axum::Router, String, String, String, String) {
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
         license_id = license.id.clone();
         device_id = device.device_id.clone();
     }
 
     let app = public_app(state);
-    (app, jti, project_id, license_id, device_id)
+    (app, jti, public_key, license_id, device_id)
 }
 
 #[tokio::test]
 async fn test_validate_with_valid_jti_returns_valid() {
-    let (app, jti, project_id, _license_id, _device_id) = setup_validate_test();
+    let (app, jti, public_key, _license_id, _device_id) = setup_validate_test();
 
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id={}&jti={}", project_id, jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -74,17 +78,18 @@ async fn test_validate_with_valid_jti_returns_valid() {
 
 #[tokio::test]
 async fn test_validate_with_unknown_jti_returns_invalid() {
-    let (app, _jti, project_id, _license_id, _device_id) = setup_validate_test();
+    let (app, _jti, public_key, _license_id, _device_id) = setup_validate_test();
 
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!(
-                    "/validate?project_id={}&jti=unknown-jti-12345",
-                    project_id
-                ))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": "unknown-jti-12345"
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -108,7 +113,7 @@ async fn test_validate_with_revoked_license_returns_invalid() {
     let master_key = test_master_key();
 
     let jti: String;
-    let project_id: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -124,7 +129,7 @@ async fn test_validate_with_revoked_license_returns_invalid() {
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
 
         // Revoke the license
         queries::revoke_license(&conn, &license.id).unwrap();
@@ -135,9 +140,13 @@ async fn test_validate_with_revoked_license_returns_invalid() {
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id={}&jti={}", project_id, jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -159,7 +168,7 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
     let master_key = test_master_key();
 
     let jti: String;
-    let project_id: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -175,7 +184,7 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
 
         // Revoke this specific JTI (not the whole license)
         queries::add_revoked_jti(&conn, &license.id, &jti).unwrap();
@@ -186,9 +195,13 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id={}&jti={}", project_id, jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -210,7 +223,7 @@ async fn test_validate_with_expired_license_returns_invalid() {
     let master_key = test_master_key();
 
     let jti: String;
-    let project_id: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -227,7 +240,7 @@ async fn test_validate_with_expired_license_returns_invalid() {
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -235,9 +248,13 @@ async fn test_validate_with_expired_license_returns_invalid() {
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id={}&jti={}", project_id, jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -278,13 +295,17 @@ async fn test_validate_with_wrong_project_returns_invalid() {
 
     let app = public_app(state);
 
-    // Try to validate with a different project ID
+    // Try to validate with a different public key
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id=wrong-project-id&jti={}", jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": "wrong-public-key",
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -301,16 +322,19 @@ async fn test_validate_with_wrong_project_returns_invalid() {
 }
 
 #[tokio::test]
-async fn test_validate_missing_query_params_returns_error() {
-    let (app, _jti, _project_id, _license_id, _device_id) = setup_validate_test();
+async fn test_validate_missing_fields_returns_error() {
+    let (app, _jti, _public_key, _license_id, _device_id) = setup_validate_test();
 
     // Missing jti
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri("/validate?project_id=some-project")
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": "some-key"
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -325,7 +349,7 @@ async fn test_validate_updates_last_seen_timestamp() {
     let master_key = test_master_key();
 
     let jti: String;
-    let project_id: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -341,7 +365,7 @@ async fn test_validate_updates_last_seen_timestamp() {
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state.clone());
@@ -362,9 +386,13 @@ async fn test_validate_updates_last_seen_timestamp() {
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id={}&jti={}", project_id, jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await
@@ -393,7 +421,7 @@ async fn test_validate_perpetual_license_returns_valid() {
     let master_key = test_master_key();
 
     let jti: String;
-    let project_id: String;
+    let public_key: String;
 
     {
         let conn = state.db.get().unwrap();
@@ -422,7 +450,7 @@ async fn test_validate_perpetual_license_returns_valid() {
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
-        project_id = project.id.clone();
+        public_key = project.public_key.clone();
     }
 
     let app = public_app(state);
@@ -430,9 +458,13 @@ async fn test_validate_perpetual_license_returns_valid() {
     let response = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri(format!("/validate?project_id={}&jti={}", project_id, jti))
-                .body(Body::empty())
+                .method("POST")
+                .uri("/validate")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "public_key": public_key,
+                    "jti": jti
+                })).unwrap()))
                 .unwrap(),
         )
         .await

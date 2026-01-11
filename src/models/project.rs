@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AppError, Result};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StripeConfig {
     pub secret_key: String,
@@ -90,6 +92,18 @@ pub struct CreateProject {
     pub email_webhook_url: Option<String>,
 }
 
+impl CreateProject {
+    pub fn validate(&self) -> Result<()> {
+        if self.name.trim().is_empty() {
+            return Err(AppError::BadRequest("name cannot be empty".into()));
+        }
+        if self.license_key_prefix.trim().is_empty() {
+            return Err(AppError::BadRequest("license_key_prefix cannot be empty".into()));
+        }
+        Ok(())
+    }
+}
+
 fn default_prefix() -> String {
     "PC".to_string()
 }
@@ -159,6 +173,22 @@ pub struct UpdateProject {
     /// Webhook URL (use Some(None) to clear, None to leave unchanged)
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub email_webhook_url: Option<Option<String>>,
+}
+
+impl UpdateProject {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(ref name) = self.name {
+            if name.trim().is_empty() {
+                return Err(AppError::BadRequest("name cannot be empty".into()));
+            }
+        }
+        if let Some(ref prefix) = self.license_key_prefix {
+            if prefix.trim().is_empty() {
+                return Err(AppError::BadRequest("license_key_prefix cannot be empty".into()));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Deserialize a field that can be:

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::MasterKey;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::models::project::{LemonSqueezyConfig, StripeConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,13 +80,18 @@ impl Organization {
 #[derive(Debug, Deserialize)]
 pub struct CreateOrganization {
     pub name: String,
+    /// User ID to create as owner of this org (must exist in users table)
     #[serde(default)]
-    pub owner_email: Option<String>,
-    #[serde(default)]
-    pub owner_name: Option<String>,
-    /// External user ID for the owner (e.g., Console user ID)
-    #[serde(default)]
-    pub external_user_id: Option<String>,
+    pub owner_user_id: Option<String>,
+}
+
+impl CreateOrganization {
+    pub fn validate(&self) -> Result<()> {
+        if self.name.trim().is_empty() {
+            return Err(AppError::BadRequest("name cannot be empty".into()));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,6 +107,23 @@ pub struct UpdateOrganization {
     /// Use Some(None) to clear, None to leave unchanged
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub payment_provider: Option<Option<String>>,
+}
+
+impl UpdateOrganization {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(ref name) = self.name {
+            if name.trim().is_empty() {
+                return Err(AppError::BadRequest("name cannot be empty".into()));
+            }
+        }
+        // payment_provider can be cleared with null, but if set it shouldn't be empty
+        if let Some(Some(ref provider)) = self.payment_provider {
+            if provider.trim().is_empty() {
+                return Err(AppError::BadRequest("payment_provider cannot be empty".into()));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Deserialize a field that can be:

@@ -43,16 +43,22 @@ pub fn query_all<T: FromRow>(
 
 // ============ SQL SELECT Constants ============
 
-pub const OPERATOR_COLS: &str = "id, email, name, role, external_user_id, created_at";
+pub const USER_COLS: &str = "id, email, name, created_at, updated_at";
+
+pub const OPERATOR_COLS: &str = "id, user_id, role, created_at";
+
+pub const OPERATOR_WITH_USER_COLS: &str = "o.id, o.user_id, u.email, u.name, o.role, o.created_at";
 
 pub const ORGANIZATION_COLS: &str =
     "id, name, stripe_config, ls_config, resend_api_key, payment_provider, created_at, updated_at";
 
-pub const ORG_MEMBER_COLS: &str = "id, org_id, email, name, role, external_user_id, created_at";
+pub const ORG_MEMBER_COLS: &str = "id, user_id, org_id, role, created_at";
 
-pub const ORG_MEMBER_API_KEY_COLS: &str = "id, org_member_id, name, key_prefix, key_hash, created_at, last_used_at, expires_at, revoked_at";
+pub const ORG_MEMBER_WITH_USER_COLS: &str = "m.id, m.user_id, u.email, u.name, m.org_id, m.role, m.created_at";
 
-pub const OPERATOR_API_KEY_COLS: &str = "id, operator_id, name, key_prefix, key_hash, created_at, last_used_at, expires_at, revoked_at";
+pub const API_KEY_COLS: &str = "id, user_id, name, key_prefix, key_hash, user_manageable, created_at, last_used_at, expires_at, revoked_at";
+
+pub const API_KEY_SCOPE_COLS: &str = "api_key_id, org_id, project_id, access";
 
 pub const PROJECT_COLS: &str = "id, org_id, name, license_key_prefix, private_key, public_key, redirect_url, email_from, email_enabled, email_webhook_url, created_at, updated_at";
 
@@ -75,14 +81,37 @@ pub const ACTIVATION_CODE_COLS: &str =
 
 // ============ FromRow Implementations ============
 
+impl FromRow for User {
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(User {
+            id: row.get(0)?,
+            email: row.get(1)?,
+            name: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+        })
+    }
+}
+
 impl FromRow for Operator {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
         Ok(Operator {
             id: row.get(0)?,
-            email: row.get(1)?,
-            name: row.get(2)?,
-            role: row.get::<_, String>(3)?.parse::<OperatorRole>().unwrap(),
-            external_user_id: row.get(4)?,
+            user_id: row.get(1)?,
+            role: row.get::<_, String>(2)?.parse::<OperatorRole>().unwrap(),
+            created_at: row.get(3)?,
+        })
+    }
+}
+
+impl FromRow for OperatorWithUser {
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(OperatorWithUser {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
+            email: row.get(2)?,
+            name: row.get(3)?,
+            role: row.get::<_, String>(4)?.parse::<OperatorRole>().unwrap(),
             created_at: row.get(5)?,
         })
     }
@@ -111,44 +140,52 @@ impl FromRow for OrgMember {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
         Ok(OrgMember {
             id: row.get(0)?,
-            org_id: row.get(1)?,
+            user_id: row.get(1)?,
+            org_id: row.get(2)?,
+            role: row.get::<_, String>(3)?.parse::<OrgMemberRole>().unwrap(),
+            created_at: row.get(4)?,
+        })
+    }
+}
+
+impl FromRow for OrgMemberWithUser {
+    fn from_row(row: &Row) -> rusqlite::Result<Self> {
+        Ok(OrgMemberWithUser {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
             email: row.get(2)?,
             name: row.get(3)?,
-            role: row.get::<_, String>(4)?.parse::<OrgMemberRole>().unwrap(),
-            external_user_id: row.get(5)?,
+            org_id: row.get(4)?,
+            role: row.get::<_, String>(5)?.parse::<OrgMemberRole>().unwrap(),
             created_at: row.get(6)?,
         })
     }
 }
 
-impl FromRow for OrgMemberApiKey {
+impl FromRow for ApiKey {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        Ok(OrgMemberApiKey {
+        Ok(ApiKey {
             id: row.get(0)?,
-            org_member_id: row.get(1)?,
+            user_id: row.get(1)?,
             name: row.get(2)?,
             prefix: row.get(3)?,
             key_hash: row.get(4)?,
-            created_at: row.get(5)?,
-            last_used_at: row.get(6)?,
-            expires_at: row.get(7)?,
-            revoked_at: row.get(8)?,
+            user_manageable: row.get::<_, i32>(5)? != 0,
+            created_at: row.get(6)?,
+            last_used_at: row.get(7)?,
+            expires_at: row.get(8)?,
+            revoked_at: row.get(9)?,
         })
     }
 }
 
-impl FromRow for OperatorApiKey {
+impl FromRow for ApiKeyScope {
     fn from_row(row: &Row) -> rusqlite::Result<Self> {
-        Ok(OperatorApiKey {
-            id: row.get(0)?,
-            operator_id: row.get(1)?,
-            name: row.get(2)?,
-            prefix: row.get(3)?,
-            key_hash: row.get(4)?,
-            created_at: row.get(5)?,
-            last_used_at: row.get(6)?,
-            expires_at: row.get(7)?,
-            revoked_at: row.get(8)?,
+        Ok(ApiKeyScope {
+            api_key_id: row.get(0)?,
+            org_id: row.get(1)?,
+            project_id: row.get(2)?,
+            access: row.get::<_, String>(3)?.parse::<AccessLevel>().unwrap(),
         })
     }
 }

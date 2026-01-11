@@ -2,101 +2,83 @@ use axum::{
     extract::{Extension, Query, State},
     http::HeaderMap,
 };
-use serde::Serialize;
 
-use crate::db::{AppState, queries};
+use crate::db::{queries, AppState};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, ApiKeyCreated, CreateOrgMember, OrgMember, UpdateOrgMember};
+use crate::models::{ActorType, AuditAction, CreateOrgMember, OrgMember, OrgMemberWithUser, UpdateOrgMember};
 use crate::pagination::{Paginated, PaginationQuery};
-use crate::util::audit_log;
+use crate::util::AuditLogBuilder;
 
-#[derive(Serialize)]
-pub struct OrgMemberCreated {
-    pub member: OrgMember,
-    pub api_key: ApiKeyCreated,
-}
-
+/// Create an org member (link a user to an org with a role).
+/// The user must already exist in the users table.
+/// No API key is created - use Console or create one separately.
 pub async fn create_org_member(
     State(state): State<AppState>,
     Extension(ctx): Extension<OrgMemberContext>,
     Path(org_id): Path<String>,
     headers: HeaderMap,
     Json(input): Json<CreateOrgMember>,
-) -> Result<Json<OrgMemberCreated>> {
+) -> Result<Json<OrgMember>> {
     ctx.require_owner()?;
 
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
+    // Verify the user exists
+    let user = queries::get_user_by_id(&conn, &input.user_id)?
+        .ok_or_else(|| AppError::BadRequest("User not found".into()))?;
+
     let member = queries::create_org_member(&conn, &org_id, &input)?;
 
-    // Create a default API key for the new member
-    let (key_record, full_key) = queries::create_org_member_api_key(
-        &conn,
-        &member.id,
-        "Default",
-        None, // No expiration
-    )?;
-
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "create_org_member",
-        "org_member",
-        &member.id,
-        Some(&serde_json::json!({
-            "email": input.email,
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::CreateOrgMember)
+        .resource("org_member", &member.id)
+        .details(&serde_json::json!({
+            "user_id": input.user_id,
+            "email": user.email,
             "role": input.role,
-            "external_user_id": input.external_user_id
-        })),
-        Some(&org_id),
-        None,
-        &ctx.audit_names().resource(member.name.clone()),
-    )?;
+            "impersonator": ctx.impersonator.as_ref().map(|i| serde_json::json!({
+                "user_id": i.user_id,
+                "email": i.email
+            }))
+        }))
+        .org(&org_id)
+        .names(&ctx.audit_names().resource(user.name.clone()))
+        .save()?;
 
-    Ok(Json(OrgMemberCreated {
-        member,
-        api_key: ApiKeyCreated {
-            id: key_record.id,
-            name: key_record.name,
-            key: full_key,
-            prefix: key_record.prefix,
-            created_at: key_record.created_at,
-            expires_at: key_record.expires_at,
-        },
-    }))
+    Ok(Json(member))
 }
 
+/// List org members with user details
 pub async fn list_org_members(
     State(state): State<AppState>,
     Path(org_id): Path<String>,
     Query(pagination): Query<PaginationQuery>,
-) -> Result<Json<Paginated<OrgMember>>> {
+) -> Result<Json<Paginated<OrgMemberWithUser>>> {
     let conn = state.db.get()?;
     let limit = pagination.limit();
     let offset = pagination.offset();
-    let (members, total) = queries::list_org_members_paginated(&conn, &org_id, limit, offset)?;
+    let (members, total) =
+        queries::list_org_members_with_user_paginated(&conn, &org_id, limit, offset)?;
     Ok(Json(Paginated::new(members, total, limit, offset)))
 }
 
 #[derive(serde::Deserialize)]
 pub struct OrgMemberPath {
     pub org_id: String,
-    pub id: String,
+    pub member_id: String,
 }
 
+/// Get an org member with user details
 pub async fn get_org_member(
     State(state): State<AppState>,
     Path(path): Path<OrgMemberPath>,
-) -> Result<Json<OrgMember>> {
+) -> Result<Json<OrgMemberWithUser>> {
     let conn = state.db.get()?;
-    let member = queries::get_org_member_by_id(&conn, &path.id)?
+    let member = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
 
     if member.org_id != path.org_id {
@@ -112,13 +94,13 @@ pub async fn update_org_member(
     Path(path): Path<OrgMemberPath>,
     headers: HeaderMap,
     Json(input): Json<UpdateOrgMember>,
-) -> Result<Json<OrgMember>> {
+) -> Result<Json<OrgMemberWithUser>> {
     ctx.require_owner()?;
 
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    let existing = queries::get_org_member_by_id(&conn, &path.id)?
+    let existing = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
 
     if existing.org_id != path.org_id {
@@ -126,29 +108,28 @@ pub async fn update_org_member(
     }
 
     // Prevent changing your own role
-    if path.id == ctx.member.id && input.role.is_some() {
+    if path.member_id == ctx.member.id && input.role.is_some() {
         return Err(AppError::BadRequest("Cannot change your own role".into()));
     }
 
-    queries::update_org_member(&conn, &path.id, &input)?;
+    queries::update_org_member(&conn, &path.member_id, &input)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "update_org_member",
-        "org_member",
-        &path.id,
-        Some(&serde_json::json!({ "name": input.name, "role": input.role })),
-        Some(&path.org_id),
-        None,
-        &ctx.audit_names().resource(existing.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::UpdateOrgMember)
+        .resource("org_member", &path.member_id)
+        .details(&serde_json::json!({
+            "role": input.role,
+            "impersonator": ctx.impersonator.as_ref().map(|i| serde_json::json!({
+                "user_id": i.user_id,
+                "email": i.email
+            }))
+        }))
+        .org(&path.org_id)
+        .names(&ctx.audit_names().resource(existing.name.clone()))
+        .save()?;
 
-    let member = queries::get_org_member_by_id(&conn, &path.id)?
+    let member = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
 
     Ok(Json(member))
@@ -166,34 +147,34 @@ pub async fn delete_org_member(
     let audit_conn = state.audit.get()?;
 
     // Prevent self-deletion
-    if path.id == ctx.member.id {
+    if path.member_id == ctx.member.id {
         return Err(AppError::BadRequest("Cannot delete yourself".into()));
     }
 
-    let existing = queries::get_org_member_by_id(&conn, &path.id)?
+    let existing = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
         .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
 
     if existing.org_id != path.org_id {
         return Err(AppError::NotFound("Member not found".into()));
     }
 
-    queries::delete_org_member(&conn, &path.id)?;
+    queries::delete_org_member(&conn, &path.member_id)?;
 
-    audit_log(
-        &audit_conn,
-        state.audit_log_enabled,
-        ActorType::OrgMember,
-        Some(&ctx.member.id),
-        ctx.impersonated_by.as_deref(),
-        &headers,
-        "delete_org_member",
-        "org_member",
-        &path.id,
-        Some(&serde_json::json!({ "email": existing.email })),
-        Some(&path.org_id),
-        None,
-        &ctx.audit_names().resource(existing.name.clone()),
-    )?;
+    AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
+        .actor(ActorType::User, Some(&ctx.member.user_id))
+        .action(AuditAction::DeleteOrgMember)
+        .resource("org_member", &path.member_id)
+        .details(&serde_json::json!({
+            "user_id": existing.user_id,
+            "email": existing.email,
+            "impersonator": ctx.impersonator.as_ref().map(|i| serde_json::json!({
+                "user_id": i.user_id,
+                "email": i.email
+            }))
+        }))
+        .org(&path.org_id)
+        .names(&ctx.audit_names().resource(existing.name.clone()))
+        .save()?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(serde_json::json!({ "success": true })))
 }
