@@ -107,9 +107,16 @@ pub fn create_operator(conn: &Connection, input: &CreateOperator) -> Result<(Ope
     let now = now();
 
     conn.execute(
-        "INSERT INTO operators (id, email, name, role, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![&id, &input.email, &input.name, input.role.as_ref(), now],
+        "INSERT INTO operators (id, email, name, role, external_user_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            &id,
+            &input.email,
+            &input.name,
+            input.role.as_ref(),
+            &input.external_user_id,
+            now
+        ],
     )?;
 
     let operator = Operator {
@@ -117,6 +124,7 @@ pub fn create_operator(conn: &Connection, input: &CreateOperator) -> Result<(Ope
         email: input.email.clone(),
         name: input.name.clone(),
         role: input.role,
+        external_user_id: input.external_user_id.clone(),
         created_at: now,
     };
 
@@ -169,6 +177,7 @@ pub fn update_operator(conn: &Connection, id: &str, input: &UpdateOperator) -> R
     UpdateBuilder::new("operators", id)
         .set_opt("name", input.name.clone())
         .set_opt("role", input.role.map(|r| r.as_ref().to_string()))
+        .set_opt("external_user_id", input.external_user_id.clone())
         .execute(conn)?;
     Ok(())
 }

@@ -51,6 +51,7 @@ pub fn create_test_operator(
         email: email.to_string(),
         name: format!("Test Operator {}", email),
         role,
+        external_user_id: None,
     };
     queries::create_operator(conn, &input).expect("Failed to create test operator")
 }

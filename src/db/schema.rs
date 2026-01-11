@@ -10,8 +10,10 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             email TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'view')),
+            external_user_id TEXT,
             created_at INTEGER NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_operators_external_user_id ON operators(external_user_id);
 
         -- Operator API keys (multiple keys per operator)
         CREATE TABLE IF NOT EXISTS operator_api_keys (

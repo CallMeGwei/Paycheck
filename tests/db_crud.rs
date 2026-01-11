@@ -74,6 +74,7 @@ fn test_update_operator() {
     let update = UpdateOperator {
         name: Some("Updated Name".to_string()),
         role: Some(OperatorRole::Admin),
+        external_user_id: None,
     };
     queries::update_operator(&conn, &operator.id, &update).expect("Update failed");
 

@@ -23,6 +23,8 @@ pub struct Operator {
     pub email: String,
     pub name: String,
     pub role: OperatorRole,
+    /// Links to external identity system (e.g., Console user ID)
+    pub external_user_id: Option<String>,
     pub created_at: i64,
 }
 
@@ -31,10 +33,12 @@ pub struct CreateOperator {
     pub email: String,
     pub name: String,
     pub role: OperatorRole,
+    pub external_user_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateOperator {
     pub name: Option<String>,
     pub role: Option<OperatorRole>,
+    pub external_user_id: Option<String>,
 }

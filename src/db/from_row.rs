@@ -43,7 +43,7 @@ pub fn query_all<T: FromRow>(
 
 // ============ SQL SELECT Constants ============
 
-pub const OPERATOR_COLS: &str = "id, email, name, role, created_at";
+pub const OPERATOR_COLS: &str = "id, email, name, role, external_user_id, created_at";
 
 pub const ORGANIZATION_COLS: &str =
     "id, name, stripe_config, ls_config, resend_api_key, payment_provider, created_at, updated_at";
@@ -82,7 +82,8 @@ impl FromRow for Operator {
             email: row.get(1)?,
             name: row.get(2)?,
             role: row.get::<_, String>(3)?.parse::<OperatorRole>().unwrap(),
-            created_at: row.get(4)?,
+            external_user_id: row.get(4)?,
+            created_at: row.get(5)?,
         })
     }
 }

@@ -63,6 +63,7 @@ fn bootstrap_first_operator(state: &AppState, email: &str) {
         email: email.to_string(),
         name: "Bootstrap Operator".to_string(),
         role: OperatorRole::Owner,
+        external_user_id: None,
     };
 
     let (operator, api_key) =
@@ -123,6 +124,7 @@ fn seed_dev_data(state: &AppState) {
         email: "dev@paycheck.local".to_string(),
         name: "Dev Operator".to_string(),
         role: OperatorRole::Owner,
+        external_user_id: None,
     };
     let (operator, operator_api_key) =
         queries::create_operator(&conn, &operator_input).expect("Failed to create dev operator");
