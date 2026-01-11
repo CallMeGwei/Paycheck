@@ -255,7 +255,7 @@ pub fn public_app(state: AppState) -> Router {
         .route("/callback", get(payment_callback))
         .route("/redeem", post(redeem_with_code))
         .route("/activation/request-code", post(request_activation_code))
-        .route("/validate", get(validate_license))
+        .route("/validate", post(validate_license))
         .route("/license", get(get_license_info))
         .route("/devices/deactivate", post(deactivate_device))
         .with_state(state)

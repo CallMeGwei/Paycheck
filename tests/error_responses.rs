@@ -133,13 +133,14 @@ async fn test_missing_json_fields_returns_json_error() {
 async fn test_invalid_query_params_returns_json_error() {
     let app = test_app();
 
-    // /callback requires session_id query param
-    // Send request with missing required params
+    // /license requires public_key query param
+    // Send request with Authorization header but missing required query params
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/callback")
+                .uri("/license")
+                .header("authorization", "Bearer fake-token")
                 .body(Body::empty())
                 .unwrap(),
         )
