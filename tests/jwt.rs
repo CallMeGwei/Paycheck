@@ -209,7 +209,7 @@ fn test_verify_with_short_public_key() {
         .expect("Signing should succeed");
 
     // Valid base64 but wrong length
-    let short_key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &[0u8; 16]);
+    let short_key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 16]);
     let result = jwt::verify_token(&token, &short_key);
     assert!(result.is_err(), "Short public key should fail");
 }
