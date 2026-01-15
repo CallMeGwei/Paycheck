@@ -35,6 +35,8 @@ pub struct Operator {
 /// Operator with user info joined (for API responses)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorWithUser {
+    /// Internal ID - not exposed in API responses (use user_id instead)
+    #[serde(skip_serializing)]
     pub id: String,
     pub user_id: String,
     pub email: String,

@@ -67,8 +67,8 @@ pub async fn refresh_token(
     let device = queries::get_device_by_jti(&conn, &jti)?.ok_or(AppError::Unauthorized)?;
 
     // Get the license
-    let license = queries::get_license_by_id(&conn, &device.license_id)?
-        .ok_or(AppError::Unauthorized)?;
+    let license =
+        queries::get_license_by_id(&conn, &device.license_id)?.ok_or(AppError::Unauthorized)?;
 
     // Check if license is revoked
     if license.revoked {
@@ -126,7 +126,9 @@ pub async fn refresh_token(
         .actor(ActorType::Public, None)
         .action(AuditAction::RefreshToken)
         .resource("device", &device.id)
-        .details(&serde_json::json!({ "license_id": license.id, "product_id": product.id, "jti": jti }))
+        .details(
+            &serde_json::json!({ "license_id": license.id, "product_id": product.id, "jti": jti }),
+        )
         .org(&project.org_id)
         .project(&project.id)
         .names(&AuditLogNames {

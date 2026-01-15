@@ -84,11 +84,13 @@ pub async fn lookup_licenses_by_email(
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     if project.org_id != path.org_id {
-        return Err(AppError::NotFound("Project not found in this organization".into()));
+        return Err(AppError::NotFound(
+            "Project not found in this organization".into(),
+        ));
     }
 
     // Look up all licenses by email hash (use high limit since filtered by email)
-    let email_hash = queries::hash_email(&query.email);
+    let email_hash = state.email_hasher.hash(&query.email);
     let (licenses, _total) = queries::get_all_licenses_by_email_hash_for_admin_paginated(
         &conn,
         &path.project_id,

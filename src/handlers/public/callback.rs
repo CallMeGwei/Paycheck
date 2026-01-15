@@ -65,7 +65,8 @@ pub async fn payment_callback(
         .ok_or_else(|| AppError::Internal("License not found".into()))?;
 
     // Create a short-lived activation code (PREFIX-XXXX-XXXX-XXXX-XXXX format)
-    let activation_code = queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)?;
+    let activation_code =
+        queries::create_activation_code(&conn, &license.id, &project.license_key_prefix)?;
 
     // Build redirect URL with activation code only - no license key
     // User must activate via /redeem with device info to get JWT

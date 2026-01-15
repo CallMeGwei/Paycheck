@@ -51,7 +51,11 @@ pub async fn create_project(
         .details(&serde_json::json!({ "name": input.name }))
         .org(&org_id)
         .project(&project.id)
-        .names(&ctx.audit_names().resource(project.name.clone()).org(org.name))
+        .names(
+            &ctx.audit_names()
+                .resource(project.name.clone())
+                .org(org.name),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 
@@ -252,7 +256,11 @@ pub async fn restore_project(
         }))
         .org(&path.org_id)
         .project(&path.project_id)
-        .names(&ctx.audit_names().resource(project.name.clone()).org(org.name))
+        .names(
+            &ctx.audit_names()
+                .resource(project.name.clone())
+                .org(org.name),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 

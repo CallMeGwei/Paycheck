@@ -74,11 +74,15 @@ fn operator_app_with_payment_configs() -> (Router, String) {
         base_url: "http://localhost:3000".to_string(),
         audit_log_enabled: false,
         master_key,
+        email_hasher: paycheck::crypto::EmailHasher::from_bytes([0xAA; 32]),
         success_page_url: "http://localhost:3000/success".to_string(),
         activation_rate_limiter: std::sync::Arc::new(
             paycheck::rate_limit::ActivationRateLimiter::default(),
         ),
-        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(
+            None,
+            "test@example.com".to_string(),
+        )),
         jwks_cache: std::sync::Arc::new(paycheck::jwt::JwksCache::new()),
         trusted_issuers: vec![],
     };
@@ -188,11 +192,15 @@ async fn test_operator_get_payment_config_no_configs() {
         base_url: "http://localhost:3000".to_string(),
         audit_log_enabled: false,
         master_key,
+        email_hasher: paycheck::crypto::EmailHasher::from_bytes([0xAA; 32]),
         success_page_url: "http://localhost:3000/success".to_string(),
         activation_rate_limiter: std::sync::Arc::new(
             paycheck::rate_limit::ActivationRateLimiter::default(),
         ),
-        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(
+            None,
+            "test@example.com".to_string(),
+        )),
         jwks_cache: std::sync::Arc::new(paycheck::jwt::JwksCache::new()),
         trusted_issuers: vec![],
     };

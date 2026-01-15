@@ -42,16 +42,22 @@ impl WebhookProvider for LemonSqueezyWebhookProvider {
         body: &Bytes,
         signature: &str,
     ) -> Result<bool, WebhookResult> {
-        let ls_config = org
-            .decrypt_ls_config(master_key)
-            .map_err(|e| {
-                tracing::error!("Failed to decrypt LemonSqueezy config: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Config decryption failed",
-                )
-            })?
-            .ok_or((StatusCode::OK, "LemonSqueezy not configured"))?;
+        // Handle both missing and corrupted configs gracefully by returning 200 OK.
+        // This prevents payment providers from retrying indefinitely on 5xx errors
+        // and avoids leaking internal state about config status.
+        let ls_config = match org.decrypt_ls_config(master_key) {
+            Ok(Some(config)) => config,
+            Ok(None) => return Err((StatusCode::OK, "LemonSqueezy not configured")),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to decrypt LemonSqueezy config for org {}: {}",
+                    org.id,
+                    e
+                );
+                // Return OK to prevent retry storms - treat corrupted config as unusable
+                return Err((StatusCode::OK, "LemonSqueezy config unavailable"));
+            }
+        };
 
         let client = LemonSqueezyClient::new(&ls_config);
         client

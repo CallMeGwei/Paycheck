@@ -9,7 +9,7 @@ use axum::{
 };
 use rusqlite::Connection;
 
-use crate::crypto::MasterKey;
+use crate::crypto::{EmailHasher, MasterKey};
 use crate::db::{AppState, queries};
 use crate::error::AppError;
 use crate::models::{CreateLicense, License, Organization, PaymentSession, Product, Project};
@@ -130,6 +130,7 @@ pub trait WebhookProvider: Send + Sync {
 /// webhook deliveries could create multiple licenses from a single payment.
 pub fn process_checkout(
     conn: &mut Connection,
+    email_hasher: &EmailHasher,
     provider: &str,
     project: &Project,
     payment_session: &PaymentSession,
@@ -153,7 +154,7 @@ pub fn process_checkout(
     }
 
     // Compute email hash for license recovery via email
-    let email_hash = data.customer_email.as_ref().map(|e| queries::hash_email(e));
+    let email_hash = data.customer_email.as_ref().map(|e| email_hasher.hash(e));
 
     if email_hash.is_none() {
         tracing::warn!(
@@ -364,6 +365,7 @@ async fn handle_checkout<P: WebhookProvider>(
 
     Ok(process_checkout(
         &mut conn,
+        &state.email_hasher,
         provider.provider_name(),
         &project,
         &payment_session,

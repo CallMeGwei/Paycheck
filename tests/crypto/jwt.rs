@@ -1,12 +1,19 @@
 //! JWT signing and validation tests
 
+#[path = "../common/mod.rs"]
+mod common;
+
+use common::{LICENSE_VALID_DAYS, ONE_DAY, ONE_YEAR, UPDATES_VALID_DAYS};
 use paycheck::jwt::{self, LicenseClaims};
+
+/// Seconds per day constant for timestamp calculations
+const SECONDS_PER_DAY: i64 = 86400;
 
 fn create_test_claims() -> LicenseClaims {
     let now = chrono::Utc::now().timestamp();
     LicenseClaims {
-        license_exp: Some(now + 86400 * 365), // 1 year from now
-        updates_exp: Some(now + 86400 * 180), // 6 months from now
+        license_exp: Some(now + SECONDS_PER_DAY * LICENSE_VALID_DAYS),
+        updates_exp: Some(now + SECONDS_PER_DAY * UPDATES_VALID_DAYS),
         tier: "pro".to_string(),
         features: vec!["export".to_string(), "api".to_string()],
         device_id: "device-123".to_string(),
@@ -49,13 +56,25 @@ fn test_sign_and_verify_roundtrip() {
     let token = jwt::sign_claims(&claims, &private_key, "license-id", "myapp.com", "jti-123")
         .expect("Signing should succeed");
 
-    let verified =
-        jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
 
-    assert_eq!(verified.custom.tier, "pro");
-    assert_eq!(verified.custom.device_id, "device-123");
-    assert_eq!(verified.custom.product_id, "product-abc");
-    assert_eq!(verified.custom.features, vec!["export", "api"]);
+    assert_eq!(
+        verified.custom.tier, "pro",
+        "Verified token should preserve tier claim"
+    );
+    assert_eq!(
+        verified.custom.device_id, "device-123",
+        "Verified token should preserve device_id claim"
+    );
+    assert_eq!(
+        verified.custom.product_id, "product-abc",
+        "Verified token should preserve product_id claim"
+    );
+    assert_eq!(
+        verified.custom.features,
+        vec!["export", "api"],
+        "Verified token should preserve features array"
+    );
 }
 
 #[test]
@@ -66,13 +85,27 @@ fn test_sign_preserves_standard_claims() {
     let token = jwt::sign_claims(&claims, &private_key, "my-subject", "my-audience", "my-jti")
         .expect("Signing should succeed");
 
-    let verified =
-        jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
 
-    assert_eq!(verified.subject, Some("my-subject".to_string()));
-    assert!(verified.audiences.is_some(), "Audiences should be set");
-    assert_eq!(verified.jwt_id, Some("my-jti".to_string()));
-    assert_eq!(verified.issuer, Some("paycheck".to_string()));
+    assert_eq!(
+        verified.subject,
+        Some("my-subject".to_string()),
+        "Verified token should preserve subject claim"
+    );
+    assert!(
+        verified.audiences.is_some(),
+        "Verified token should have audiences set"
+    );
+    assert_eq!(
+        verified.jwt_id,
+        Some("my-jti".to_string()),
+        "Verified token should preserve JTI claim"
+    );
+    assert_eq!(
+        verified.issuer,
+        Some("paycheck".to_string()),
+        "Verified token should have 'paycheck' as issuer"
+    );
 }
 
 #[test]
@@ -98,7 +131,11 @@ fn test_verify_tampered_token_fails() {
 
     // Tamper with the token by modifying a character in the payload (middle part)
     let parts: Vec<&str> = token.split('.').collect();
-    assert_eq!(parts.len(), 3);
+    assert_eq!(
+        parts.len(),
+        3,
+        "JWT should have three parts (header.payload.signature)"
+    );
 
     // Modify the payload slightly
     let mut payload_chars: Vec<char> = parts[1].chars().collect();
@@ -145,26 +182,35 @@ fn test_decode_unverified_extracts_claims() {
 
     let decoded = jwt::decode_unverified(&token).expect("Decode should succeed");
 
-    assert_eq!(decoded.product_id, "product-abc");
-    assert_eq!(decoded.tier, "pro");
+    assert_eq!(
+        decoded.product_id, "product-abc",
+        "Decoded token should have correct product_id"
+    );
+    assert_eq!(decoded.tier, "pro", "Decoded token should have correct tier");
 }
 
 #[test]
 fn test_decode_unverified_invalid_format() {
     let result = jwt::decode_unverified("not-a-jwt");
-    assert!(result.is_err(), "Invalid format should error");
+    assert!(
+        result.is_err(),
+        "Decoding non-JWT string should return error"
+    );
 }
 
 #[test]
 fn test_decode_unverified_empty_string() {
     let result = jwt::decode_unverified("");
-    assert!(result.is_err(), "Empty string should error");
+    assert!(result.is_err(), "Decoding empty string should return error");
 }
 
 #[test]
 fn test_decode_unverified_missing_parts() {
     let result = jwt::decode_unverified("header.payload"); // Missing signature
-    assert!(result.is_err(), "Missing parts should error");
+    assert!(
+        result.is_err(),
+        "Decoding JWT with missing signature part should return error"
+    );
 }
 
 // ============ Invalid Key Tests ============
@@ -175,7 +221,10 @@ fn test_sign_with_short_key_fails() {
     let claims = create_test_claims();
 
     let result = jwt::sign_claims(&claims, &short_key, "license-id", "myapp.com", "jti-123");
-    assert!(result.is_err(), "Short private key should fail");
+    assert!(
+        result.is_err(),
+        "Signing with 16-byte key should fail (Ed25519 requires 32 bytes)"
+    );
 }
 
 #[test]
@@ -184,7 +233,10 @@ fn test_sign_with_long_key_fails() {
     let claims = create_test_claims();
 
     let result = jwt::sign_claims(&claims, &long_key, "license-id", "myapp.com", "jti-123");
-    assert!(result.is_err(), "Long private key should fail");
+    assert!(
+        result.is_err(),
+        "Signing with 64-byte key should fail (Ed25519 requires exactly 32 bytes)"
+    );
 }
 
 #[test]
@@ -197,7 +249,10 @@ fn test_verify_with_invalid_public_key_format() {
 
     // Invalid base64
     let result = jwt::verify_token(&token, "not-valid-base64!!!");
-    assert!(result.is_err(), "Invalid public key format should fail");
+    assert!(
+        result.is_err(),
+        "Verification with invalid base64 public key should fail"
+    );
 }
 
 #[test]
@@ -211,7 +266,10 @@ fn test_verify_with_short_public_key() {
     // Valid base64 but wrong length
     let short_key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 16]);
     let result = jwt::verify_token(&token, &short_key);
-    assert!(result.is_err(), "Short public key should fail");
+    assert!(
+        result.is_err(),
+        "Verification with 16-byte public key should fail (Ed25519 requires 32 bytes)"
+    );
 }
 
 // ============ Claims Logic Tests ============
@@ -220,7 +278,7 @@ fn test_verify_with_short_public_key() {
 fn test_is_license_expired_future() {
     let now = chrono::Utc::now().timestamp();
     let claims = LicenseClaims {
-        license_exp: Some(now + 86400), // Expires tomorrow
+        license_exp: Some(now + SECONDS_PER_DAY * ONE_DAY), // Expires tomorrow
         updates_exp: None,
         tier: "pro".to_string(),
         features: vec![],
@@ -231,7 +289,7 @@ fn test_is_license_expired_future() {
 
     assert!(
         !claims.is_license_expired(now),
-        "Future expiration should not be expired"
+        "License expiring tomorrow should not be expired now"
     );
 }
 
@@ -239,7 +297,7 @@ fn test_is_license_expired_future() {
 fn test_is_license_expired_past() {
     let now = chrono::Utc::now().timestamp();
     let claims = LicenseClaims {
-        license_exp: Some(now - 86400), // Expired yesterday
+        license_exp: Some(now - SECONDS_PER_DAY * ONE_DAY), // Expired yesterday
         updates_exp: None,
         tier: "pro".to_string(),
         features: vec![],
@@ -250,7 +308,7 @@ fn test_is_license_expired_past() {
 
     assert!(
         claims.is_license_expired(now),
-        "Past expiration should be expired"
+        "License that expired yesterday should be expired now"
     );
 }
 
@@ -269,7 +327,7 @@ fn test_is_license_expired_perpetual() {
 
     assert!(
         !claims.is_license_expired(now),
-        "Perpetual license should not be expired"
+        "Perpetual license (None expiration) should never be expired"
     );
 }
 
@@ -278,7 +336,7 @@ fn test_covers_version_with_updates_exp() {
     let now = chrono::Utc::now().timestamp();
     let claims = LicenseClaims {
         license_exp: None,
-        updates_exp: Some(now + 86400), // Updates expire tomorrow
+        updates_exp: Some(now + SECONDS_PER_DAY * ONE_DAY), // Updates expire tomorrow
         tier: "pro".to_string(),
         features: vec![],
         device_id: "".to_string(),
@@ -288,13 +346,13 @@ fn test_covers_version_with_updates_exp() {
 
     // Version released before updates expiration
     assert!(
-        claims.covers_version(now - 86400),
-        "Old version should be covered"
+        claims.covers_version(now - SECONDS_PER_DAY * ONE_DAY),
+        "Version released before updates_exp should be covered"
     );
     // Version released after updates expiration
     assert!(
-        !claims.covers_version(now + 86400 * 2),
-        "New version should not be covered"
+        !claims.covers_version(now + SECONDS_PER_DAY * 2),
+        "Version released after updates_exp should not be covered"
     );
 }
 
@@ -311,15 +369,15 @@ fn test_covers_version_perpetual_updates() {
         product_id: "".to_string(),
     };
 
-    // Should cover any version
+    // Should cover any version, even 10 years in the future
     assert!(
-        claims.covers_version(now + 86400 * 365 * 10),
-        "Should cover any version"
+        claims.covers_version(now + SECONDS_PER_DAY * ONE_YEAR * 10),
+        "Perpetual updates (None) should cover versions released at any time"
     );
 }
 
 #[test]
-fn test_has_feature() {
+fn test_has_feature_returns_true_for_existing_feature() {
     let claims = LicenseClaims {
         license_exp: None,
         updates_exp: None,
@@ -343,7 +401,7 @@ fn test_has_feature() {
 }
 
 #[test]
-fn test_has_feature_empty() {
+fn test_has_feature_returns_false_for_empty_features() {
     let claims = LicenseClaims {
         license_exp: None,
         updates_exp: None,
@@ -378,11 +436,16 @@ fn test_sign_with_unicode_claims() {
     let token = jwt::sign_claims(&claims, &private_key, "ライセンス", "アプリ.com", "JTI")
         .expect("Signing with unicode should succeed");
 
-    let verified =
-        jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
 
-    assert_eq!(verified.custom.tier, "プロ");
-    assert!(verified.custom.features.contains(&"日本語".to_string()));
+    assert_eq!(
+        verified.custom.tier, "プロ",
+        "Unicode tier should be preserved in token"
+    );
+    assert!(
+        verified.custom.features.contains(&"日本語".to_string()),
+        "Unicode features should be preserved in token"
+    );
 }
 
 #[test]
@@ -404,11 +467,16 @@ fn test_sign_with_special_characters() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with special chars should succeed");
 
-    let verified =
-        jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
 
-    assert_eq!(verified.custom.tier, claims.tier);
-    assert_eq!(verified.custom.device_id, claims.device_id);
+    assert_eq!(
+        verified.custom.tier, claims.tier,
+        "Special characters in tier should be preserved"
+    );
+    assert_eq!(
+        verified.custom.device_id, claims.device_id,
+        "Special characters in device_id should be preserved"
+    );
 }
 
 #[test]
@@ -427,10 +495,12 @@ fn test_sign_with_empty_features() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with empty features should succeed");
 
-    let verified =
-        jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
 
-    assert!(verified.custom.features.is_empty());
+    assert!(
+        verified.custom.features.is_empty(),
+        "Empty features array should remain empty after roundtrip"
+    );
 }
 
 #[test]
@@ -451,10 +521,13 @@ fn test_sign_with_many_features() {
     let token = jwt::sign_claims(&claims, &private_key, "sub", "aud", "jti")
         .expect("Signing with many features should succeed");
 
-    let verified =
-        jwt::verify_token(&token, &public_key).expect("Verification should succeed");
+    let verified = jwt::verify_token(&token, &public_key).expect("Verification should succeed");
 
-    assert_eq!(verified.custom.features.len(), 100);
+    assert_eq!(
+        verified.custom.features.len(),
+        100,
+        "All 100 features should be preserved in token"
+    );
 }
 
 // NOTE: Audience verification was removed - signature verification with the

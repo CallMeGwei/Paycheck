@@ -8,9 +8,10 @@
 //! Redirect URL is configured per-project, not per-request.
 
 use axum::{body::Body, http::Request};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
+#[path = "../common/mod.rs"]
 mod common;
 use common::*;
 
@@ -35,7 +36,11 @@ async fn test_buy_product_not_found_returns_error() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::NOT_FOUND,
+        "buy with nonexistent product_id should return 404 NOT_FOUND"
+    );
 }
 
 #[tokio::test]
@@ -74,7 +79,11 @@ async fn test_buy_no_payment_provider_configured_returns_error() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "buy without configured payment provider should return 400 BAD_REQUEST"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -85,7 +94,7 @@ async fn test_buy_no_payment_provider_configured_returns_error() {
     let details = json["details"].as_str().unwrap_or("");
     assert!(
         details.contains("payment provider") || details.contains("No payment"),
-        "Error details should mention payment provider, got: {}",
+        "error details should mention missing payment provider, got: {}",
         details
     );
 }
@@ -125,7 +134,11 @@ async fn test_buy_invalid_provider_returns_error() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "buy with invalid provider name should return 400 BAD_REQUEST"
+    );
 }
 
 #[tokio::test]
@@ -150,7 +163,11 @@ async fn test_buy_missing_product_id_returns_error() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "buy without product_id should return 400 BAD_REQUEST"
+    );
 }
 
 #[tokio::test]
@@ -189,7 +206,11 @@ async fn test_buy_accepts_minimal_request() {
         .unwrap();
 
     // Will fail on "no payment provider" but request should be accepted
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "minimal buy request should pass validation but fail on missing payment provider"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -200,7 +221,7 @@ async fn test_buy_accepts_minimal_request() {
     let details = json["details"].as_str().unwrap_or("");
     assert!(
         details.contains("payment provider") || details.contains("No payment"),
-        "Should fail on payment provider, not validation, got: {}",
+        "should fail on payment provider config, not request validation, got: {}",
         details
     );
 }
@@ -245,7 +266,11 @@ async fn test_buy_accepts_optional_fields() {
         .unwrap();
 
     // Will fail on "no payment provider" but request should be accepted
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "buy with optional fields should pass validation but fail on missing Stripe config"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -256,7 +281,7 @@ async fn test_buy_accepts_optional_fields() {
     let details = json["details"].as_str().unwrap_or("");
     assert!(
         details.contains("Stripe") || details.contains("not configured"),
-        "Should fail on Stripe config, got: {}",
+        "should fail on Stripe configuration, not request validation, got: {}",
         details
     );
 }

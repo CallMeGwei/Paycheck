@@ -31,24 +31,27 @@ pub fn router(state: AppState, rate_limit_config: RateLimitConfig) -> Router<App
     let org_routes = Router::new()
         .route("/orgs/{org_id}/members", post(create_org_member))
         .route("/orgs/{org_id}/members", get(list_org_members))
-        .route("/orgs/{org_id}/members/{member_id}", get(get_org_member))
-        .route("/orgs/{org_id}/members/{member_id}", put(update_org_member))
-        .route("/orgs/{org_id}/members/{member_id}", delete(delete_org_member))
+        .route("/orgs/{org_id}/members/{user_id}", get(get_org_member))
+        .route("/orgs/{org_id}/members/{user_id}", put(update_org_member))
         .route(
-            "/orgs/{org_id}/members/{member_id}/restore",
+            "/orgs/{org_id}/members/{user_id}",
+            delete(delete_org_member),
+        )
+        .route(
+            "/orgs/{org_id}/members/{user_id}/restore",
             post(restore_org_member),
         )
         // Member API keys
         .route(
-            "/orgs/{org_id}/members/{member_id}/api-keys",
+            "/orgs/{org_id}/members/{user_id}/api-keys",
             post(api_keys::create_api_key),
         )
         .route(
-            "/orgs/{org_id}/members/{member_id}/api-keys",
+            "/orgs/{org_id}/members/{user_id}/api-keys",
             get(api_keys::list_api_keys),
         )
         .route(
-            "/orgs/{org_id}/members/{member_id}/api-keys/{key_id}",
+            "/orgs/{org_id}/members/{user_id}/api-keys/{key_id}",
             delete(api_keys::revoke_api_key),
         )
         .route("/orgs/{org_id}/projects", post(create_project))
@@ -84,15 +87,15 @@ pub fn router(state: AppState, rate_limit_config: RateLimitConfig) -> Router<App
             get(list_project_members),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/members/{member_id}",
+            "/orgs/{org_id}/projects/{project_id}/members/{user_id}",
             get(get_project_member),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/members/{member_id}",
+            "/orgs/{org_id}/projects/{project_id}/members/{user_id}",
             put(update_project_member),
         )
         .route(
-            "/orgs/{org_id}/projects/{project_id}/members/{member_id}",
+            "/orgs/{org_id}/projects/{project_id}/members/{user_id}",
             delete(delete_project_member),
         )
         // Products

@@ -20,8 +20,13 @@ pub struct ProjectMember {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectMemberWithDetails {
+    /// Internal ID - not exposed in API responses (use user_id instead)
+    #[serde(skip_serializing)]
     pub id: String,
+    /// Internal ID - not exposed in API responses (use user_id instead)
+    #[serde(skip_serializing)]
     pub org_member_id: String,
+    pub user_id: String,
     pub project_id: String,
     pub role: ProjectMemberRole,
     pub created_at: i64,

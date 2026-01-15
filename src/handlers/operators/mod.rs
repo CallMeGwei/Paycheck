@@ -25,9 +25,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Operator management (owner only)
         .route("/operators", post(create_operator))
         .route("/operators", get(list_operators))
-        .route("/operators/{operator_id}", get(get_operator))
-        .route("/operators/{operator_id}", put(update_operator))
-        .route("/operators/{operator_id}", delete(delete_operator))
+        .route("/operators/{user_id}", get(get_operator))
+        .route("/operators/{user_id}", put(update_operator))
+        .route("/operators/{user_id}", delete(delete_operator))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_owner_role,
@@ -52,8 +52,14 @@ pub fn router(state: AppState) -> Router<AppState> {
                 .route("/operators/organizations", post(create_organization))
                 .route("/operators/organizations", get(list_organizations))
                 .route("/operators/organizations/{org_id}", get(get_organization))
-                .route("/operators/organizations/{org_id}", put(update_organization))
-                .route("/operators/organizations/{org_id}", delete(delete_organization))
+                .route(
+                    "/operators/organizations/{org_id}",
+                    put(update_organization),
+                )
+                .route(
+                    "/operators/organizations/{org_id}",
+                    delete(delete_organization),
+                )
                 .route(
                     "/operators/organizations/{org_id}/restore",
                     post(restore_organization),
@@ -71,6 +77,19 @@ pub fn router(state: AppState) -> Router<AppState> {
                     "/operators/organizations/{org_id}/projects/{project_id}/licenses/lookup",
                     get(lookup_licenses_by_email),
                 )
+                // User API keys (admin+)
+                .route(
+                    "/operators/users/{user_id}/api-keys",
+                    post(api_keys::create_api_key),
+                )
+                .route(
+                    "/operators/users/{user_id}/api-keys",
+                    get(api_keys::list_api_keys),
+                )
+                .route(
+                    "/operators/users/{user_id}/api-keys/{key_id}",
+                    delete(api_keys::revoke_api_key),
+                )
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     require_admin_role,
@@ -81,19 +100,6 @@ pub fn router(state: AppState) -> Router<AppState> {
                 // Audit logs (view+)
                 .route("/operators/audit-logs", get(query_audit_logs))
                 .route("/operators/audit-logs/text", get(query_audit_logs_text))
-                // Operator API keys (operators can manage their own, owner can manage all)
-                .route(
-                    "/operators/{operator_id}/api-keys",
-                    post(api_keys::create_api_key),
-                )
-                .route(
-                    "/operators/{operator_id}/api-keys",
-                    get(api_keys::list_api_keys),
-                )
-                .route(
-                    "/operators/{operator_id}/api-keys/{key_id}",
-                    delete(api_keys::revoke_api_key),
-                )
                 .layer(middleware::from_fn_with_state(state.clone(), operator_auth)),
         )
 }

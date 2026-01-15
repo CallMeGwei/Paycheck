@@ -4,54 +4,45 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
-use crate::models::{ActorType, AuditAction, ApiKeyCreated, ApiKeyInfo, CreateApiKey};
+use crate::models::{ActorType, ApiKeyCreated, ApiKeyInfo, AuditAction, CreateApiKey};
 use crate::pagination::{Paginated, PaginationQuery};
 use crate::util::AuditLogBuilder;
 
 #[derive(Deserialize)]
-pub struct OperatorApiKeyPath {
-    pub operator_id: String,
+pub struct UserApiKeyPath {
+    pub user_id: String,
 }
 
 #[derive(Deserialize)]
-pub struct OperatorApiKeyIdPath {
-    pub operator_id: String,
+pub struct UserApiKeyIdPath {
+    pub user_id: String,
     pub key_id: String,
 }
 
-/// Create a new API key for an operator.
-/// The key is created for the operator's user identity.
+/// Create a new API key for a user.
 pub async fn create_api_key(
     State(state): State<AppState>,
     Extension(ctx): Extension<OperatorContext>,
-    Path(path): Path<OperatorApiKeyPath>,
+    Path(path): Path<UserApiKeyPath>,
     headers: HeaderMap,
     Json(input): Json<CreateApiKey>,
 ) -> Result<Json<ApiKeyCreated>> {
-    // Only owner can manage other operators' keys, or operator can manage their own
-    if path.operator_id != ctx.operator.id && !ctx.operator.role.can_manage_operators() {
-        return Err(AppError::Forbidden(
-            "Only owners can manage other operators' API keys".into(),
-        ));
-    }
-
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    // Get the target operator with user details
-    let target_operator = queries::get_operator_with_user_by_id(&conn, &path.operator_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
+    // Verify the target user exists
+    let target_user = queries::get_user_by_id(&conn, &path.user_id)?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 
-    // Create API key for the operator's user identity
-    // Note: operator keys default to user_manageable=true unless explicitly set by operator
+    // Create API key for the user
     let user_manageable = input.user_manageable.unwrap_or(true);
     let (key_record, full_key) = queries::create_api_key(
         &conn,
-        &target_operator.user_id,
+        &path.user_id,
         &input.name,
         input.expires_in_days,
         user_manageable,
@@ -70,12 +61,15 @@ pub async fn create_api_key(
         .action(AuditAction::CreateApiKey)
         .resource("api_key", &key_record.id)
         .details(&serde_json::json!({
-            "target_operator_id": path.operator_id,
-            "target_user_id": target_operator.user_id,
-            "target_email": target_operator.email,
+            "target_user_id": path.user_id,
+            "target_email": target_user.email,
             "name": input.name
         }))
-        .names(&ctx.audit_names().resource(input.name.clone()))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&target_user.name, &target_user.email)
+                .resource(input.name.clone()),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 
@@ -91,31 +85,23 @@ pub async fn create_api_key(
     }))
 }
 
-/// List API keys for an operator's user identity
+/// List API keys for a user
 pub async fn list_api_keys(
     State(state): State<AppState>,
-    Extension(ctx): Extension<OperatorContext>,
-    Path(path): Path<OperatorApiKeyPath>,
+    Path(path): Path<UserApiKeyPath>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Paginated<ApiKeyInfo>>> {
-    // Only owner can see other operators' keys, or operator can see their own
-    if path.operator_id != ctx.operator.id && !ctx.operator.role.can_manage_operators() {
-        return Err(AppError::Forbidden(
-            "Only owners can view other operators' API keys".into(),
-        ));
-    }
-
     let conn = state.db.get()?;
 
-    // Get the target operator to find their user_id
-    let target_operator = queries::get_operator_with_user_by_id(&conn, &path.operator_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
+    // Verify the target user exists
+    let _target_user = queries::get_user_by_id(&conn, &path.user_id)?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 
     let limit = query.limit();
     let offset = query.offset();
     // Operators can see all keys (not just user-manageable ones)
     let (keys, total) =
-        queries::list_api_keys_paginated(&conn, &target_operator.user_id, false, limit, offset)?;
+        queries::list_api_keys_paginated(&conn, &path.user_id, false, limit, offset)?;
 
     // Batch load scopes (single query instead of N+1)
     let key_ids: Vec<String> = keys.iter().map(|k| k.id.clone()).collect();
@@ -139,29 +125,22 @@ pub async fn list_api_keys(
 pub async fn revoke_api_key(
     State(state): State<AppState>,
     Extension(ctx): Extension<OperatorContext>,
-    Path(path): Path<OperatorApiKeyIdPath>,
+    Path(path): Path<UserApiKeyIdPath>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>> {
-    // Only owner can revoke other operators' keys, or operator can revoke their own
-    if path.operator_id != ctx.operator.id && !ctx.operator.role.can_manage_operators() {
-        return Err(AppError::Forbidden(
-            "Only owners can revoke other operators' API keys".into(),
-        ));
-    }
-
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    // Get the target operator to find their user_id
-    let target_operator = queries::get_operator_with_user_by_id(&conn, &path.operator_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
+    // Verify the target user exists
+    let target_user = queries::get_user_by_id(&conn, &path.user_id)?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 
     // Verify key exists and belongs to the right user
     let key = queries::get_api_key_by_id(&conn, &path.key_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("API key not found".into()))?;
 
-    if key.user_id != target_operator.user_id {
-        return Err(AppError::NotFound("Not found".into()));
+    if key.user_id != path.user_id {
+        return Err(AppError::NotFound("API key not found".into()));
     }
 
     queries::revoke_api_key(&conn, &path.key_id)?;
@@ -171,11 +150,15 @@ pub async fn revoke_api_key(
         .action(AuditAction::RevokeApiKey)
         .resource("api_key", &path.key_id)
         .details(&serde_json::json!({
-            "target_operator_id": path.operator_id,
-            "target_user_id": target_operator.user_id,
+            "target_user_id": path.user_id,
+            "target_email": target_user.email,
             "key_name": key.name
         }))
-        .names(&ctx.audit_names().resource(key.name.clone()))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&target_user.name, &target_user.email)
+                .resource(key.name.clone()),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 

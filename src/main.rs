@@ -7,14 +7,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use paycheck::config::Config;
-use paycheck::crypto::MasterKey;
+use paycheck::crypto::{EmailHasher, MasterKey};
 use paycheck::db::{AppState, create_pool, init_audit_db, init_db, queries};
 use paycheck::email::EmailService;
 use paycheck::handlers;
 use paycheck::jwt::{self, JwksCache};
 use paycheck::models::{
-    self, ActorType, AuditAction, AuditLogNames, CreateOperator, CreateOrgMember, CreatePaymentConfig, CreateProduct,
-    CreateProject, CreateUser, OperatorRole, OrgMemberRole,
+    self, ActorType, AuditAction, AuditLogNames, CreateOperator, CreateOrgMember,
+    CreatePaymentConfig, CreateProduct, CreateProject, CreateUser, OperatorRole, OrgMemberRole,
 };
 use paycheck::rate_limit::ActivationRateLimiter;
 
@@ -361,8 +361,7 @@ fn seed_dev_data(state: &AppState) {
     println!("  project_id: {}", project.id);
     println!("  product_id: {}", product.id);
     println!("  project_pub_key: {}", public_key);
-    println!("  operator_id: {}", operator.id);
-    println!("  member_id: {}", member.id);
+    println!("  user_id: {}", operator_user.id);
     println!();
     println!("──────────────────────────────────────────────────────────────────");
     println!("Quick test (no Stripe needed):");
@@ -383,7 +382,9 @@ fn seed_dev_data(state: &AppState) {
     println!();
     println!("curl http://localhost:4242/redeem \\");
     println!("  -H 'Content-Type: application/json' \\");
-    println!("  -d '{{\"code\": \"<CODE>\", \"device_id\": \"dev-1\", \"device_type\": \"uuid\"}}'");
+    println!(
+        "  -d '{{\"code\": \"<CODE>\", \"device_id\": \"dev-1\", \"device_type\": \"uuid\"}}'"
+    );
     println!();
     println!("──────────────────────────────────────────────────────────────────");
     println!("For real Stripe payments:");
@@ -529,15 +530,45 @@ fn rotate_master_key(
                 new_ls.as_deref(),
                 new_resend.as_deref(),
             )
-            .map_err(|e| format!("Failed to update encrypted configs for org {}: {}", org.id, e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to update encrypted configs for org {}: {}",
+                    org.id, e
+                )
+            })?;
 
             println!("  [OK] Org: {} ({})", org.name, org.id);
         }
     }
 
+    // Rotate email HMAC key (stored encrypted in system_config)
+    if let Some(encrypted) = queries::get_system_config(&tx, EmailHasher::CONFIG_KEY)
+        .map_err(|e| format!("Failed to check for email HMAC key: {}", e))?
+    {
+        // Decrypt with old key, re-encrypt with new key
+        let plaintext = old_key
+            .decrypt_private_key("system-config", &encrypted)
+            .map_err(|e| format!("Failed to decrypt email HMAC key: {}", e))?;
+
+        let new_encrypted = new_key
+            .encrypt_private_key("system-config", &plaintext)
+            .map_err(|e| format!("Failed to re-encrypt email HMAC key: {}", e))?;
+
+        queries::set_system_config(&tx, EmailHasher::CONFIG_KEY, &new_encrypted)
+            .map_err(|e| format!("Failed to update email HMAC key: {}", e))?;
+
+        println!();
+        println!("  [OK] Email HMAC key");
+    }
+
     // Commit the transaction
     tx.commit()
         .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+
+    // Track if email HMAC key was rotated
+    let email_key_rotated = queries::get_system_config(&conn, EmailHasher::CONFIG_KEY)
+        .map_err(|e| format!("Failed to check for email HMAC key after commit: {}", e))?
+        .is_some();
 
     println!();
     println!("SUCCESS: All keys rotated to new master key.");
@@ -547,6 +578,9 @@ fn rotate_master_key(
             "  {} organization payment config(s)",
             orgs_with_configs.len()
         );
+    }
+    if email_key_rotated {
+        println!("  1 email HMAC key");
     }
     println!();
     println!("Next steps:");
@@ -600,20 +634,23 @@ fn spawn_cleanup_task(
             // Only runs if retention is configured (> 0)
             if webhook_event_retention_days > 0 && iteration % 12 == 3 {
                 match state.db.get() {
-                    Ok(conn) => match queries::purge_old_webhook_events(&conn, webhook_event_retention_days) {
-                        Ok(count) => {
-                            if count > 0 {
-                                tracing::info!(
-                                    "Purged {} webhook events older than {} days",
-                                    count,
-                                    webhook_event_retention_days
-                                );
+                    Ok(conn) => {
+                        match queries::purge_old_webhook_events(&conn, webhook_event_retention_days)
+                        {
+                            Ok(count) => {
+                                if count > 0 {
+                                    tracing::info!(
+                                        "Purged {} webhook events older than {} days",
+                                        count,
+                                        webhook_event_retention_days
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to purge old webhook events: {}", e);
                             }
                         }
-                        Err(e) => {
-                            tracing::warn!("Failed to purge old webhook events: {}", e);
-                        }
-                    },
+                    }
                     Err(e) => {
                         tracing::warn!("Failed to get db connection for webhook cleanup: {}", e);
                     }
@@ -624,7 +661,10 @@ fn spawn_cleanup_task(
             // Only runs if retention is configured (> 0)
             if payment_session_retention_days > 0 && iteration % 12 == 6 {
                 match state.db.get() {
-                    Ok(conn) => match queries::purge_old_payment_sessions(&conn, payment_session_retention_days) {
+                    Ok(conn) => match queries::purge_old_payment_sessions(
+                        &conn,
+                        payment_session_retention_days,
+                    ) {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!(
@@ -639,14 +679,19 @@ fn spawn_cleanup_task(
                         }
                     },
                     Err(e) => {
-                        tracing::warn!("Failed to get db connection for payment session cleanup: {}", e);
+                        tracing::warn!(
+                            "Failed to get db connection for payment session cleanup: {}",
+                            e
+                        );
                     }
                 }
             }
         }
     });
 
-    tracing::info!("Background maintenance task started (activation codes: 5min, hourly: webhook events, payment sessions)");
+    tracing::info!(
+        "Background maintenance task started (activation codes: 5min, hourly: webhook events, payment sessions)"
+    );
 }
 
 #[tokio::main]
@@ -722,7 +767,9 @@ async fn main() {
     }
 
     if config.console_origins.is_empty() {
-        tracing::warn!("No PAYCHECK_CONSOLE_ORIGINS configured - admin APIs will reject browser requests");
+        tracing::warn!(
+            "No PAYCHECK_CONSOLE_ORIGINS configured - admin APIs will reject browser requests"
+        );
     } else {
         tracing::info!("Console CORS origins: {:?}", config.console_origins);
     }
@@ -755,9 +802,59 @@ async fn main() {
     if !config.trusted_issuers.is_empty() {
         tracing::info!(
             "Trusted JWT issuers configured: {:?}",
-            config.trusted_issuers.iter().map(|i| &i.issuer).collect::<Vec<_>>()
+            config
+                .trusted_issuers
+                .iter()
+                .map(|i| &i.issuer)
+                .collect::<Vec<_>>()
         );
     }
+
+    // Initialize email hasher (stable HMAC key stored encrypted in DB)
+    let email_hasher = {
+        let conn = db_pool.get().expect("Failed to get connection for email hasher init");
+
+        // Try to load existing encrypted HMAC key
+        match queries::get_system_config(&conn, EmailHasher::CONFIG_KEY) {
+            Ok(Some(encrypted)) => {
+                // Decrypt the HMAC key using the master key
+                // We use a fixed entity ID for system config encryption
+                let hmac_key_bytes = config
+                    .master_key
+                    .decrypt_private_key("system-config", &encrypted)
+                    .expect("Failed to decrypt email HMAC key - was master key rotated without migration?");
+
+                if hmac_key_bytes.len() != 32 {
+                    panic!(
+                        "Invalid email HMAC key length: expected 32, got {}",
+                        hmac_key_bytes.len()
+                    );
+                }
+
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&hmac_key_bytes);
+                tracing::debug!("Loaded existing email HMAC key from database");
+                EmailHasher::from_bytes(key)
+            }
+            Ok(None) => {
+                // Generate new HMAC key, encrypt, and store
+                let hmac_key = EmailHasher::generate_key();
+                let encrypted = config
+                    .master_key
+                    .encrypt_private_key("system-config", &hmac_key)
+                    .expect("Failed to encrypt email HMAC key");
+
+                queries::set_system_config(&conn, EmailHasher::CONFIG_KEY, &encrypted)
+                    .expect("Failed to store email HMAC key");
+
+                tracing::info!("Generated and stored new email HMAC key");
+                EmailHasher::from_bytes(hmac_key)
+            }
+            Err(e) => {
+                panic!("Failed to check for existing email HMAC key: {}", e);
+            }
+        }
+    };
 
     let state = AppState {
         db: db_pool,
@@ -765,6 +862,7 @@ async fn main() {
         base_url: config.base_url.clone(),
         audit_log_enabled: config.audit_log_enabled,
         master_key: config.master_key.clone(),
+        email_hasher,
         success_page_url: config.success_page_url.clone(),
         activation_rate_limiter: Arc::new(ActivationRateLimiter::default()),
         email_service: Arc::new(email_service),

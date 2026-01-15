@@ -43,16 +43,18 @@ pub fn query_all<T: FromRow>(
 
 // ============ SQL SELECT Constants ============
 
-pub const USER_COLS: &str = "id, email, name, created_at, updated_at, deleted_at, deleted_cascade_depth";
+pub const USER_COLS: &str =
+    "id, email, name, created_at, updated_at, deleted_at, deleted_cascade_depth";
 
 pub const OPERATOR_COLS: &str = "id, user_id, role, created_at, deleted_at, deleted_cascade_depth";
 
-pub const OPERATOR_WITH_USER_COLS: &str = "o.id, o.user_id, u.email, u.name, o.role, o.created_at, o.deleted_at, o.deleted_cascade_depth";
+pub const OPERATOR_WITH_USER_COLS: &str =
+    "o.id, o.user_id, u.email, u.name, o.role, o.created_at, o.deleted_at, o.deleted_cascade_depth";
 
-pub const ORGANIZATION_COLS: &str =
-    "id, name, stripe_config, ls_config, resend_api_key, payment_provider, created_at, updated_at, deleted_at, deleted_cascade_depth";
+pub const ORGANIZATION_COLS: &str = "id, name, stripe_config, ls_config, resend_api_key, payment_provider, created_at, updated_at, deleted_at, deleted_cascade_depth";
 
-pub const ORG_MEMBER_COLS: &str = "id, user_id, org_id, role, created_at, deleted_at, deleted_cascade_depth";
+pub const ORG_MEMBER_COLS: &str =
+    "id, user_id, org_id, role, created_at, deleted_at, deleted_cascade_depth";
 
 pub const ORG_MEMBER_WITH_USER_COLS: &str = "m.id, m.user_id, u.email, u.name, m.org_id, m.role, m.created_at, m.deleted_at, m.deleted_cascade_depth";
 
@@ -74,10 +76,10 @@ pub const LICENSE_COLS: &str = "id, email_hash, project_id, product_id, customer
 pub const DEVICE_COLS: &str =
     "id, license_id, device_id, device_type, name, jti, activated_at, last_seen_at";
 
-pub const PAYMENT_SESSION_COLS: &str = "id, product_id, customer_id, created_at, completed, license_id";
+pub const PAYMENT_SESSION_COLS: &str =
+    "id, product_id, customer_id, created_at, completed, license_id";
 
-pub const ACTIVATION_CODE_COLS: &str =
-    "id, code_hash, license_id, expires_at, used, created_at";
+pub const ACTIVATION_CODE_COLS: &str = "id, code_hash, license_id, expires_at, used, created_at";
 
 // ============ FromRow Implementations ============
 
@@ -243,14 +245,15 @@ impl FromRow for ProjectMemberWithDetails {
         Ok(ProjectMemberWithDetails {
             id: row.get(0)?,
             org_member_id: row.get(1)?,
-            project_id: row.get(2)?,
+            user_id: row.get(2)?,
+            project_id: row.get(3)?,
             role: row
-                .get::<_, String>(3)?
+                .get::<_, String>(4)?
                 .parse::<ProjectMemberRole>()
                 .unwrap(),
-            created_at: row.get(4)?,
-            email: row.get(5)?,
-            name: row.get(6)?,
+            created_at: row.get(5)?,
+            email: row.get(6)?,
+            name: row.get(7)?,
         })
     }
 }

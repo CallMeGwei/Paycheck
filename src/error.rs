@@ -156,11 +156,9 @@ impl IntoResponse for AppError {
                     None,
                 )
             }
-            AppError::JwtValidationFailed(msg) => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid token",
-                Some(msg.clone()),
-            ),
+            AppError::JwtValidationFailed(msg) => {
+                (StatusCode::UNAUTHORIZED, "Invalid token", Some(msg.clone()))
+            }
             AppError::UserNotFound => (StatusCode::UNAUTHORIZED, "User not found", None),
         };
 

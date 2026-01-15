@@ -4,24 +4,24 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, AuditAction, ApiKeyCreated, ApiKeyInfo, CreateApiKey};
+use crate::models::{ActorType, ApiKeyCreated, ApiKeyInfo, AuditAction, CreateApiKey};
 use crate::pagination::{Paginated, PaginationQuery};
 use crate::util::AuditLogBuilder;
 
 #[derive(Deserialize)]
 pub struct MemberApiKeyPath {
     pub org_id: String,
-    pub member_id: String,
+    pub user_id: String,
 }
 
 #[derive(Deserialize)]
 pub struct MemberApiKeyIdPath {
     pub org_id: String,
-    pub member_id: String,
+    pub user_id: String,
     pub key_id: String,
 }
 
@@ -35,7 +35,7 @@ pub async fn create_api_key(
     Json(input): Json<CreateApiKey>,
 ) -> Result<Json<ApiKeyCreated>> {
     // Only owner can manage other members' keys, or member can manage their own
-    if path.member_id != ctx.member.id {
+    if path.user_id != ctx.member.user_id {
         ctx.require_owner()?;
     }
 
@@ -43,11 +43,20 @@ pub async fn create_api_key(
     let audit_conn = state.audit.get()?;
 
     // Get the target member with user details
-    let target_member = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
+    let target_member =
+        queries::get_org_member_with_user_by_user_and_org(&conn, &path.user_id, &path.org_id)?
+            .ok_or_else(|| AppError::NotFound("User is not a member of this org".into()))?;
 
-    if target_member.org_id != path.org_id {
-        return Err(AppError::NotFound("Not found".into()));
+    // Validate that all scopes are for the current org (security boundary)
+    // Users should only be able to create scopes for orgs they're managing keys within
+    if let Some(ref scopes) = input.scopes {
+        for scope in scopes {
+            if scope.org_id != path.org_id {
+                return Err(AppError::BadRequest(
+                    "Invalid scope: org_id must match the current organization".into(),
+                ));
+            }
+        }
     }
 
     // Create API key for the member's user identity
@@ -55,7 +64,7 @@ pub async fn create_api_key(
     let user_manageable = input.user_manageable.unwrap_or(true);
     let (key_record, full_key) = queries::create_api_key(
         &conn,
-        &target_member.user_id,
+        &path.user_id,
         &input.name,
         input.expires_in_days,
         user_manageable,
@@ -74,8 +83,7 @@ pub async fn create_api_key(
         .action(AuditAction::CreateApiKey)
         .resource("api_key", &key_record.id)
         .details(&serde_json::json!({
-            "target_member_id": path.member_id,
-            "target_user_id": target_member.user_id,
+            "target_user_id": path.user_id,
             "target_email": target_member.email,
             "name": input.name,
             "impersonator": ctx.impersonator.as_ref().map(|i| serde_json::json!({
@@ -108,25 +116,22 @@ pub async fn list_api_keys(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Paginated<ApiKeyInfo>>> {
     // Only owner can see other members' keys, or member can see their own
-    if path.member_id != ctx.member.id {
+    if path.user_id != ctx.member.user_id {
         ctx.require_owner()?;
     }
 
     let conn = state.db.get()?;
 
-    // Get the target member with user details
-    let target_member = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
-
-    if target_member.org_id != path.org_id {
-        return Err(AppError::NotFound("Not found".into()));
-    }
+    // Verify the user is a member of this org
+    let _target_member =
+        queries::get_org_member_with_user_by_user_and_org(&conn, &path.user_id, &path.org_id)?
+            .ok_or_else(|| AppError::NotFound("User is not a member of this org".into()))?;
 
     let limit = query.limit();
     let offset = query.offset();
     // Org owners can see all keys (not just user-manageable ones)
     let (keys, total) =
-        queries::list_api_keys_paginated(&conn, &target_member.user_id, false, limit, offset)?;
+        queries::list_api_keys_paginated(&conn, &path.user_id, false, limit, offset)?;
 
     // Batch load scopes (single query instead of N+1)
     let key_ids: Vec<String> = keys.iter().map(|k| k.id.clone()).collect();
@@ -154,27 +159,24 @@ pub async fn revoke_api_key(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>> {
     // Only owner can revoke other members' keys, or member can revoke their own
-    if path.member_id != ctx.member.id {
+    if path.user_id != ctx.member.user_id {
         ctx.require_owner()?;
     }
 
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
-    // Get the target member with user details
-    let target_member = queries::get_org_member_with_user_by_id(&conn, &path.member_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
-
-    if target_member.org_id != path.org_id {
-        return Err(AppError::NotFound("Not found".into()));
-    }
+    // Verify the user is a member of this org
+    let target_member =
+        queries::get_org_member_with_user_by_user_and_org(&conn, &path.user_id, &path.org_id)?
+            .ok_or_else(|| AppError::NotFound("User is not a member of this org".into()))?;
 
     // Verify key exists and belongs to the right user
     let key = queries::get_api_key_by_id(&conn, &path.key_id)?
-        .ok_or_else(|| AppError::NotFound("Not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("API key not found".into()))?;
 
-    if key.user_id != target_member.user_id {
-        return Err(AppError::NotFound("Not found".into()));
+    if key.user_id != path.user_id {
+        return Err(AppError::NotFound("API key not found".into()));
     }
 
     queries::revoke_api_key(&conn, &path.key_id)?;
@@ -184,8 +186,8 @@ pub async fn revoke_api_key(
         .action(AuditAction::RevokeApiKey)
         .resource("api_key", &path.key_id)
         .details(&serde_json::json!({
-            "target_member_id": path.member_id,
-            "target_user_id": target_member.user_id,
+            "target_user_id": path.user_id,
+            "target_email": target_member.email,
             "key_name": key.name,
             "impersonator": ctx.impersonator.as_ref().map(|i| serde_json::json!({
                 "user_id": i.user_id,

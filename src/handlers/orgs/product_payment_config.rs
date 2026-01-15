@@ -3,11 +3,13 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OrgMemberContext;
-use crate::models::{ActorType, AuditAction, CreatePaymentConfig, ProductPaymentConfig, UpdatePaymentConfig};
+use crate::models::{
+    ActorType, AuditAction, CreatePaymentConfig, ProductPaymentConfig, UpdatePaymentConfig,
+};
 use crate::util::AuditLogBuilder;
 
 #[derive(serde::Deserialize)]
@@ -150,7 +152,9 @@ pub async fn update_payment_config_handler(
         .actor(ActorType::User, Some(&ctx.member.user_id))
         .action(AuditAction::UpdatePaymentConfig)
         .resource("payment_config", &path.config_id)
-        .details(&serde_json::json!({ "product_id": path.product_id, "provider": existing.provider }))
+        .details(
+            &serde_json::json!({ "product_id": path.product_id, "provider": existing.provider }),
+        )
         .org(&path.org_id)
         .project(&path.project_id)
         .names(&ctx.audit_names().resource(product.name.clone()))
@@ -198,7 +202,9 @@ pub async fn delete_payment_config_handler(
         .actor(ActorType::User, Some(&ctx.member.user_id))
         .action(AuditAction::DeletePaymentConfig)
         .resource("payment_config", &path.config_id)
-        .details(&serde_json::json!({ "product_id": path.product_id, "provider": existing.provider }))
+        .details(
+            &serde_json::json!({ "product_id": path.product_id, "provider": existing.provider }),
+        )
         .org(&path.org_id)
         .project(&path.project_id)
         .names(&ctx.audit_names().resource(product.name.clone()))

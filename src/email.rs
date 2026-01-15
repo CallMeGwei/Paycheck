@@ -167,7 +167,10 @@ impl EmailService {
     /// 1. If email_enabled is false -> return Disabled
     /// 2. If email_webhook_url is set -> POST to webhook
     /// 3. Otherwise send via Resend API (org key -> system key)
-    pub async fn send_activation_code(&self, config: EmailSendConfig<'_>) -> Result<EmailSendResult> {
+    pub async fn send_activation_code(
+        &self,
+        config: EmailSendConfig<'_>,
+    ) -> Result<EmailSendResult> {
         // Check if email is disabled for this project
         if !config.project.email_enabled {
             tracing::debug!(
@@ -183,9 +186,7 @@ impl EmailService {
         }
 
         // Determine API key: org-level overrides system-level
-        let api_key = config
-            .org_resend_key
-            .or(self.system_api_key.as_deref());
+        let api_key = config.org_resend_key.or(self.system_api_key.as_deref());
 
         let Some(api_key) = api_key else {
             tracing::warn!(
@@ -219,7 +220,14 @@ impl EmailService {
         let date = format_date(config.purchased_at);
         let text = format!(
             "Your {} license for {}\n\nYou have a license for {}. Here is your activation code:\n\n{} (purchased {})\nActivation code: {}\n\nThis activation code expires in {} minutes. You can request a new one anytime.\n\nEnter this code in {} to activate your license.\n\nIf you didn't request this, you can ignore this email.",
-            config.product_name, config.project_name, config.project_name, config.product_name, date, config.code, config.expires_in_minutes, config.project_name
+            config.product_name,
+            config.project_name,
+            config.project_name,
+            config.product_name,
+            date,
+            config.code,
+            config.expires_in_minutes,
+            config.project_name
         );
         let html = format!(
             r#"<!DOCTYPE html>
@@ -240,7 +248,14 @@ impl EmailService {
 <p style="color: #999; font-size: 12px;">If you didn't request this, you can ignore this email.</p>
 </body>
 </html>"#,
-            config.product_name, config.project_name, config.project_name, config.product_name, date, config.code, config.expires_in_minutes, config.project_name
+            config.product_name,
+            config.project_name,
+            config.project_name,
+            config.product_name,
+            date,
+            config.code,
+            config.expires_in_minutes,
+            config.project_name
         );
 
         let request = ResendEmailRequest {
@@ -375,9 +390,7 @@ impl EmailService {
         }
 
         // Determine API key: org-level overrides system-level
-        let api_key = config
-            .org_resend_key
-            .or(self.system_api_key.as_deref());
+        let api_key = config.org_resend_key.or(self.system_api_key.as_deref());
 
         let Some(api_key) = api_key else {
             tracing::warn!(
@@ -394,7 +407,8 @@ impl EmailService {
             .as_deref()
             .unwrap_or(&self.default_from_email);
 
-        self.send_multi_license_via_resend(api_key, from_email, &config).await
+        self.send_multi_license_via_resend(api_key, from_email, &config)
+            .await
     }
 
     /// Send multi-license email via Resend API.
@@ -452,7 +466,11 @@ impl EmailService {
 <p style="color: #999; font-size: 12px;">If you didn't request this, you can ignore this email.</p>
 </body>
 </html>"#,
-            config.project_name, config.project_name, license_blocks, config.expires_in_minutes, config.project_name
+            config.project_name,
+            config.project_name,
+            license_blocks,
+            config.expires_in_minutes,
+            config.project_name
         );
 
         let request = ResendEmailRequest {
@@ -520,12 +538,16 @@ impl EmailService {
             expires_in_minutes: config.expires_in_minutes,
             project_id: &config.project.id,
             project_name: config.project_name,
-            licenses: config.licenses.iter().map(|l| WebhookLicenseInfo {
-                product_name: l.product_name.clone(),
-                code: l.code.clone(),
-                license_id: l.license_id.clone(),
-                purchased_at: l.purchased_at,
-            }).collect(),
+            licenses: config
+                .licenses
+                .iter()
+                .map(|l| WebhookLicenseInfo {
+                    product_name: l.product_name.clone(),
+                    code: l.code.clone(),
+                    license_id: l.license_id.clone(),
+                    purchased_at: l.purchased_at,
+                })
+                .collect(),
             trigger: config.trigger,
         };
 

@@ -143,6 +143,68 @@ impl MasterKey {
 
         Ok(plaintext)
     }
+
+}
+
+/// Email hasher with a stable HMAC key.
+///
+/// The HMAC key is stored encrypted in the database and survives master key rotation.
+/// This ensures email hashes remain valid after rotation (unlike deriving from master key).
+///
+/// Thread-safe and cheaply cloneable.
+#[derive(Clone)]
+pub struct EmailHasher {
+    hmac_key: [u8; 32],
+}
+
+impl EmailHasher {
+    /// Key name in system_config table
+    pub const CONFIG_KEY: &'static str = "email_hmac_key";
+
+    /// Create an EmailHasher from a raw 32-byte HMAC key.
+    pub fn from_bytes(key: [u8; 32]) -> Self {
+        Self { hmac_key: key }
+    }
+
+    /// Generate a new random HMAC key.
+    pub fn generate_key() -> [u8; 32] {
+        use rand::RngCore;
+        use rand::rngs::OsRng;
+        let mut key = [0u8; 32];
+        OsRng.fill_bytes(&mut key);
+        key
+    }
+
+    /// Hash an email address for storage/lookup using HMAC-SHA256.
+    ///
+    /// This is secure against rainbow table attacks because the HMAC key is
+    /// a secret stored encrypted in the database. An attacker with only
+    /// database access cannot precompute hashes without the master key to
+    /// decrypt the HMAC key.
+    ///
+    /// The email is normalized (NFC Unicode, lowercase, trimmed) before hashing
+    /// to ensure consistent lookups regardless of input encoding.
+    pub fn hash(&self, email: &str) -> String {
+        use hmac::{Hmac, Mac};
+        use unicode_normalization::UnicodeNormalization;
+
+        // Normalize email: NFC Unicode form, lowercase, trimmed
+        let normalized: String = email.nfc().collect();
+        let normalized = normalized.to_lowercase();
+        let normalized = normalized.trim();
+
+        // Compute HMAC-SHA256
+        let mut mac: Hmac<Sha256> = Mac::new_from_slice(&self.hmac_key)
+            .expect("HMAC can take key of any size");
+        mac.update(normalized.as_bytes());
+
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    /// Get the raw HMAC key bytes (for encryption/storage).
+    pub fn key_bytes(&self) -> &[u8; 32] {
+        &self.hmac_key
+    }
 }
 
 /// Hash a secret for database lookups (license keys, API keys, redemption codes).

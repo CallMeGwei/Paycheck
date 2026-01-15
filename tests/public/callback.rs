@@ -7,8 +7,14 @@
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
 
+#[path = "../common/mod.rs"]
 mod common;
-use common::*;
+use common::{
+    complete_payment_session, create_test_license, create_test_org, create_test_payment_session,
+    create_test_product, create_test_project, future_timestamp, public_app, queries,
+    test_master_key, CreateProject, LICENSE_VALID_DAYS,
+};
+use common::create_test_app_state;
 
 #[tokio::test]
 async fn test_callback_session_not_found_returns_error() {
@@ -26,7 +32,11 @@ async fn test_callback_session_not_found_returns_error() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::NOT_FOUND,
+        "callback should return 404 when session ID does not exist"
+    );
 }
 
 #[tokio::test]
@@ -64,7 +74,8 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
     // Should redirect
     assert_eq!(
         response.status(),
-        axum::http::StatusCode::TEMPORARY_REDIRECT
+        axum::http::StatusCode::TEMPORARY_REDIRECT,
+        "pending session should return temporary redirect status"
     );
 
     // Check redirect location contains status=pending
@@ -76,7 +87,7 @@ async fn test_callback_pending_session_redirects_with_pending_status() {
         .unwrap();
     assert!(
         location.contains("status=pending"),
-        "Redirect should include status=pending"
+        "redirect URL should include status=pending for uncompleted payment"
     );
 }
 
@@ -98,7 +109,7 @@ async fn test_callback_completed_session_redirects_with_activation_code() {
             &conn,
             &project.id,
             &product.id,
-            Some(future_timestamp(365)),
+            Some(future_timestamp(LICENSE_VALID_DAYS)),
         );
 
         // Create a payment session
@@ -126,7 +137,8 @@ async fn test_callback_completed_session_redirects_with_activation_code() {
     // Should redirect
     assert_eq!(
         response.status(),
-        axum::http::StatusCode::TEMPORARY_REDIRECT
+        axum::http::StatusCode::TEMPORARY_REDIRECT,
+        "completed session should return temporary redirect status"
     );
 
     // Check redirect location contains required params
@@ -140,20 +152,23 @@ async fn test_callback_completed_session_redirects_with_activation_code() {
     // No token or license_key - user must activate via /redeem
     assert!(
         !location.contains("token="),
-        "Callback should NOT include token (user must activate via /redeem)"
+        "redirect should NOT include token - user must activate via /redeem"
     );
     assert!(
         !location.contains("license_key="),
-        "Callback should NOT include license_key (email-only activation)"
+        "redirect should NOT include license_key - email-only activation model"
     );
-    assert!(location.contains("code="), "Redirect should include activation code");
+    assert!(
+        location.contains("code="),
+        "redirect should include activation code for /redeem endpoint"
+    );
     assert!(
         location.contains("status=success"),
-        "Redirect should include status=success"
+        "redirect should include status=success for completed payment"
     );
     assert!(
         location.contains("project_id="),
-        "Redirect should include project_id"
+        "redirect should include project_id for client identification"
     );
 }
 
@@ -195,7 +210,7 @@ async fn test_callback_project_redirect_url() {
             &conn,
             &project.id,
             &product.id,
-            Some(future_timestamp(365)),
+            Some(future_timestamp(LICENSE_VALID_DAYS)),
         );
 
         // Create a payment session (no redirect_url - uses project's)
@@ -222,7 +237,8 @@ async fn test_callback_project_redirect_url() {
 
     assert_eq!(
         response.status(),
-        axum::http::StatusCode::TEMPORARY_REDIRECT
+        axum::http::StatusCode::TEMPORARY_REDIRECT,
+        "callback should return temporary redirect when project has custom redirect URL"
     );
 
     let location = response
@@ -235,12 +251,21 @@ async fn test_callback_project_redirect_url() {
     // Should redirect to project's configured URL
     assert!(
         location.starts_with("https://myapp.example.com/activated"),
-        "Should redirect to project's configured URL, got: {}",
+        "redirect should use project's configured URL, got: {}",
         location
     );
 
     // Should include activation code and project_id
-    assert!(location.contains("code="), "Should include activation code");
-    assert!(location.contains("project_id="), "Should include project_id");
-    assert!(location.contains("status=success"), "Should include success status");
+    assert!(
+        location.contains("code="),
+        "redirect should include activation code for /redeem endpoint"
+    );
+    assert!(
+        location.contains("project_id="),
+        "redirect should include project_id for client identification"
+    );
+    assert!(
+        location.contains("status=success"),
+        "redirect should include status=success for completed payment"
+    );
 }

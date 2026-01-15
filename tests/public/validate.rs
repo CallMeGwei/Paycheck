@@ -4,9 +4,11 @@
 //! checking if a JTI (JWT ID) is still valid for a given project.
 
 use axum::{body::Body, http::Request};
+use common::{ONE_DAY, ONE_YEAR};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+#[path = "../common/mod.rs"]
 mod common;
 use common::*;
 
@@ -25,12 +27,8 @@ fn setup_validate_test() -> (axum::Router, String, String, String, String) {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let license = create_test_license(
-            &conn,
-            &project.id,
-            &product.id,
-            Some(future_timestamp(365)),
-        );
+        let license =
+            create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
@@ -53,27 +51,46 @@ async fn test_validate_with_valid_jti_returns_valid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for valid JTI"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], true);
-    assert!(json.get("reason").is_none() || json["reason"].is_null());
+    assert_eq!(
+        json["valid"], true,
+        "license should be marked as valid for active, non-revoked JTI"
+    );
+    assert!(
+        json.get("reason").is_none() || json["reason"].is_null(),
+        "valid license should not include a reason field"
+    );
     // Should include expiration info for valid licenses
-    assert!(json.get("license_exp").is_some());
-    assert!(json.get("updates_exp").is_some());
+    assert!(
+        json.get("license_exp").is_some(),
+        "response should include license_exp for valid license"
+    );
+    assert!(
+        json.get("updates_exp").is_some(),
+        "response should include updates_exp for valid license"
+    );
 }
 
 #[tokio::test]
@@ -86,25 +103,38 @@ async fn test_validate_with_unknown_jti_returns_invalid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": "unknown-jti-12345"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": "unknown-jti-12345"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK even for unknown JTI"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], false);
+    assert_eq!(
+        json["valid"], false,
+        "license should be marked as invalid for unknown JTI"
+    );
     // No reason should be given (prevents information disclosure)
-    assert!(json.get("reason").is_none() || json["reason"].is_null());
+    assert!(
+        json.get("reason").is_none() || json["reason"].is_null(),
+        "invalid response should not reveal reason to prevent information disclosure"
+    );
 }
 
 #[tokio::test]
@@ -120,12 +150,8 @@ async fn test_validate_with_revoked_license_returns_invalid() {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let license = create_test_license(
-            &conn,
-            &project.id,
-            &product.id,
-            Some(future_timestamp(365)),
-        );
+        let license =
+            create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
@@ -143,23 +169,33 @@ async fn test_validate_with_revoked_license_returns_invalid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for revoked license"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], false);
+    assert_eq!(
+        json["valid"], false,
+        "license should be marked as invalid when license is revoked"
+    );
 }
 
 #[tokio::test]
@@ -175,12 +211,8 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let license = create_test_license(
-            &conn,
-            &project.id,
-            &product.id,
-            Some(future_timestamp(365)),
-        );
+        let license =
+            create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
@@ -198,23 +230,33 @@ async fn test_validate_with_revoked_jti_returns_invalid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for revoked JTI"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], false);
+    assert_eq!(
+        json["valid"], false,
+        "license should be marked as invalid when specific JTI is revoked"
+    );
 }
 
 #[tokio::test]
@@ -235,7 +277,7 @@ async fn test_validate_with_expired_license_returns_invalid() {
             &conn,
             &project.id,
             &product.id,
-            Some(past_timestamp(1)), // Expired 1 day ago
+            Some(past_timestamp(ONE_DAY)), // Expired 1 day ago
         );
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
@@ -251,23 +293,33 @@ async fn test_validate_with_expired_license_returns_invalid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for expired license"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], false);
+    assert_eq!(
+        json["valid"], false,
+        "license should be marked as invalid when license has expired"
+    );
 }
 
 #[tokio::test]
@@ -282,12 +334,8 @@ async fn test_validate_with_wrong_project_returns_invalid() {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let license = create_test_license(
-            &conn,
-            &project.id,
-            &product.id,
-            Some(future_timestamp(365)),
-        );
+        let license =
+            create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
@@ -302,23 +350,33 @@ async fn test_validate_with_wrong_project_returns_invalid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": "wrong-public-key",
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": "wrong-public-key",
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for wrong public key"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], false);
+    assert_eq!(
+        json["valid"], false,
+        "license should be marked as invalid when public key does not match project"
+    );
 }
 
 #[tokio::test]
@@ -332,15 +390,22 @@ async fn test_validate_missing_fields_returns_error() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": "some-key"
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": "some-key"
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "validate endpoint should return 400 Bad Request when required fields are missing"
+    );
 }
 
 #[tokio::test]
@@ -356,12 +421,8 @@ async fn test_validate_updates_last_seen_timestamp() {
         let org = create_test_org(&conn, "Test Org");
         let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
         let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-        let license = create_test_license(
-            &conn,
-            &project.id,
-            &product.id,
-            Some(future_timestamp(365)),
-        );
+        let license =
+            create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
         let device = create_test_device(&conn, &license.id, "test-device-123", DeviceType::Uuid);
 
         jti = device.jti.clone();
@@ -389,16 +450,23 @@ async fn test_validate_updates_last_seen_timestamp() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for valid license"
+    );
 
     // Check that last_seen_at was updated
     let updated_last_seen = {
@@ -411,7 +479,7 @@ async fn test_validate_updates_last_seen_timestamp() {
 
     assert!(
         updated_last_seen >= initial_last_seen,
-        "last_seen_at should be updated after validation"
+        "last_seen_at should be updated after successful validation"
     );
 }
 
@@ -461,26 +529,36 @@ async fn test_validate_perpetual_license_returns_valid() {
                 .method("POST")
                 .uri("/validate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&json!({
-                    "public_key": public_key,
-                    "jti": jti
-                })).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "public_key": public_key,
+                        "jti": jti
+                    }))
+                    .unwrap(),
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "validate endpoint should return 200 OK for perpetual license"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).expect("Response should be valid JSON");
 
-    assert_eq!(json["valid"], true);
+    assert_eq!(
+        json["valid"], true,
+        "perpetual license should be marked as valid"
+    );
     // Perpetual license should not have license_exp
     assert!(
         json.get("license_exp").is_none() || json["license_exp"].is_null(),
-        "Perpetual license should not have license_exp"
+        "perpetual license should not have license_exp set"
     );
 }

@@ -112,7 +112,9 @@ impl CreateProject {
             return Err(AppError::BadRequest("name cannot be empty".into()));
         }
         if self.license_key_prefix.trim().is_empty() {
-            return Err(AppError::BadRequest("license_key_prefix cannot be empty".into()));
+            return Err(AppError::BadRequest(
+                "license_key_prefix cannot be empty".into(),
+            ));
         }
         Ok(())
     }
@@ -199,7 +201,9 @@ impl UpdateProject {
         if let Some(ref prefix) = self.license_key_prefix
             && prefix.trim().is_empty()
         {
-            return Err(AppError::BadRequest("license_key_prefix cannot be empty".into()));
+            return Err(AppError::BadRequest(
+                "license_key_prefix cannot be empty".into(),
+            ));
         }
         Ok(())
     }

@@ -49,9 +49,7 @@ pub async fn validate_first_party_token(
     let metadata = Token::decode_metadata(token)
         .map_err(|e| AppError::JwtValidationFailed(format!("Invalid token format: {}", e)))?;
 
-    let kid = metadata
-        .key_id()
-        .ok_or(AppError::MissingKeyId)?;
+    let kid = metadata.key_id().ok_or(AppError::MissingKeyId)?;
 
     // 2. Decode claims (unverified) to get issuer
     #[derive(Deserialize)]
@@ -61,11 +59,13 @@ pub async fn validate_first_party_token(
 
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
-        return Err(AppError::JwtValidationFailed("Invalid token format".to_string()));
+        return Err(AppError::JwtValidationFailed(
+            "Invalid token format".to_string(),
+        ));
     }
 
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
     let payload_bytes = URL_SAFE_NO_PAD
         .decode(parts[1])

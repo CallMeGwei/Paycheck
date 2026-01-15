@@ -2,6 +2,11 @@
 //!
 //! This module handles fetching and caching public keys from JWKS endpoints
 //! for validating JWTs from trusted issuers.
+//!
+//! Features:
+//! - Automatic caching with 1-hour TTL
+//! - Retry with exponential backoff on fetch failures
+//! - Stale cache fallback when all retries are exhausted
 
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -15,6 +20,16 @@ use crate::error::{AppError, Result};
 /// Cache duration for JWKS keys (1 hour)
 const CACHE_DURATION: Duration = Duration::from_secs(3600);
 
+/// Maximum age for stale cache fallback (24 hours)
+/// If cache is older than this, we won't use it even as fallback
+const MAX_STALE_DURATION: Duration = Duration::from_secs(86400);
+
+/// Number of retry attempts for JWKS fetch
+const FETCH_RETRY_ATTEMPTS: u32 = 3;
+
+/// Base delay for exponential backoff (100ms, 200ms, 400ms)
+const FETCH_RETRY_BASE_DELAY_MS: u64 = 100;
+
 /// A cached JWKS with its keys and fetch timestamp
 struct CachedJwks {
     /// Map from key ID (kid) to public key
@@ -26,6 +41,11 @@ struct CachedJwks {
 impl CachedJwks {
     fn is_stale(&self) -> bool {
         self.fetched_at.elapsed() > CACHE_DURATION
+    }
+
+    /// Check if the cache is too old to use even as a fallback
+    fn is_expired(&self) -> bool {
+        self.fetched_at.elapsed() > MAX_STALE_DURATION
     }
 }
 
@@ -58,8 +78,11 @@ impl JwksCache {
 
     /// Get a public key for a given JWKS URL and key ID.
     /// Fetches and caches the JWKS if not present or stale.
+    ///
+    /// On fetch failure, retries with exponential backoff. If all retries fail
+    /// and we have stale (but not expired) cached keys, uses those as fallback.
     pub async fn get_key(&self, jwks_url: &str, kid: &str) -> Result<RS256PublicKey> {
-        // Try to get from cache first
+        // Try to get from fresh cache first
         {
             let cache = self.cache.read().unwrap();
             if let Some(cached) = cache.get(jwks_url)
@@ -76,28 +99,86 @@ impl JwksCache {
             }
         }
 
-        // Cache miss or stale - fetch fresh JWKS
-        let keys = self.fetch_jwks(jwks_url).await?;
+        // Cache miss or stale - fetch fresh JWKS with retry
+        match self.fetch_jwks_with_retry(jwks_url).await {
+            Ok(keys) => {
+                // Get the key we need (before moving keys into cache)
+                let key = keys.get(kid).cloned().ok_or_else(|| {
+                    AppError::JwtValidationFailed(format!("Key ID '{}' not found in JWKS", kid))
+                })?;
 
-        // Get the key we need (before moving keys into cache)
-        let key = keys
-            .get(kid)
-            .cloned()
-            .ok_or_else(|| AppError::JwtValidationFailed(format!("Key ID '{}' not found in JWKS", kid)))?;
+                // Update cache
+                {
+                    let mut cache = self.cache.write().unwrap();
+                    cache.insert(
+                        jwks_url.to_string(),
+                        CachedJwks {
+                            keys,
+                            fetched_at: Instant::now(),
+                        },
+                    );
+                }
 
-        // Update cache
-        {
-            let mut cache = self.cache.write().unwrap();
-            cache.insert(
-                jwks_url.to_string(),
-                CachedJwks {
-                    keys,
-                    fetched_at: Instant::now(),
-                },
-            );
+                Ok(key)
+            }
+            Err(fetch_error) => {
+                // Fetch failed after retries - try stale cache fallback
+                let cache = self.cache.read().unwrap();
+                if let Some(cached) = cache.get(jwks_url)
+                    && !cached.is_expired()
+                    && let Some(key) = cached.keys.get(kid)
+                {
+                    tracing::warn!(
+                        jwks_url = %jwks_url,
+                        kid = %kid,
+                        cache_age_secs = ?cached.fetched_at.elapsed().as_secs(),
+                        "JWKS fetch failed, using stale cached key as fallback"
+                    );
+                    return Ok(key.clone());
+                }
+
+                // No usable fallback - propagate the original error
+                Err(fetch_error)
+            }
+        }
+    }
+
+    /// Fetch JWKS with retry and exponential backoff.
+    async fn fetch_jwks_with_retry(
+        &self,
+        url: &str,
+    ) -> Result<HashMap<String, RS256PublicKey>> {
+        let mut last_error = None;
+
+        for attempt in 0..FETCH_RETRY_ATTEMPTS {
+            if attempt > 0 {
+                let delay_ms = FETCH_RETRY_BASE_DELAY_MS * 2_u64.pow(attempt - 1);
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                tracing::debug!(
+                    url = %url,
+                    attempt = attempt + 1,
+                    delay_ms = delay_ms,
+                    "Retrying JWKS fetch"
+                );
+            }
+
+            match self.fetch_jwks(url).await {
+                Ok(keys) => return Ok(keys),
+                Err(e) => {
+                    tracing::warn!(
+                        url = %url,
+                        attempt = attempt + 1,
+                        error = %e,
+                        "JWKS fetch attempt failed"
+                    );
+                    last_error = Some(e);
+                }
+            }
         }
 
-        Ok(key)
+        Err(last_error.unwrap_or_else(|| {
+            AppError::JwksFetchFailed("All retry attempts exhausted".to_string())
+        }))
     }
 
     /// Fetch JWKS from a URL and parse the keys.
@@ -146,7 +227,11 @@ impl JwksCache {
                     keys.insert(kid, public_key);
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse JWK with kid '{}': {}", jwk.kid.as_deref().unwrap_or("unknown"), e);
+                    tracing::warn!(
+                        "Failed to parse JWK with kid '{}': {}",
+                        jwk.kid.as_deref().unwrap_or("unknown"),
+                        e
+                    );
                 }
             }
         }
@@ -197,81 +282,30 @@ fn parse_rsa_public_key(n_b64: &str, e_b64: &str) -> Result<RS256PublicKey> {
         .decode(e_b64)
         .map_err(|e| AppError::JwksFetchFailed(format!("Invalid base64url for 'e': {}", e)))?;
 
-    // Build DER-encoded RSA public key
-    // RSA public key structure: SEQUENCE { INTEGER n, INTEGER e }
-    let der = build_rsa_public_key_der(&n_bytes, &e_bytes);
-
-    RS256PublicKey::from_der(&der)
+    // Use jwt-simple's built-in RSA key construction from components
+    RS256PublicKey::from_components(&n_bytes, &e_bytes)
         .map_err(|e| AppError::JwksFetchFailed(format!("Failed to parse RSA key: {}", e)))
 }
 
-/// Build a DER-encoded RSA public key from n and e byte arrays.
-/// This creates a PKCS#1 RSAPublicKey structure wrapped in SubjectPublicKeyInfo.
-fn build_rsa_public_key_der(n: &[u8], e: &[u8]) -> Vec<u8> {
-    // Helper to encode a DER INTEGER (handling sign bit)
-    fn encode_integer(bytes: &[u8]) -> Vec<u8> {
-        let mut result = Vec::new();
-        // If high bit is set, prepend 0x00 to indicate positive integer
-        let needs_padding = !bytes.is_empty() && (bytes[0] & 0x80) != 0;
-        let len = bytes.len() + if needs_padding { 1 } else { 0 };
-
-        result.push(0x02); // INTEGER tag
-        encode_length(&mut result, len);
-        if needs_padding {
-            result.push(0x00);
-        }
-        result.extend_from_slice(bytes);
-        result
+impl JwksCache {
+    /// Seed the cache with keys for testing purposes.
+    /// The `age` parameter controls how old the cached entry appears.
+    #[cfg(test)]
+    pub fn seed_cache_for_testing(
+        &self,
+        url: &str,
+        keys: HashMap<String, RS256PublicKey>,
+        age: Duration,
+    ) {
+        let mut cache = self.cache.write().unwrap();
+        cache.insert(
+            url.to_string(),
+            CachedJwks {
+                keys,
+                fetched_at: Instant::now() - age,
+            },
+        );
     }
-
-    // Helper to encode DER length
-    fn encode_length(result: &mut Vec<u8>, len: usize) {
-        if len < 128 {
-            result.push(len as u8);
-        } else if len < 256 {
-            result.push(0x81);
-            result.push(len as u8);
-        } else {
-            result.push(0x82);
-            result.push((len >> 8) as u8);
-            result.push((len & 0xff) as u8);
-        }
-    }
-
-    // Build RSAPublicKey SEQUENCE
-    let n_der = encode_integer(n);
-    let e_der = encode_integer(e);
-
-    let mut rsa_key = Vec::new();
-    rsa_key.push(0x30); // SEQUENCE tag
-    encode_length(&mut rsa_key, n_der.len() + e_der.len());
-    rsa_key.extend_from_slice(&n_der);
-    rsa_key.extend_from_slice(&e_der);
-
-    // Build SubjectPublicKeyInfo wrapper
-    // AlgorithmIdentifier for rsaEncryption: 1.2.840.113549.1.1.1
-    let algorithm_id = [
-        0x30, 0x0d, // SEQUENCE
-        0x06, 0x09, // OID
-        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, // rsaEncryption
-        0x05, 0x00, // NULL
-    ];
-
-    // BIT STRING containing RSAPublicKey
-    let mut bit_string = Vec::new();
-    bit_string.push(0x03); // BIT STRING tag
-    encode_length(&mut bit_string, rsa_key.len() + 1);
-    bit_string.push(0x00); // unused bits
-    bit_string.extend_from_slice(&rsa_key);
-
-    // Final SubjectPublicKeyInfo SEQUENCE
-    let mut result = Vec::new();
-    result.push(0x30); // SEQUENCE tag
-    encode_length(&mut result, algorithm_id.len() + bit_string.len());
-    result.extend_from_slice(&algorithm_id);
-    result.extend_from_slice(&bit_string);
-
-    result
 }
 
 #[cfg(test)]
@@ -286,5 +320,54 @@ mod tests {
             fetched_at: Instant::now(),
         };
         assert!(!cached.is_stale());
+        assert!(!cached.is_expired());
+    }
+
+    #[test]
+    fn test_cache_expiry_detection() {
+        // Test that expired detection works (for fallback logic)
+        let cached = CachedJwks {
+            keys: HashMap::new(),
+            fetched_at: Instant::now() - MAX_STALE_DURATION - Duration::from_secs(1),
+        };
+        assert!(cached.is_stale());
+        assert!(cached.is_expired());
+    }
+
+    #[test]
+    fn test_stale_but_not_expired() {
+        // Cache that is stale (>1 hour) but not expired (<24 hours)
+        // This is the window where fallback should work
+        let cached = CachedJwks {
+            keys: HashMap::new(),
+            fetched_at: Instant::now() - CACHE_DURATION - Duration::from_secs(3600), // 2 hours old
+        };
+        assert!(cached.is_stale());
+        assert!(!cached.is_expired());
+    }
+
+    #[test]
+    fn test_retry_constants_are_reasonable() {
+        // Sanity check that retry settings are reasonable
+        assert!(FETCH_RETRY_ATTEMPTS >= 2, "Should retry at least once");
+        assert!(FETCH_RETRY_ATTEMPTS <= 5, "Too many retries would be slow");
+        assert!(
+            FETCH_RETRY_BASE_DELAY_MS >= 50,
+            "Base delay should be at least 50ms"
+        );
+        assert!(
+            FETCH_RETRY_BASE_DELAY_MS <= 500,
+            "Base delay over 500ms is too slow"
+        );
+
+        // Calculate max total delay: base * (2^0 + 2^1 + ... + 2^(n-2))
+        // For 3 attempts with 100ms base: 0 + 100 + 200 = 300ms max
+        let max_total_delay: u64 = (1..FETCH_RETRY_ATTEMPTS)
+            .map(|i| FETCH_RETRY_BASE_DELAY_MS * 2_u64.pow(i - 1))
+            .sum();
+        assert!(
+            max_total_delay < 2000,
+            "Total retry delay should be under 2 seconds"
+        );
     }
 }

@@ -73,7 +73,7 @@ pub async fn list_licenses(
 
     let (licenses, total) = if let Some(email) = query.email {
         // Support lookup by email - includes expired/revoked
-        let email_hash = queries::hash_email(&email);
+        let email_hash = state.email_hasher.hash(&email);
         queries::get_all_licenses_by_email_hash_for_admin_paginated(
             &conn,
             &path.project_id,
@@ -174,6 +174,22 @@ pub async fn create_license(
         ));
     }
 
+    // Validate expiration days are non-negative (prevents creating already-expired licenses)
+    if let Some(Some(days)) = body.license_exp_days {
+        if days < 0 {
+            return Err(AppError::BadRequest(
+                "license_exp_days must be non-negative".into(),
+            ));
+        }
+    }
+    if let Some(Some(days)) = body.updates_exp_days {
+        if days < 0 {
+            return Err(AppError::BadRequest(
+                "updates_exp_days must be non-negative".into(),
+            ));
+        }
+    }
+
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
@@ -192,7 +208,7 @@ pub async fn create_license(
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     // Compute email hash if email provided
-    let email_hash = body.email.as_ref().map(|e| queries::hash_email(e));
+    let email_hash = body.email.as_ref().map(|e| state.email_hasher.hash(e));
 
     // Compute expirations (use override if provided, otherwise use product defaults)
     let now = chrono::Utc::now().timestamp();
@@ -310,7 +326,7 @@ pub async fn update_license(
 
     // Update email hash if provided
     if let Some(ref email) = body.email {
-        let new_email_hash = queries::hash_email(email);
+        let new_email_hash = state.email_hasher.hash(email);
         queries::update_license_email_hash(&conn, &license.id, &new_email_hash)?;
 
         // Audit log the email change (log old hash for investigation, not new email for privacy)
@@ -576,8 +592,9 @@ pub async fn restore_license(
         .ok_or_else(|| AppError::NotFound("Deleted license not found".into()))?;
 
     // Verify it belongs to a product in this project
-    let product = queries::get_product_by_id(&conn, &existing.product_id)?
-        .ok_or_else(|| AppError::NotFound("Deleted license not found (product not found)".into()))?;
+    let product = queries::get_product_by_id(&conn, &existing.product_id)?.ok_or_else(|| {
+        AppError::NotFound("Deleted license not found (product not found)".into())
+    })?;
 
     if product.project_id != path.project_id {
         return Err(AppError::NotFound("Deleted license not found".into()));

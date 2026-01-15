@@ -1,5 +1,6 @@
 //! Database CRUD operation tests for core entities
 
+#[path = "../common/mod.rs"]
 mod common;
 
 use common::*;
@@ -9,13 +10,14 @@ use common::*;
 #[test]
 fn test_create_operator() {
     let conn = setup_test_db();
-    let (user, operator, api_key) = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
+    let (user, operator, api_key) =
+        create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
 
-    assert!(!operator.id.is_empty());
-    assert_eq!(user.email, "test@example.com");
-    assert_eq!(operator.role, OperatorRole::Admin);
-    assert!(!api_key.is_empty());
-    assert!(api_key.starts_with("pc_")); // All keys use pc_ prefix
+    assert!(!operator.id.is_empty(), "operator should have a generated ID");
+    assert_eq!(user.email, "test@example.com", "user email should match input");
+    assert_eq!(operator.role, OperatorRole::Admin, "operator role should match input");
+    assert!(!api_key.is_empty(), "API key should be generated");
+    assert!(api_key.starts_with("pc_"), "API key should have pc_ prefix");
 }
 
 #[test]
@@ -27,20 +29,21 @@ fn test_get_operator_by_id() {
         .expect("Query failed")
         .expect("Operator not found");
 
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.role, created.role);
+    assert_eq!(fetched.id, created.id, "fetched operator ID should match created");
+    assert_eq!(fetched.role, created.role, "fetched operator role should match created");
 }
 
 #[test]
 fn test_get_user_by_api_key() {
     let conn = setup_test_db();
-    let (created_user, _operator, api_key) = create_test_operator(&conn, "test@example.com", OperatorRole::View);
+    let (created_user, _operator, api_key) =
+        create_test_operator(&conn, "test@example.com", OperatorRole::View);
 
     let (fetched_user, _api_key) = queries::get_user_by_api_key(&conn, &api_key)
         .expect("Query failed")
         .expect("User not found");
 
-    assert_eq!(fetched_user.id, created_user.id);
+    assert_eq!(fetched_user.id, created_user.id, "fetched user ID should match created user");
 }
 
 #[test]
@@ -50,7 +53,7 @@ fn test_get_user_with_invalid_api_key_returns_none() {
 
     let result = queries::get_user_by_api_key(&conn, "invalid_key").expect("Query failed");
 
-    assert!(result.is_none());
+    assert!(result.is_none(), "invalid API key should return None");
 }
 
 #[test]
@@ -62,7 +65,7 @@ fn test_list_operators() {
 
     let operators = queries::list_operators(&conn).expect("Query failed");
 
-    assert_eq!(operators.len(), 3);
+    assert_eq!(operators.len(), 3, "should return all 3 created operators");
 }
 
 #[test]
@@ -79,7 +82,7 @@ fn test_update_operator() {
         .expect("Query failed")
         .expect("Operator not found");
 
-    assert_eq!(updated.role, OperatorRole::Admin);
+    assert_eq!(updated.role, OperatorRole::Admin, "operator role should be updated to Admin");
 }
 
 #[test]
@@ -88,10 +91,10 @@ fn test_delete_operator() {
     let (_user, operator, _) = create_test_operator(&conn, "test@example.com", OperatorRole::Admin);
 
     let deleted = queries::delete_operator(&conn, &operator.id).expect("Delete failed");
-    assert!(deleted);
+    assert!(deleted, "delete should return true for existing operator");
 
     let result = queries::get_operator_by_id(&conn, &operator.id).expect("Query failed");
-    assert!(result.is_none());
+    assert!(result.is_none(), "deleted operator should not be found");
 }
 
 // ============ Organization Tests ============
@@ -101,9 +104,9 @@ fn test_create_organization() {
     let conn = setup_test_db();
     let org = create_test_org(&conn, "Test Organization");
 
-    assert!(!org.id.is_empty());
-    assert_eq!(org.name, "Test Organization");
-    assert!(org.created_at > 0);
+    assert!(!org.id.is_empty(), "organization should have a generated ID");
+    assert_eq!(org.name, "Test Organization", "organization name should match input");
+    assert!(org.created_at > 0, "created_at should be a valid timestamp");
 }
 
 #[test]
@@ -115,8 +118,8 @@ fn test_get_organization_by_id() {
         .expect("Query failed")
         .expect("Organization not found");
 
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.name, created.name);
+    assert_eq!(fetched.id, created.id, "fetched org ID should match created");
+    assert_eq!(fetched.name, created.name, "fetched org name should match created");
 }
 
 #[test]
@@ -126,7 +129,7 @@ fn test_list_organizations() {
     create_test_org(&conn, "Org 2");
 
     let orgs = queries::list_organizations(&conn).expect("Query failed");
-    assert_eq!(orgs.len(), 2);
+    assert_eq!(orgs.len(), 2, "should return all 2 created organizations");
 }
 
 #[test]
@@ -148,7 +151,7 @@ fn test_update_organization() {
         .expect("Query failed")
         .expect("Organization not found");
 
-    assert_eq!(updated.name, "Updated Name");
+    assert_eq!(updated.name, "Updated Name", "organization name should be updated");
 }
 
 #[test]
@@ -157,10 +160,10 @@ fn test_delete_organization() {
     let org = create_test_org(&conn, "To Delete");
 
     let deleted = queries::delete_organization(&conn, &org.id).expect("Delete failed");
-    assert!(deleted);
+    assert!(deleted, "delete should return true for existing organization");
 
     let result = queries::get_organization_by_id(&conn, &org.id).expect("Query failed");
-    assert!(result.is_none());
+    assert!(result.is_none(), "deleted organization should not be found");
 }
 
 // ============ Org Member Tests ============
@@ -172,11 +175,11 @@ fn test_create_org_member() {
     let (user, member, api_key) =
         create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Owner);
 
-    assert!(!member.id.is_empty());
-    assert_eq!(member.org_id, org.id);
-    assert_eq!(user.email, "member@test.com");
-    assert_eq!(member.role, OrgMemberRole::Owner);
-    assert!(api_key.starts_with("pc_")); // All keys use pc_ prefix
+    assert!(!member.id.is_empty(), "org member should have a generated ID");
+    assert_eq!(member.org_id, org.id, "member org_id should match org");
+    assert_eq!(user.email, "member@test.com", "user email should match input");
+    assert_eq!(member.role, OrgMemberRole::Owner, "member role should match input");
+    assert!(api_key.starts_with("pc_"), "API key should have pc_ prefix");
 }
 
 #[test]
@@ -190,7 +193,7 @@ fn test_get_user_by_api_key_for_member() {
         .expect("Query failed")
         .expect("User not found");
 
-    assert_eq!(fetched_user.id, created_user.id);
+    assert_eq!(fetched_user.id, created_user.id, "fetched user ID should match org member's user");
 }
 
 #[test]
@@ -202,7 +205,7 @@ fn test_list_org_members() {
     create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
 
     let members = queries::list_org_members(&conn, &org.id).expect("Query failed");
-    assert_eq!(members.len(), 3);
+    assert_eq!(members.len(), 3, "should return all 3 created org members");
 }
 
 #[test]
@@ -212,18 +215,20 @@ fn test_same_user_different_orgs() {
     let org2 = create_test_org(&conn, "Org 2");
 
     // Create first user and member
-    let (user1, m1, _) = create_test_org_member(&conn, &org1.id, "same@test.com", OrgMemberRole::Owner);
+    let (user1, m1, _) =
+        create_test_org_member(&conn, &org1.id, "same@test.com", OrgMemberRole::Owner);
 
     // Same user can be member of another org
     let m2_input = CreateOrgMember {
         user_id: user1.id.clone(),
         role: OrgMemberRole::Owner,
     };
-    let m2 = queries::create_org_member(&conn, &org2.id, &m2_input).expect("Should allow same user in different org");
+    let m2 = queries::create_org_member(&conn, &org2.id, &m2_input)
+        .expect("Should allow same user in different org");
 
     // Same user_id, different orgs
-    assert_eq!(m1.user_id, m2.user_id);
-    assert_ne!(m1.org_id, m2.org_id);
+    assert_eq!(m1.user_id, m2.user_id, "both memberships should reference the same user");
+    assert_ne!(m1.org_id, m2.org_id, "memberships should be in different orgs");
 }
 
 // ============ Project Tests ============
@@ -235,13 +240,13 @@ fn test_create_project() {
     let org = create_test_org(&conn, "Test Org");
     let project = create_test_project(&conn, &org.id, "My App", &master_key);
 
-    assert!(!project.id.is_empty());
-    assert_eq!(project.org_id, org.id);
-    assert_eq!(project.name, "My App");
-    assert_eq!(project.license_key_prefix, "TEST");
+    assert!(!project.id.is_empty(), "project should have a generated ID");
+    assert_eq!(project.org_id, org.id, "project org_id should match org");
+    assert_eq!(project.name, "My App", "project name should match input");
+    assert_eq!(project.license_key_prefix, "TEST", "project license_key_prefix should match input");
     // Verify keypair was generated
-    assert!(!project.private_key.is_empty());
-    assert!(!project.public_key.is_empty());
+    assert!(!project.private_key.is_empty(), "project should have a generated private key");
+    assert!(!project.public_key.is_empty(), "project should have a generated public key");
 }
 
 #[test]
@@ -255,9 +260,9 @@ fn test_get_project_by_id() {
         .expect("Query failed")
         .expect("Project not found");
 
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.name, created.name);
-    assert_eq!(fetched.public_key, created.public_key);
+    assert_eq!(fetched.id, created.id, "fetched project ID should match created");
+    assert_eq!(fetched.name, created.name, "fetched project name should match created");
+    assert_eq!(fetched.public_key, created.public_key, "fetched public key should match created");
 }
 
 #[test]
@@ -269,7 +274,7 @@ fn test_list_projects_for_org() {
     create_test_project(&conn, &org.id, "App 2", &master_key);
 
     let projects = queries::list_projects_for_org(&conn, &org.id).expect("Query failed");
-    assert_eq!(projects.len(), 2);
+    assert_eq!(projects.len(), 2, "should return all 2 projects for the org");
 }
 
 #[test]
@@ -298,19 +303,19 @@ fn test_update_org_stripe_config() {
         .expect("Query failed")
         .expect("Organization not found");
 
-    assert!(updated.has_stripe_config());
+    assert!(updated.has_stripe_config(), "org should have Stripe config after update");
     let decrypted = updated
         .decrypt_stripe_config(&master_key)
         .expect("Decryption failed")
         .expect("Config not found");
-    assert_eq!(decrypted.secret_key, "sk_test_xxx");
+    assert_eq!(decrypted.secret_key, "sk_test_xxx", "decrypted secret key should match input");
 
     // Verify the raw data is actually encrypted (has magic bytes)
-    assert!(updated.stripe_config_encrypted.is_some());
+    assert!(updated.stripe_config_encrypted.is_some(), "encrypted config should be stored");
     let raw = updated.stripe_config_encrypted.as_ref().unwrap();
     assert!(
         raw.starts_with(b"ENC1"),
-        "Config should be encrypted with ENC1 magic bytes"
+        "config should be encrypted with ENC1 magic bytes"
     );
 }
 
@@ -340,17 +345,17 @@ fn test_update_org_lemonsqueezy_config() {
         .expect("Query failed")
         .expect("Organization not found");
 
-    assert!(updated.has_ls_config());
+    assert!(updated.has_ls_config(), "org should have LemonSqueezy config after update");
     let decrypted = updated
         .decrypt_ls_config(&master_key)
         .expect("Decryption failed")
         .expect("Config not found");
-    assert_eq!(decrypted.api_key, "ls_test_api_key");
-    assert_eq!(decrypted.store_id, "store_12345");
+    assert_eq!(decrypted.api_key, "ls_test_api_key", "decrypted API key should match input");
+    assert_eq!(decrypted.store_id, "store_12345", "decrypted store_id should match input");
 
     // Verify encryption
     let raw = updated.ls_config_encrypted.as_ref().unwrap();
-    assert!(raw.starts_with(b"ENC1"), "Config should be encrypted");
+    assert!(raw.starts_with(b"ENC1"), "config should be encrypted with ENC1 magic bytes");
 }
 
 #[test]
@@ -386,22 +391,22 @@ fn test_update_org_both_payment_configs() {
         .expect("Organization not found");
 
     // Both configs should be present and decryptable
-    assert!(updated.has_stripe_config());
-    assert!(updated.has_ls_config());
+    assert!(updated.has_stripe_config(), "org should have Stripe config");
+    assert!(updated.has_ls_config(), "org should have LemonSqueezy config");
 
     let stripe = updated
         .decrypt_stripe_config(&master_key)
         .expect("Stripe decryption failed")
         .expect("Stripe config not found");
-    assert_eq!(stripe.secret_key, "sk_test_both");
+    assert_eq!(stripe.secret_key, "sk_test_both", "Stripe secret key should match input");
 
     let ls = updated
         .decrypt_ls_config(&master_key)
         .expect("LS decryption failed")
         .expect("LS config not found");
-    assert_eq!(ls.api_key, "ls_both_key");
+    assert_eq!(ls.api_key, "ls_both_key", "LemonSqueezy API key should match input");
 
-    assert_eq!(updated.payment_provider, Some("stripe".to_string()));
+    assert_eq!(updated.payment_provider, Some("stripe".to_string()), "payment_provider should be set to stripe");
 }
 
 #[test]
@@ -446,14 +451,14 @@ fn test_create_product() {
     let project = create_test_project(&conn, &org.id, "My App", &master_key);
     let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
 
-    assert!(!product.id.is_empty());
-    assert_eq!(product.project_id, project.id);
-    assert_eq!(product.name, "Pro Plan");
-    assert_eq!(product.tier, "pro");
-    assert_eq!(product.license_exp_days, Some(365));
-    assert_eq!(product.device_limit, 3);
-    assert_eq!(product.activation_limit, 5);
-    assert_eq!(product.features, vec!["feature1", "feature2"]);
+    assert!(!product.id.is_empty(), "product should have a generated ID");
+    assert_eq!(product.project_id, project.id, "product project_id should match project");
+    assert_eq!(product.name, "Pro Plan", "product name should match input");
+    assert_eq!(product.tier, "pro", "product tier should match input");
+    assert_eq!(product.license_exp_days, Some(ONE_YEAR as i32), "license_exp_days should be 1 year");
+    assert_eq!(product.device_limit, 3, "device_limit should match test default");
+    assert_eq!(product.activation_limit, 5, "activation_limit should match test default");
+    assert_eq!(product.features, vec!["feature1", "feature2"], "features should match test defaults");
 }
 
 #[test]
@@ -468,8 +473,8 @@ fn test_get_product_by_id() {
         .expect("Query failed")
         .expect("Product not found");
 
-    assert_eq!(fetched.id, created.id);
-    assert_eq!(fetched.tier, "enterprise");
+    assert_eq!(fetched.id, created.id, "fetched product ID should match created");
+    assert_eq!(fetched.tier, "enterprise", "fetched product tier should match created");
 }
 
 #[test]
@@ -483,7 +488,7 @@ fn test_list_products_for_project() {
     create_test_product(&conn, &project.id, "Enterprise", "enterprise");
 
     let products = queries::list_products_for_project(&conn, &project.id).expect("Query failed");
-    assert_eq!(products.len(), 3);
+    assert_eq!(products.len(), 3, "should return all 3 products for the project");
 }
 
 #[test]
@@ -497,7 +502,7 @@ fn test_update_product() {
     let update = UpdateProduct {
         name: Some("Premium".to_string()),
         tier: Some("premium".to_string()),
-        license_exp_days: Some(Some(730)),
+        license_exp_days: Some(Some(2 * ONE_YEAR as i32)),
         updates_exp_days: None,
         activation_limit: Some(10),
         device_limit: Some(5),
@@ -514,12 +519,12 @@ fn test_update_product() {
         .expect("Query failed")
         .expect("Product not found");
 
-    assert_eq!(updated.name, "Premium");
-    assert_eq!(updated.tier, "premium");
-    assert_eq!(updated.license_exp_days, Some(730));
-    assert_eq!(updated.activation_limit, 10);
-    assert_eq!(updated.device_limit, 5);
-    assert_eq!(updated.features.len(), 3);
+    assert_eq!(updated.name, "Premium", "product name should be updated");
+    assert_eq!(updated.tier, "premium", "product tier should be updated");
+    assert_eq!(updated.license_exp_days, Some(2 * ONE_YEAR as i32), "license_exp_days should be 2 years");
+    assert_eq!(updated.activation_limit, 10, "activation_limit should be updated");
+    assert_eq!(updated.device_limit, 5, "device_limit should be updated");
+    assert_eq!(updated.features.len(), 3, "features should have 3 items after update");
 }
 
 #[test]
@@ -531,10 +536,10 @@ fn test_delete_product() {
     let product = create_test_product(&conn, &project.id, "To Delete", "delete");
 
     let deleted = queries::delete_product(&conn, &product.id).expect("Delete failed");
-    assert!(deleted);
+    assert!(deleted, "delete should return true for existing product");
 
     let result = queries::get_product_by_id(&conn, &product.id).expect("Query failed");
-    assert!(result.is_none());
+    assert!(result.is_none(), "deleted product should not be found");
 }
 
 // ============ Cascade Delete Tests ============
@@ -549,7 +554,7 @@ fn test_delete_org_cascades_to_members() {
     queries::delete_organization(&conn, &org.id).expect("Delete failed");
 
     let result = queries::get_org_member_by_id(&conn, &member.id).expect("Query failed");
-    assert!(result.is_none());
+    assert!(result.is_none(), "org member should be cascade deleted with org");
 }
 
 #[test]
@@ -562,7 +567,7 @@ fn test_delete_org_cascades_to_projects() {
     queries::delete_organization(&conn, &org.id).expect("Delete failed");
 
     let result = queries::get_project_by_id(&conn, &project.id).expect("Query failed");
-    assert!(result.is_none());
+    assert!(result.is_none(), "project should be cascade deleted with org");
 }
 
 #[test]
@@ -576,7 +581,7 @@ fn test_delete_project_cascades_to_products() {
     queries::delete_project(&conn, &project.id).expect("Delete failed");
 
     let result = queries::get_product_by_id(&conn, &product.id).expect("Query failed");
-    assert!(result.is_none());
+    assert!(result.is_none(), "product should be cascade deleted with project");
 }
 
 // ============ Audit Log Purge Tests ============
@@ -622,19 +627,19 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM audit_logs", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 4);
+    assert_eq!(count, 4, "should have 4 audit logs before purge");
 
     // Purge with 1 day retention (anything older than 1 day ago)
-    let deleted = queries::purge_old_public_audit_logs(&conn, 1).unwrap();
+    let deleted = queries::purge_old_public_audit_logs(&conn, ONE_DAY).unwrap();
 
     // Only the public log should be deleted
-    assert_eq!(deleted, 1);
+    assert_eq!(deleted, 1, "should delete only 1 public audit log");
 
     // Verify only 3 logs remain
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM audit_logs", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 3);
+    assert_eq!(count, 3, "should have 3 audit logs after purge");
 
     // Verify the public log is gone
     let public_exists: bool = conn
@@ -644,7 +649,7 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(!public_exists);
+    assert!(!public_exists, "public audit log should be deleted");
 
     // Verify internal logs still exist
     let internal_exists: bool = conn
@@ -654,7 +659,7 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(internal_exists);
+    assert!(internal_exists, "internal audit log should be preserved");
 
     let user_exists: bool = conn
         .query_row(
@@ -663,7 +668,7 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(user_exists);
+    assert!(user_exists, "user audit log should be preserved");
 
     let system_exists: bool = conn
         .query_row(
@@ -672,7 +677,7 @@ fn test_purge_old_public_audit_logs_only_deletes_public() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(system_exists);
+    assert!(system_exists, "system audit log should be preserved");
 }
 
 #[test]
@@ -694,7 +699,7 @@ fn test_purge_old_public_audit_logs_respects_retention_period() {
     .unwrap();
 
     // Create a recent public log (1 day old)
-    let recent_timestamp = now - 86400;
+    let recent_timestamp = now - (ONE_DAY * 86400);
     conn.execute(
         "INSERT INTO audit_logs (id, timestamp, actor_type, action, resource_type, resource_id)
          VALUES ('log_recent_public', ?1, 'public', 'redeem', 'license', 'lic2')",
@@ -703,10 +708,10 @@ fn test_purge_old_public_audit_logs_respects_retention_period() {
     .unwrap();
 
     // Purge with 30 day retention
-    let deleted = queries::purge_old_public_audit_logs(&conn, 30).unwrap();
+    let deleted = queries::purge_old_public_audit_logs(&conn, ONE_MONTH).unwrap();
 
     // Only the old public log should be deleted
-    assert_eq!(deleted, 1);
+    assert_eq!(deleted, 1, "should delete only the old public log");
 
     // Verify the recent public log still exists
     let recent_exists: bool = conn
@@ -716,7 +721,7 @@ fn test_purge_old_public_audit_logs_respects_retention_period() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(recent_exists);
+    assert!(recent_exists, "recent public log within retention period should be preserved");
 }
 
 // ============ API Key Scope Validation Tests ============
@@ -759,11 +764,11 @@ fn test_api_key_scope_rejects_project_from_different_org() {
         Some(&[invalid_scope]),
     );
 
-    assert!(result.is_err());
+    assert!(result.is_err(), "creating API key with cross-org project scope should fail");
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("does not belong to org"),
-        "Expected 'does not belong to org' error, got: {}",
+        "expected 'does not belong to org' error, got: {}",
         err
     );
 }
@@ -801,11 +806,11 @@ fn test_api_key_scope_rejects_nonexistent_project() {
         Some(&[invalid_scope]),
     );
 
-    assert!(result.is_err());
+    assert!(result.is_err(), "creating API key with nonexistent project scope should fail");
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("not found"),
-        "Expected 'not found' error, got: {}",
+        "expected 'not found' error, got: {}",
         err
     );
 }
@@ -845,12 +850,12 @@ fn test_api_key_scope_accepts_valid_project() {
         Some(&[valid_scope]),
     );
 
-    assert!(result.is_ok(), "Expected success, got: {:?}", result.err());
+    assert!(result.is_ok(), "creating API key with valid project scope should succeed, got: {:?}", result.err());
 
     // Verify the scope was created
     let (api_key, _full_key) = result.unwrap();
     let scopes = queries::get_api_key_scopes(&conn, &api_key.id).expect("Get scopes failed");
-    assert_eq!(scopes.len(), 1);
-    assert_eq!(scopes[0].org_id, org.id);
-    assert_eq!(scopes[0].project_id, Some(project.id));
+    assert_eq!(scopes.len(), 1, "should have exactly 1 scope");
+    assert_eq!(scopes[0].org_id, org.id, "scope org_id should match input");
+    assert_eq!(scopes[0].project_id, Some(project.id), "scope project_id should match input");
 }

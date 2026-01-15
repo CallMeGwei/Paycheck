@@ -40,15 +40,12 @@ pub async fn request_activation_code(
     let conn = state.db.get()?;
 
     // Compute email hash for rate limiting and lookup
-    let email_hash = queries::hash_email(&body.email);
+    let email_hash = state.email_hasher.hash(&body.email);
 
     // Rate limit check (by email hash)
     if let Err(_msg) = state.activation_rate_limiter.check(&email_hash) {
         // Return same generic message to prevent timing attacks
-        tracing::warn!(
-            "Rate limit exceeded for email hash {}...",
-            &email_hash[..8]
-        );
+        tracing::warn!("Rate limit exceeded for email hash {}...", &email_hash[..8]);
         // Still return success to prevent email enumeration via rate limit error timing
         return Ok(Json(RequestCodeResponse {
             message: "If a license exists for this email, an activation code has been sent.",

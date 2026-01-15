@@ -85,10 +85,7 @@ pub fn decode_unverified(token: &str) -> Result<LicenseClaims> {
 /// Validates signature, expiration, and issuer ("paycheck")
 /// Note: Audience is NOT verified - signature verification with the project's
 /// public key is sufficient to prove the token was issued for that project.
-pub fn verify_token(
-    token: &str,
-    public_key_b64: &str,
-) -> Result<JWTClaims<LicenseClaims>> {
+pub fn verify_token(token: &str, public_key_b64: &str) -> Result<JWTClaims<LicenseClaims>> {
     verify_token_internal(token, public_key_b64, false)
 }
 

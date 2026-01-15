@@ -7,8 +7,9 @@ use axum::{Router, body::Body, http::Request};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+#[path = "../common/mod.rs"]
 mod common;
-use common::*;
+use common::{*, ONE_YEAR, ONE_MONTH};
 
 use paycheck::db::AppState;
 use paycheck::handlers;
@@ -44,16 +45,21 @@ fn org_app() -> (Router, AppState) {
         base_url: "http://localhost:3000".to_string(),
         audit_log_enabled: false,
         master_key,
+        email_hasher: paycheck::crypto::EmailHasher::from_bytes([0xAA; 32]),
         success_page_url: "http://localhost:3000/success".to_string(),
         activation_rate_limiter: std::sync::Arc::new(
             paycheck::rate_limit::ActivationRateLimiter::default(),
         ),
-        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(None, "test@example.com".to_string())),
+        email_service: std::sync::Arc::new(paycheck::email::EmailService::new(
+            None,
+            "test@example.com".to_string(),
+        )),
         jwks_cache: std::sync::Arc::new(paycheck::jwt::JwksCache::new()),
         trusted_issuers: vec![],
     };
 
-    let app = handlers::orgs::router(state.clone(), paycheck::config::RateLimitConfig::disabled()).with_state(state.clone());
+    let app = handlers::orgs::router(state.clone(), paycheck::config::RateLimitConfig::disabled())
+        .with_state(state.clone());
 
     (app, state)
 }
@@ -89,7 +95,7 @@ mod product_tests {
         let body = json!({
             "name": "Pro Plan",
             "tier": "pro",
-            "license_exp_days": 365,
+            "license_exp_days": ONE_YEAR,
             "updates_exp_days": 180,
             "activation_limit": 10,
             "device_limit": 5,
@@ -109,23 +115,24 @@ mod product_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create product should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert!(json["id"].as_str().is_some());
-        assert_eq!(json["name"], "Pro Plan");
-        assert_eq!(json["tier"], "pro");
-        assert_eq!(json["license_exp_days"], 365);
-        assert_eq!(json["updates_exp_days"], 180);
-        assert_eq!(json["activation_limit"], 10);
-        assert_eq!(json["device_limit"], 5);
+        assert!(json["id"].as_str().is_some(), "response should include product ID");
+        assert_eq!(json["name"], "Pro Plan", "product name should match input");
+        assert_eq!(json["tier"], "pro", "product tier should match input");
+        assert_eq!(json["license_exp_days"], ONE_YEAR, "license expiration should be one year");
+        assert_eq!(json["updates_exp_days"], 180, "updates expiration should be 180 days");
+        assert_eq!(json["activation_limit"], 10, "activation limit should match input");
+        assert_eq!(json["device_limit"], 5, "device limit should match input");
         assert_eq!(
             json["features"],
-            json!(["feature1", "feature2", "advanced"])
+            json!(["feature1", "feature2", "advanced"]),
+            "features array should match input"
         );
     }
 
@@ -167,7 +174,7 @@ mod product_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "list products should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -175,8 +182,8 @@ mod product_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         let products = json["items"].as_array().unwrap();
-        assert_eq!(products.len(), 3);
-        assert_eq!(json["total"], 3);
+        assert_eq!(products.len(), 3, "should return all 3 created products");
+        assert_eq!(json["total"], 3, "total count should be 3");
     }
 
     #[tokio::test]
@@ -218,16 +225,16 @@ mod product_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "get product should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["id"], product_id);
-        assert_eq!(json["name"], "Pro Plan");
-        assert_eq!(json["tier"], "pro");
+        assert_eq!(json["id"], product_id, "product ID should match requested ID");
+        assert_eq!(json["name"], "Pro Plan", "product name should match");
+        assert_eq!(json["tier"], "pro", "product tier should match");
     }
 
     #[tokio::test]
@@ -276,16 +283,16 @@ mod product_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "update product should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["name"], "Pro Plan Plus");
-        assert_eq!(json["tier"], "pro_plus");
-        assert_eq!(json["device_limit"], 10);
+        assert_eq!(json["name"], "Pro Plan Plus", "product name should be updated");
+        assert_eq!(json["tier"], "pro_plus", "product tier should be updated");
+        assert_eq!(json["device_limit"], 10, "device limit should be updated");
     }
 
     #[tokio::test]
@@ -327,19 +334,19 @@ mod product_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "delete product should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["success"], true);
+        assert_eq!(json["success"], true, "delete response should indicate success");
 
         // Verify product is actually deleted
         let conn = state.db.get().unwrap();
         let result = queries::get_product_by_id(&conn, &product_id).unwrap();
-        assert!(result.is_none());
+        assert!(result.is_none(), "product should no longer exist in database");
     }
 
     #[tokio::test]
@@ -383,7 +390,7 @@ mod product_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "accessing product from wrong project should return 404");
     }
 }
 
@@ -436,7 +443,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create license should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -444,10 +451,10 @@ mod license_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         let licenses = json["licenses"].as_array().unwrap();
-        assert_eq!(licenses.len(), 1);
-        assert!(licenses[0]["id"].as_str().is_some());
+        assert_eq!(licenses.len(), 1, "should create exactly one license");
+        assert!(licenses[0]["id"].as_str().is_some(), "license should have an ID");
         // Note: "key" field no longer exists (email-only activation model)
-        assert!(licenses[0]["expires_at"].as_i64().is_some()); // Product has 365 day expiration
+        assert!(licenses[0]["expires_at"].as_i64().is_some(), "license should have expiration date from product default");
     }
 
     #[tokio::test]
@@ -493,7 +500,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "bulk create licenses should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -501,15 +508,12 @@ mod license_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         let licenses = json["licenses"].as_array().unwrap();
-        assert_eq!(licenses.len(), 5);
+        assert_eq!(licenses.len(), 5, "should create exactly 5 licenses as requested");
 
         // All IDs should be unique
-        let ids: Vec<&str> = licenses
-            .iter()
-            .map(|l| l["id"].as_str().unwrap())
-            .collect();
+        let ids: Vec<&str> = licenses.iter().map(|l| l["id"].as_str().unwrap()).collect();
         let unique_ids: std::collections::HashSet<&str> = ids.iter().cloned().collect();
-        assert_eq!(ids.len(), unique_ids.len());
+        assert_eq!(ids.len(), unique_ids.len(), "all license IDs should be unique");
     }
 
     #[tokio::test]
@@ -554,7 +558,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST, "exceeding bulk limit of 100 should return 400");
     }
 
     #[tokio::test]
@@ -581,10 +585,10 @@ mod license_tests {
             api_key = key;
         }
 
-        // Override to 30 day expiration
+        // Override to one month expiration
         let body = json!({
             "product_id": product_id,
-            "license_exp_days": 30,
+            "license_exp_days": ONE_MONTH,
             "updates_exp_days": 60,
             "email": "customer@example.com"
         });
@@ -604,7 +608,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create license with custom expiration should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -616,12 +620,12 @@ mod license_tests {
         let updates_exp = licenses[0]["updates_expires_at"].as_i64().unwrap();
 
         // Should be ~30 days from now
-        assert!(license_exp >= before + (30 * 86400) - 5);
-        assert!(license_exp <= before + (30 * 86400) + 5);
+        assert!(license_exp >= before + (ONE_MONTH * 86400) - 5, "license expiration should be at least 30 days from now");
+        assert!(license_exp <= before + (ONE_MONTH * 86400) + 5, "license expiration should be at most 30 days from now");
 
         // Updates should be ~60 days from now
-        assert!(updates_exp >= before + (60 * 86400) - 5);
-        assert!(updates_exp <= before + (60 * 86400) + 5);
+        assert!(updates_exp >= before + (60 * 86400) - 5, "updates expiration should be at least 60 days from now");
+        assert!(updates_exp <= before + (60 * 86400) + 5, "updates expiration should be at most 60 days from now");
     }
 
     #[tokio::test]
@@ -678,7 +682,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create perpetual license should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -688,11 +692,11 @@ mod license_tests {
         let licenses = json["licenses"].as_array().unwrap();
         assert!(
             licenses[0]["expires_at"].is_null(),
-            "Perpetual license should have null expires_at"
+            "perpetual license should have null expires_at"
         );
         assert!(
             licenses[0]["updates_expires_at"].is_null(),
-            "Perpetual license should have null updates_expires_at"
+            "perpetual license should have null updates_expires_at"
         );
     }
 
@@ -713,12 +717,8 @@ mod license_tests {
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-            let license = create_test_license(
-                &conn,
-                &project.id,
-                &product.id,
-                Some(future_timestamp(365)),
-            );
+            let license =
+                create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
 
             // Create a device for the license
             create_test_device(&conn, &license.id, "device-1", DeviceType::Uuid);
@@ -744,7 +744,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "get license should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -752,13 +752,13 @@ mod license_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         // Verify license fields
-        assert_eq!(json["id"], license_id);
-        assert!(json["product_name"].as_str().is_some());
+        assert_eq!(json["id"], license_id, "license ID should match requested ID");
+        assert!(json["product_name"].as_str().is_some(), "license should include product name");
 
         // Verify devices array
         let devices = json["devices"].as_array().unwrap();
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0]["device_id"], "device-1");
+        assert_eq!(devices.len(), 1, "license should have exactly one device");
+        assert_eq!(devices[0]["device_id"], "device-1", "device ID should match");
     }
 
     #[tokio::test]
@@ -778,12 +778,8 @@ mod license_tests {
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-            let license = create_test_license(
-                &conn,
-                &project.id,
-                &product.id,
-                Some(future_timestamp(365)),
-            );
+            let license =
+                create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
 
             org_id = org.id;
             project_id = project.id;
@@ -806,21 +802,21 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "revoke license should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["success"], true);
+        assert_eq!(json["success"], true, "revoke response should indicate success");
 
         // Verify in database
         let conn = state.db.get().unwrap();
         let license = queries::get_license_by_id(&conn, &license_id)
             .unwrap()
             .unwrap();
-        assert!(license.revoked);
+        assert!(license.revoked, "license should be marked as revoked in database");
     }
 
     #[tokio::test]
@@ -840,12 +836,8 @@ mod license_tests {
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-            let license = create_test_license(
-                &conn,
-                &project.id,
-                &product.id,
-                Some(future_timestamp(365)),
-            );
+            let license =
+                create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
 
             // Pre-revoke the license
             queries::revoke_license(&conn, &license.id).unwrap();
@@ -871,7 +863,7 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST, "revoking already-revoked license should return 400");
     }
 
     // NOTE: test_replace_license removed - license replacement endpoint no longer exists
@@ -895,12 +887,8 @@ mod license_tests {
                 create_test_org_member(&conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
             let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
-            let license = create_test_license(
-                &conn,
-                &project.id,
-                &product.id,
-                Some(future_timestamp(365)),
-            );
+            let license =
+                create_test_license(&conn, &project.id, &product.id, Some(future_timestamp(ONE_YEAR)));
 
             // Create devices
             create_test_device(&conn, &license.id, "device-1", DeviceType::Uuid);
@@ -928,22 +916,22 @@ mod license_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "deactivate device should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["deactivated"], true);
-        assert_eq!(json["device_id"], device_id);
-        assert_eq!(json["remaining_devices"], 1); // Was 2, now 1
+        assert_eq!(json["deactivated"], true, "response should indicate device was deactivated");
+        assert_eq!(json["device_id"], device_id, "response should include deactivated device ID");
+        assert_eq!(json["remaining_devices"], 1, "remaining devices should be 1 after removing one of two");
 
         // Verify device is removed from database
         let conn = state.db.get().unwrap();
         let devices = queries::list_devices_for_license(&conn, &license_id).unwrap();
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].device_id, "device-2");
+        assert_eq!(devices.len(), 1, "license should have 1 device remaining in database");
+        assert_eq!(devices[0].device_id, "device-2", "remaining device should be device-2");
     }
 }
 
@@ -990,19 +978,19 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create project should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert!(json["id"].as_str().is_some());
-        assert_eq!(json["name"], "My New Project");
-        assert_eq!(json["license_key_prefix"], "MNP");
-        assert_eq!(json["redirect_url"], "https://myapp.com/activated");
+        assert!(json["id"].as_str().is_some(), "response should include project ID");
+        assert_eq!(json["name"], "My New Project", "project name should match input");
+        assert_eq!(json["license_key_prefix"], "MNP", "license key prefix should match input");
+        assert_eq!(json["redirect_url"], "https://myapp.com/activated", "redirect URL should match input");
         // Public key should be present (for client-side JWT verification)
-        assert!(json["public_key"].as_str().is_some());
+        assert!(json["public_key"].as_str().is_some(), "project should include public key for JWT verification");
     }
 
     #[tokio::test]
@@ -1040,7 +1028,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "list projects should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -1048,8 +1036,8 @@ mod project_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         let projects = json["items"].as_array().unwrap();
-        assert_eq!(projects.len(), 3);
-        assert_eq!(json["total"], 3);
+        assert_eq!(projects.len(), 3, "should return all 3 created projects");
+        assert_eq!(json["total"], 3, "total count should be 3");
     }
 
     #[tokio::test]
@@ -1090,14 +1078,14 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "update project should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["name"], "Updated Name");
+        assert_eq!(json["name"], "Updated Name", "project name should be updated");
     }
 
     #[tokio::test]
@@ -1133,16 +1121,16 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "get project should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["id"], project_id);
-        assert_eq!(json["name"], "My Project");
-        assert!(json["public_key"].as_str().is_some());
+        assert_eq!(json["id"], project_id, "project ID should match requested ID");
+        assert_eq!(json["name"], "My Project", "project name should match");
+        assert!(json["public_key"].as_str().is_some(), "project should include public key");
     }
 
     #[tokio::test]
@@ -1174,7 +1162,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "nonexistent project should return 404");
     }
 
     #[tokio::test]
@@ -1212,7 +1200,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "accessing another org's project should return 404");
     }
 
     #[tokio::test]
@@ -1248,19 +1236,19 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "delete project should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["success"], true);
+        assert_eq!(json["success"], true, "delete response should indicate success");
 
         // Verify project is deleted
         let conn = state.db.get().unwrap();
         let project = queries::get_project_by_id(&conn, &project_id).unwrap();
-        assert!(project.is_none());
+        assert!(project.is_none(), "project should no longer exist in database");
     }
 
     #[tokio::test]
@@ -1292,7 +1280,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "deleting nonexistent project should return 404");
     }
 
     #[tokio::test]
@@ -1330,7 +1318,7 @@ mod project_tests {
             .unwrap();
 
         // Returns 404 (not 403) to avoid leaking project existence to unauthorized users
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "member role should see 404 to avoid leaking project existence");
     }
 
     #[tokio::test]
@@ -1369,7 +1357,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN, "member role should not be able to create projects");
     }
 
     #[tokio::test]
@@ -1416,7 +1404,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "list projects should return 200 OK for member");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -1425,9 +1413,9 @@ mod project_tests {
 
         let projects = json["items"].as_array().unwrap();
         // Member should only see the one project they're assigned to
-        assert_eq!(projects.len(), 1);
-        assert_eq!(projects[0]["name"], assigned_project_name);
-        assert_eq!(json["total"], 1);
+        assert_eq!(projects.len(), 1, "member should only see assigned projects");
+        assert_eq!(projects[0]["name"], assigned_project_name, "member should see their assigned project");
+        assert_eq!(json["total"], 1, "total should reflect only assigned projects");
     }
 
     #[tokio::test]
@@ -1478,27 +1466,27 @@ mod project_tests {
 
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["org_id"], org_id);
+        assert_eq!(json["org_id"], org_id, "response should include org ID");
         // Stripe config should be masked
         assert!(
             json["stripe_config"].is_object(),
-            "Expected stripe_config to be object, got: {}",
+            "stripe_config should be present as an object, got: {}",
             json
         );
         let stripe = &json["stripe_config"];
         let secret_key = stripe["secret_key"].as_str().unwrap();
         assert!(
             secret_key.contains("...") || secret_key.contains("*"),
-            "Secret key should be masked, got: {}",
+            "stripe secret key should be masked for security, got: {}",
             secret_key
         );
         // LemonSqueezy config should be masked
-        assert!(json["ls_config"].is_object());
+        assert!(json["ls_config"].is_object(), "ls_config should be present as an object");
         let ls = &json["ls_config"];
         let api_key = ls["api_key"].as_str().unwrap();
         assert!(
             api_key.contains("...") || api_key.contains("*"),
-            "API key should be masked, got: {}",
+            "LemonSqueezy API key should be masked for security, got: {}",
             api_key
         );
     }
@@ -1532,16 +1520,16 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "get payment config should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["org_id"], org_id);
-        assert!(json["stripe_config"].is_null());
-        assert!(json["ls_config"].is_null());
+        assert_eq!(json["org_id"], org_id, "response should include org ID");
+        assert!(json["stripe_config"].is_null(), "stripe_config should be null when not configured");
+        assert!(json["ls_config"].is_null(), "ls_config should be null when not configured");
     }
 
     #[tokio::test]
@@ -1573,7 +1561,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN, "member role should not access payment config");
     }
 
     #[tokio::test]
@@ -1610,7 +1598,7 @@ mod project_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "updating nonexistent project should return 404");
     }
 }
 
@@ -1652,7 +1640,7 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "list org members should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -1660,8 +1648,8 @@ mod org_member_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         let members = json["items"].as_array().unwrap();
-        assert_eq!(members.len(), 3);
-        assert_eq!(json["total"], 3);
+        assert_eq!(members.len(), 3, "should return all 3 org members");
+        assert_eq!(json["total"], 3, "total count should be 3");
     }
 
     #[tokio::test]
@@ -1704,7 +1692,7 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create org member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -1712,9 +1700,9 @@ mod org_member_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         // Response is OrgMember (user_id linked, no email/name in response)
-        assert!(json["id"].as_str().is_some());
-        assert_eq!(json["user_id"], new_user_id);
-        assert_eq!(json["role"], "admin");
+        assert!(json["id"].as_str().is_some(), "response should include member ID");
+        assert_eq!(json["user_id"], new_user_id, "member should be linked to correct user");
+        assert_eq!(json["role"], "admin", "member role should match input");
     }
 
     #[tokio::test]
@@ -1722,7 +1710,7 @@ mod org_member_tests {
         let (app, state) = org_app();
 
         let org_id: String;
-        let member_id: String;
+        let target_user_id: String;
         let api_key: String;
 
         {
@@ -1730,11 +1718,11 @@ mod org_member_tests {
             let org = create_test_org(&conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, member, _) =
+            let (target_user, _, _) =
                 create_test_org_member(&conn, &org.id, "target@test.com", OrgMemberRole::Admin);
 
             org_id = org.id;
-            member_id = member.id;
+            target_user_id = target_user.id;
             api_key = key;
         }
 
@@ -1742,7 +1730,7 @@ mod org_member_tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/orgs/{}/members/{}", org_id, member_id))
+                    .uri(format!("/orgs/{}/members/{}", org_id, target_user_id))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -1750,16 +1738,16 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "get org member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["id"], member_id);
-        assert_eq!(json["email"], "target@test.com");
-        assert_eq!(json["role"], "admin");
+        assert_eq!(json["user_id"], target_user_id, "member user_id should match requested ID");
+        assert_eq!(json["email"], "target@test.com", "member email should be included");
+        assert_eq!(json["role"], "admin", "member role should match");
     }
 
     #[tokio::test]
@@ -1767,7 +1755,7 @@ mod org_member_tests {
         let (app, state) = org_app();
 
         let org1_id: String;
-        let org2_member_id: String;
+        let org2_user_id: String;
         let api_key: String;
 
         {
@@ -1776,20 +1764,20 @@ mod org_member_tests {
             let org2 = create_test_org(&conn, "Org 2");
             let (_, _, key) =
                 create_test_org_member(&conn, &org1.id, "owner@org1.com", OrgMemberRole::Owner);
-            let (_, member2, _) =
+            let (user2, _, _) =
                 create_test_org_member(&conn, &org2.id, "member@org2.com", OrgMemberRole::Member);
 
             org1_id = org1.id;
-            org2_member_id = member2.id;
+            org2_user_id = user2.id;
             api_key = key;
         }
 
-        // Try to get org2's member via org1's URL
+        // Try to get org2's member via org1's URL (user exists but not in org1)
         let response = app
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/orgs/{}/members/{}", org1_id, org2_member_id))
+                    .uri(format!("/orgs/{}/members/{}", org1_id, org2_user_id))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -1797,7 +1785,7 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "accessing member from another org should return 404");
     }
 
     #[tokio::test]
@@ -1805,7 +1793,7 @@ mod org_member_tests {
         let (app, state) = org_app();
 
         let org_id: String;
-        let member_id: String;
+        let target_user_id: String;
         let api_key: String;
 
         {
@@ -1813,11 +1801,11 @@ mod org_member_tests {
             let org = create_test_org(&conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, member, _) =
+            let (target_user, _, _) =
                 create_test_org_member(&conn, &org.id, "target@test.com", OrgMemberRole::Member);
 
             org_id = org.id;
-            member_id = member.id;
+            target_user_id = target_user.id;
             api_key = key;
         }
 
@@ -1830,7 +1818,7 @@ mod org_member_tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/orgs/{}/members/{}", org_id, member_id))
+                    .uri(format!("/orgs/{}/members/{}", org_id, target_user_id))
                     .header("content-type", "application/json")
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::from(serde_json::to_string(&body).unwrap()))
@@ -1839,14 +1827,14 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "update org member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["role"], "admin");
+        assert_eq!(json["role"], "admin", "member role should be updated to admin");
     }
 
     #[tokio::test]
@@ -1854,17 +1842,17 @@ mod org_member_tests {
         let (app, state) = org_app();
 
         let org_id: String;
-        let owner_id: String;
+        let owner_user_id: String;
         let api_key: String;
 
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, owner, key) =
+            let (owner_user, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
-            owner_id = owner.id;
+            owner_user_id = owner_user.id;
             api_key = key;
         }
 
@@ -1877,7 +1865,7 @@ mod org_member_tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/orgs/{}/members/{}", org_id, owner_id))
+                    .uri(format!("/orgs/{}/members/{}", org_id, owner_user_id))
                     .header("content-type", "application/json")
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::from(serde_json::to_string(&body).unwrap()))
@@ -1886,7 +1874,7 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST, "users should not be able to change their own role");
     }
 
     // NOTE: test_update_org_member_can_change_own_name removed
@@ -1897,7 +1885,7 @@ mod org_member_tests {
         let (app, state) = org_app();
 
         let org_id: String;
-        let member_id: String;
+        let target_user_id: String;
         let api_key: String;
 
         {
@@ -1905,11 +1893,11 @@ mod org_member_tests {
             let org = create_test_org(&conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, member, _) =
+            let (target_user, _, _) =
                 create_test_org_member(&conn, &org.id, "target@test.com", OrgMemberRole::Member);
 
             org_id = org.id;
-            member_id = member.id.clone();
+            target_user_id = target_user.id.clone();
             api_key = key;
         }
 
@@ -1917,7 +1905,7 @@ mod org_member_tests {
             .oneshot(
                 Request::builder()
                     .method("DELETE")
-                    .uri(format!("/orgs/{}/members/{}", org_id, member_id))
+                    .uri(format!("/orgs/{}/members/{}", org_id, target_user_id))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -1925,19 +1913,20 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "delete org member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["success"], true);
+        assert_eq!(json["success"], true, "delete response should indicate success");
 
-        // Verify member is removed from database
+        // Verify member is removed from database (by user_id)
         let conn = state.db.get().unwrap();
-        let result = queries::get_org_member_by_id(&conn, &member_id).unwrap();
-        assert!(result.is_none());
+        let result =
+            queries::get_org_member_by_user_and_org(&conn, &target_user_id, &org_id).unwrap();
+        assert!(result.is_none(), "member should no longer exist in database");
     }
 
     #[tokio::test]
@@ -1945,17 +1934,17 @@ mod org_member_tests {
         let (app, state) = org_app();
 
         let org_id: String;
-        let owner_id: String;
+        let owner_user_id: String;
         let api_key: String;
 
         {
             let conn = state.db.get().unwrap();
             let org = create_test_org(&conn, "Test Org");
-            let (_, owner, key) =
+            let (owner_user, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
 
             org_id = org.id;
-            owner_id = owner.id;
+            owner_user_id = owner_user.id;
             api_key = key;
         }
 
@@ -1963,7 +1952,7 @@ mod org_member_tests {
             .oneshot(
                 Request::builder()
                     .method("DELETE")
-                    .uri(format!("/orgs/{}/members/{}", org_id, owner_id))
+                    .uri(format!("/orgs/{}/members/{}", org_id, owner_user_id))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
                     .unwrap(),
@@ -1971,7 +1960,7 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST, "users should not be able to delete themselves");
     }
 
     #[tokio::test]
@@ -2003,7 +1992,7 @@ mod org_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "deleting nonexistent member should return 404");
     }
 }
 
@@ -2022,6 +2011,7 @@ mod project_member_tests {
         let org_id: String;
         let project_id: String;
         let target_member_id: String;
+        let target_user_id: String;
         let api_key: String;
 
         {
@@ -2029,13 +2019,14 @@ mod project_member_tests {
             let org = create_test_org(&conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, target, _) =
+            let (target_user, target, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
             org_id = org.id;
             project_id = project.id;
             target_member_id = target.id;
+            target_user_id = target_user.id;
             api_key = key;
         }
 
@@ -2057,18 +2048,18 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "create project member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert!(json["id"].as_str().is_some());
-        assert_eq!(json["org_member_id"], target_member_id);
-        assert_eq!(json["role"], "admin");
+        // Internal IDs are hidden, check user_id instead
+        assert_eq!(json["user_id"], target_user_id, "project member should be linked to correct user");
+        assert_eq!(json["role"], "admin", "project member role should match input");
         // Should include org member details
-        assert_eq!(json["email"], "member@test.com");
+        assert_eq!(json["email"], "member@test.com", "response should include member email");
     }
 
     #[tokio::test]
@@ -2122,7 +2113,7 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT, "adding duplicate project member should return 409 conflict");
     }
 
     #[tokio::test]
@@ -2170,7 +2161,7 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST, "adding member from another org should return 400");
     }
 
     #[tokio::test]
@@ -2223,7 +2214,7 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "list project members should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -2231,11 +2222,11 @@ mod project_member_tests {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         let members = json["items"].as_array().unwrap();
-        assert_eq!(members.len(), 2);
-        assert_eq!(json["total"], 2);
+        assert_eq!(members.len(), 2, "should return both project members");
+        assert_eq!(json["total"], 2, "total count should be 2");
         // Should include email/name details
-        assert!(members[0]["email"].as_str().is_some());
-        assert!(members[0]["name"].as_str().is_some());
+        assert!(members[0]["email"].as_str().is_some(), "response should include member email");
+        assert!(members[0]["name"].as_str().is_some(), "response should include member name");
     }
 
     #[tokio::test]
@@ -2245,7 +2236,7 @@ mod project_member_tests {
 
         let org_id: String;
         let project_id: String;
-        let pm_id: String;
+        let member_user_id: String;
         let api_key: String;
 
         {
@@ -2253,7 +2244,7 @@ mod project_member_tests {
             let org = create_test_org(&conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, member, _) =
+            let (member_user, member, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2261,11 +2252,11 @@ mod project_member_tests {
                 org_member_id: member.id,
                 role: paycheck::models::ProjectMemberRole::View,
             };
-            let pm = queries::create_project_member(&conn, &project.id, &input).unwrap();
+            let _pm = queries::create_project_member(&conn, &project.id, &input).unwrap();
 
             org_id = org.id;
             project_id = project.id;
-            pm_id = pm.id;
+            member_user_id = member_user.id;
             api_key = key;
         }
 
@@ -2279,7 +2270,7 @@ mod project_member_tests {
                     .method("PUT")
                     .uri(format!(
                         "/orgs/{}/projects/{}/members/{}",
-                        org_id, project_id, pm_id
+                        org_id, project_id, member_user_id
                     ))
                     .header("content-type", "application/json")
                     .header("Authorization", format!("Bearer {}", api_key))
@@ -2289,14 +2280,14 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "update project member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["updated"], true);
+        assert_eq!(json["updated"], true, "update response should indicate success");
     }
 
     #[tokio::test]
@@ -2340,7 +2331,7 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "updating nonexistent project member should return 404");
     }
 
     #[tokio::test]
@@ -2350,7 +2341,7 @@ mod project_member_tests {
 
         let org_id: String;
         let project_id: String;
-        let pm_id: String;
+        let member_user_id: String;
         let api_key: String;
 
         {
@@ -2358,7 +2349,7 @@ mod project_member_tests {
             let org = create_test_org(&conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, member, _) =
+            let (member_user, member, _) =
                 create_test_org_member(&conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
 
@@ -2366,11 +2357,11 @@ mod project_member_tests {
                 org_member_id: member.id,
                 role: paycheck::models::ProjectMemberRole::View,
             };
-            let pm = queries::create_project_member(&conn, &project.id, &input).unwrap();
+            let _pm = queries::create_project_member(&conn, &project.id, &input).unwrap();
 
             org_id = org.id;
             project_id = project.id;
-            pm_id = pm.id.clone();
+            member_user_id = member_user.id;
             api_key = key;
         }
 
@@ -2380,7 +2371,7 @@ mod project_member_tests {
                     .method("DELETE")
                     .uri(format!(
                         "/orgs/{}/projects/{}/members/{}",
-                        org_id, project_id, pm_id
+                        org_id, project_id, member_user_id
                     ))
                     .header("Authorization", format!("Bearer {}", api_key))
                     .body(Body::empty())
@@ -2389,19 +2380,19 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), axum::http::StatusCode::OK, "delete project member should return 200 OK");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["success"], true);
+        assert_eq!(json["success"], true, "delete response should indicate success");
 
         // Verify member list is empty
         let conn = state.db.get().unwrap();
         let members = queries::list_project_members(&conn, &project_id).unwrap();
-        assert_eq!(members.len(), 0);
+        assert_eq!(members.len(), 0, "project should have no members after deletion");
     }
 
     #[tokio::test]
@@ -2440,6 +2431,781 @@ mod project_member_tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND, "deleting nonexistent project member should return 404");
+    }
+}
+
+// ============================================================================
+// PAYMENT CONFIG CRUD TESTS
+// ============================================================================
+
+mod payment_config_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_create_payment_config_stripe() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        let body = json!({
+            "provider": "stripe",
+            "stripe_price_id": "price_12345",
+            "price_cents": 9999,
+            "currency": "usd"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config",
+                        org_id, project_id, product_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "create stripe payment config should return 200 OK");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["id"].is_string(), "response should include config ID");
+        assert_eq!(json["provider"], "stripe", "provider should be stripe");
+        assert_eq!(json["stripe_price_id"], "price_12345", "stripe_price_id should match input");
+        assert_eq!(json["price_cents"], 9999, "price_cents should match input");
+        assert_eq!(json["currency"], "usd", "currency should match input");
+    }
+
+    #[tokio::test]
+    async fn test_create_payment_config_lemonsqueezy() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        let body = json!({
+            "provider": "lemonsqueezy",
+            "ls_variant_id": "variant_abc123",
+            "price_cents": 4999,
+            "currency": "usd"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config",
+                        org_id, project_id, product_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "create LemonSqueezy payment config should return 200 OK");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["id"].is_string(), "response should include config ID");
+        assert_eq!(json["provider"], "lemonsqueezy", "provider should be lemonsqueezy");
+        assert_eq!(json["ls_variant_id"], "variant_abc123", "ls_variant_id should match input");
+    }
+
+    #[tokio::test]
+    async fn test_create_payment_config_duplicate_provider_fails() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            // Create first config
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_123".to_string()),
+                    price_cents: None,
+                    currency: None,
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        // Try to create another stripe config - should fail
+        let body = json!({
+            "provider": "stripe",
+            "stripe_price_id": "price_different"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config",
+                        org_id, project_id, product_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 400, "duplicate provider config should return 400");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        // Error details are in "details" field, not "error"
+        assert!(json["details"].as_str().unwrap().contains("already exists"), "error should mention config already exists");
+    }
+
+    #[tokio::test]
+    async fn test_create_payment_config_product_not_found() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+
+            org_id = org.id;
+            project_id = project.id;
+            api_key = key;
+        }
+
+        let body = json!({
+            "provider": "stripe",
+            "stripe_price_id": "price_12345"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/nonexistent-product/payment-config",
+                        org_id, project_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 404, "creating config for nonexistent product should return 404");
+    }
+
+    #[tokio::test]
+    async fn test_list_payment_configs() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            // Create two configs
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_123".to_string()),
+                    price_cents: None,
+                    currency: None,
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+            queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "lemonsqueezy".to_string(),
+                    stripe_price_id: None,
+                    price_cents: None,
+                    currency: None,
+                    ls_variant_id: Some("variant_abc".to_string()),
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config",
+                        org_id, project_id, product_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "list payment configs should return 200 OK");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        let configs = json.as_array().unwrap();
+        assert_eq!(configs.len(), 2, "should return both payment configs");
+    }
+
+    #[tokio::test]
+    async fn test_get_payment_config() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let config_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            let config = queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_123".to_string()),
+                    price_cents: Some(999),
+                    currency: Some("usd".to_string()),
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            config_id = config.id;
+            api_key = key;
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config/{}",
+                        org_id, project_id, product_id, config_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "get payment config should return 200 OK");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["id"], config_id, "config ID should match requested ID");
+        assert_eq!(json["provider"], "stripe", "provider should match");
+        assert_eq!(json["stripe_price_id"], "price_123", "stripe_price_id should match");
+        assert_eq!(json["price_cents"], 999, "price_cents should match");
+    }
+
+    #[tokio::test]
+    async fn test_get_payment_config_wrong_product_returns_404() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let other_product_id: String;
+        let config_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+            let other_product = create_test_product(&conn, &project.id, "Other Plan", "enterprise");
+
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            let config = queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_123".to_string()),
+                    price_cents: None,
+                    currency: None,
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            other_product_id = other_product.id;
+            config_id = config.id;
+            api_key = key;
+        }
+
+        // Try to get config under wrong product
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config/{}",
+                        org_id, project_id, other_product_id, config_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 404, "accessing config from wrong product should return 404");
+    }
+
+    #[tokio::test]
+    async fn test_update_payment_config() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let config_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            let config = queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_old".to_string()),
+                    price_cents: Some(999),
+                    currency: Some("usd".to_string()),
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            config_id = config.id;
+            api_key = key;
+        }
+
+        let body = json!({
+            "stripe_price_id": "price_new",
+            "price_cents": 1999
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config/{}",
+                        org_id, project_id, product_id, config_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "update payment config should return 200 OK");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["stripe_price_id"], "price_new", "stripe_price_id should be updated");
+        assert_eq!(json["price_cents"], 1999, "price_cents should be updated");
+        // Currency should remain unchanged
+        assert_eq!(json["currency"], "usd", "currency should remain unchanged");
+    }
+
+    #[tokio::test]
+    async fn test_update_payment_config_partial_update_preserves_other_fields() {
+        // Tests that updating one field doesn't affect others
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let config_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            let config = queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_123".to_string()),
+                    price_cents: Some(999),
+                    currency: Some("usd".to_string()),
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            config_id = config.id;
+            api_key = key;
+        }
+
+        // Update only stripe_price_id, not touching other fields
+        let body = json!({
+            "stripe_price_id": "price_new"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config/{}",
+                        org_id, project_id, product_id, config_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "partial update should return 200 OK");
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        // Updated field changed
+        assert_eq!(json["stripe_price_id"], "price_new", "updated field should change");
+        // Other fields unchanged
+        assert_eq!(json["price_cents"], 999, "unspecified price_cents should remain unchanged");
+        assert_eq!(json["currency"], "usd", "unspecified currency should remain unchanged");
+    }
+
+    #[tokio::test]
+    async fn test_delete_payment_config() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let config_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            use paycheck::db::queries;
+            use paycheck::models::CreatePaymentConfig;
+            let config = queries::create_payment_config(
+                &conn,
+                &product.id,
+                &CreatePaymentConfig {
+                    provider: "stripe".to_string(),
+                    stripe_price_id: Some("price_123".to_string()),
+                    price_cents: None,
+                    currency: None,
+                    ls_variant_id: None,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            config_id = config.id.clone();
+            api_key = key;
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config/{}",
+                        org_id, project_id, product_id, config_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200, "delete payment config should return 200 OK");
+
+        // Verify config is deleted
+        let conn = state.db.get().unwrap();
+        use paycheck::db::queries;
+        let config = queries::get_payment_config_by_id(&conn, &config_id).unwrap();
+        assert!(config.is_none(), "config should no longer exist in database");
+    }
+
+    #[tokio::test]
+    async fn test_delete_payment_config_not_found() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config/nonexistent-id",
+                        org_id, project_id, product_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 404, "deleting nonexistent config should return 404");
+    }
+
+    #[tokio::test]
+    async fn test_payment_config_requires_write_permission() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let conn = state.db.get().unwrap();
+            let org = create_test_org(&conn, "Test Org");
+            // Create member with Member role (not Owner/Admin)
+            let (_, member, key) =
+                create_test_org_member(&conn, &org.id, "viewer@test.com", OrgMemberRole::Member);
+            let project = create_test_project(&conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&conn, &project.id, "Pro Plan", "pro");
+
+            // Give member view access to project
+            use paycheck::db::queries;
+            use paycheck::models::CreateProjectMember;
+            queries::create_project_member(
+                &conn,
+                &project.id,
+                &CreateProjectMember {
+                    org_member_id: member.id.clone(),
+                    role: paycheck::models::ProjectMemberRole::View,
+                },
+            )
+            .unwrap();
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        // Try to create payment config - should fail
+        let body = json!({
+            "provider": "stripe",
+            "stripe_price_id": "price_123"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}/payment-config",
+                        org_id, project_id, product_id
+                    ))
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 403, "view-only access should not be able to create payment config");
     }
 }

@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path, RestoreRequest};
 use crate::middleware::OperatorContext;
@@ -82,7 +82,8 @@ pub async fn list_users(
 
     let limit = query.pagination.limit();
     let offset = query.pagination.offset();
-    let (users, total) = queries::list_users_with_roles_paginated(&conn, limit, offset, query.include_deleted)?;
+    let (users, total) =
+        queries::list_users_with_roles_paginated(&conn, limit, offset, query.include_deleted)?;
 
     Ok(Json(Paginated::new(users, total, limit, offset)))
 }
@@ -132,7 +133,10 @@ pub async fn update_user(
             "email": input.email,
             "name": input.name
         }))
-        .names(&ctx.audit_names().resource_user(&existing.name, &existing.email))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&existing.name, &existing.email),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 
@@ -171,7 +175,10 @@ pub async fn delete_user(
             "email": existing.email,
             "name": existing.name
         }))
-        .names(&ctx.audit_names().resource_user(&existing.name, &existing.email))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&existing.name, &existing.email),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 
@@ -252,7 +259,10 @@ pub async fn hard_delete_user(
             "name": existing.name,
             "reason": "gdpr_request"
         }))
-        .names(&ctx.audit_names().resource_user(&existing.name, &existing.email))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&existing.name, &existing.email),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 
@@ -263,5 +273,7 @@ pub async fn hard_delete_user(
         ctx.user.id
     );
 
-    Ok(Json(serde_json::json!({ "success": true, "permanently_deleted": true })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "permanently_deleted": true }),
+    ))
 }

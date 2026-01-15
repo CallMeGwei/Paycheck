@@ -1,0 +1,136 @@
+//! Crypto module tests (envelope encryption, secret hashing)
+
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
+use paycheck::crypto::{hash_secret, MasterKey};
+
+/// Master key size in bytes (256 bits for AES-256)
+const MASTER_KEY_SIZE: usize = 32;
+
+/// SHA-256 hash output length in hex characters
+const SHA256_HEX_LENGTH: usize = 64;
+
+/// Short key size for invalid length test (half of required size)
+const SHORT_KEY_SIZE: usize = 16;
+
+#[test]
+fn test_generate_master_key() {
+    let key = MasterKey::generate();
+    assert!(!key.is_empty(), "generated master key should not be empty");
+
+    // Should be valid base64 that decodes to 32 bytes
+    let decoded = BASE64.decode(&key).unwrap();
+    assert_eq!(
+        decoded.len(),
+        MASTER_KEY_SIZE,
+        "decoded master key should be {MASTER_KEY_SIZE} bytes for AES-256"
+    );
+}
+
+#[test]
+fn test_from_base64_valid() {
+    let key_b64 = MasterKey::generate();
+    let result = MasterKey::from_base64(&key_b64);
+    assert!(
+        result.is_ok(),
+        "valid base64-encoded master key should parse successfully"
+    );
+}
+
+#[test]
+fn test_from_base64_invalid_length() {
+    let short_key = BASE64.encode([0u8; SHORT_KEY_SIZE]);
+    let result = MasterKey::from_base64(&short_key);
+    assert!(
+        result.is_err(),
+        "master key with only {SHORT_KEY_SIZE} bytes should be rejected"
+    );
+}
+
+#[test]
+fn test_encrypt_decrypt_roundtrip() {
+    let master_key = MasterKey::from_base64(&MasterKey::generate()).unwrap();
+    let project_id = "project-123";
+    let private_key = [42u8; MASTER_KEY_SIZE]; // Simulated Ed25519 private key
+
+    let encrypted = master_key
+        .encrypt_private_key(project_id, &private_key)
+        .unwrap();
+
+    let decrypted = master_key
+        .decrypt_private_key(project_id, &encrypted)
+        .unwrap();
+
+    assert_eq!(
+        decrypted, private_key,
+        "decrypted private key should match original plaintext"
+    );
+}
+
+#[test]
+fn test_different_projects_different_ciphertext() {
+    let master_key = MasterKey::from_base64(&MasterKey::generate()).unwrap();
+    let private_key = [42u8; MASTER_KEY_SIZE];
+
+    let encrypted1 = master_key
+        .encrypt_private_key("project-1", &private_key)
+        .unwrap();
+    let encrypted2 = master_key
+        .encrypt_private_key("project-2", &private_key)
+        .unwrap();
+
+    // Same plaintext, different project IDs -> different ciphertext
+    // (Also different due to random nonce, but DEK derivation also differs)
+    assert_ne!(
+        encrypted1, encrypted2,
+        "same plaintext encrypted for different projects should produce different ciphertext"
+    );
+}
+
+#[test]
+fn test_wrong_project_id_fails() {
+    let master_key = MasterKey::from_base64(&MasterKey::generate()).unwrap();
+    let private_key = [42u8; MASTER_KEY_SIZE];
+
+    let encrypted = master_key
+        .encrypt_private_key("project-1", &private_key)
+        .unwrap();
+
+    // Try to decrypt with wrong project ID
+    let result = master_key.decrypt_private_key("project-2", &encrypted);
+    assert!(
+        result.is_err(),
+        "decryption with wrong project ID should fail due to different DEK"
+    );
+}
+
+#[test]
+fn test_hash_secret_produces_deterministic_hex_output() {
+    let key = "PC-ABCD-1234-WXYZ-5678";
+    let hash = hash_secret(key);
+
+    // Should be 64 hex chars (256 bits)
+    assert_eq!(
+        hash.len(),
+        SHA256_HEX_LENGTH,
+        "SHA-256 hash should be {SHA256_HEX_LENGTH} hex characters"
+    );
+    assert!(
+        hash.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should contain only hexadecimal characters"
+    );
+
+    // Same input should produce same hash
+    assert_eq!(
+        hash,
+        hash_secret(key),
+        "hashing the same input twice should produce identical output"
+    );
+
+    // Different input should produce different hash
+    assert_ne!(
+        hash,
+        hash_secret("PC-DIFFERENT-KEY"),
+        "different inputs should produce different hashes"
+    );
+}

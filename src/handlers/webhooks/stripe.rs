@@ -41,16 +41,18 @@ impl WebhookProvider for StripeWebhookProvider {
         body: &Bytes,
         signature: &str,
     ) -> Result<bool, WebhookResult> {
-        let stripe_config = org
-            .decrypt_stripe_config(master_key)
-            .map_err(|e| {
-                tracing::error!("Failed to decrypt Stripe config: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Config decryption failed",
-                )
-            })?
-            .ok_or((StatusCode::OK, "Stripe not configured"))?;
+        // Handle both missing and corrupted configs gracefully by returning 200 OK.
+        // This prevents payment providers from retrying indefinitely on 5xx errors
+        // and avoids leaking internal state about config status.
+        let stripe_config = match org.decrypt_stripe_config(master_key) {
+            Ok(Some(config)) => config,
+            Ok(None) => return Err((StatusCode::OK, "Stripe not configured")),
+            Err(e) => {
+                tracing::error!("Failed to decrypt Stripe config for org {}: {}", org.id, e);
+                // Return OK to prevent retry storms - treat corrupted config as unusable
+                return Err((StatusCode::OK, "Stripe config unavailable"));
+            }
+        };
 
         let client = StripeClient::new(&stripe_config);
         client

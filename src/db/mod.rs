@@ -1,6 +1,7 @@
 mod from_row;
 pub mod queries;
 mod schema;
+pub mod soft_delete;
 
 pub use schema::{init_audit_db, init_db};
 
@@ -10,7 +11,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
 use crate::config::TrustedIssuer;
-use crate::crypto::MasterKey;
+use crate::crypto::{EmailHasher, MasterKey};
 use crate::email::EmailService;
 use crate::jwt::JwksCache;
 use crate::rate_limit::ActivationRateLimiter;
@@ -30,6 +31,8 @@ pub struct AppState {
     pub audit_log_enabled: bool,
     /// Master key for envelope encryption of project private keys
     pub master_key: MasterKey,
+    /// Email hasher with stable HMAC key (survives master key rotation)
+    pub email_hasher: EmailHasher,
     /// URL for the success page after payment (when no project redirect is configured)
     pub success_page_url: String,
     /// Rate limiter for activation code requests (per email)

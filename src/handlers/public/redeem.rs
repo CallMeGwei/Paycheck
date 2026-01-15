@@ -11,6 +11,12 @@ use crate::jwt::{self, LicenseClaims};
 use crate::models::DeviceType;
 use crate::util::LicenseExpirations;
 
+// Input length limits to prevent storage exhaustion and oversized JWTs
+const MAX_PUBLIC_KEY_LEN: usize = 256;
+const MAX_CODE_LEN: usize = 64;
+const MAX_DEVICE_ID_LEN: usize = 256;
+const MAX_DEVICE_NAME_LEN: usize = 256;
+
 /// Request body for POST /redeem (using short-lived activation code)
 #[derive(Debug, Deserialize)]
 pub struct RedeemRequest {
@@ -22,6 +28,42 @@ pub struct RedeemRequest {
     pub device_type: String,
     #[serde(default)]
     pub device_name: Option<String>,
+}
+
+impl RedeemRequest {
+    /// Validate input lengths to prevent storage exhaustion attacks.
+    fn validate(&self) -> Result<()> {
+        if self.public_key.len() > MAX_PUBLIC_KEY_LEN {
+            return Err(AppError::BadRequest(format!(
+                "public_key too long (max {} chars)",
+                MAX_PUBLIC_KEY_LEN
+            )));
+        }
+        if self.code.len() > MAX_CODE_LEN {
+            return Err(AppError::BadRequest(format!(
+                "code too long (max {} chars)",
+                MAX_CODE_LEN
+            )));
+        }
+        if self.device_id.is_empty() {
+            return Err(AppError::BadRequest("device_id cannot be empty".into()));
+        }
+        if self.device_id.len() > MAX_DEVICE_ID_LEN {
+            return Err(AppError::BadRequest(format!(
+                "device_id too long (max {} chars)",
+                MAX_DEVICE_ID_LEN
+            )));
+        }
+        if let Some(ref name) = self.device_name
+            && name.len() > MAX_DEVICE_NAME_LEN
+        {
+            return Err(AppError::BadRequest(format!(
+                "device_name too long (max {} chars)",
+                MAX_DEVICE_NAME_LEN
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -37,7 +79,6 @@ pub struct RedeemResponse {
     pub activation_code_expires_at: i64,
 }
 
-
 /// POST /redeem - Redeem using a short-lived activation code
 ///
 /// The activation code is in PREFIX-XXXX-XXXX-XXXX-XXXX format and expires after 30 minutes.
@@ -46,6 +87,9 @@ pub async fn redeem_with_code(
     State(state): State<AppState>,
     Json(req): Json<RedeemRequest>,
 ) -> Result<Json<RedeemResponse>> {
+    // Validate input lengths first (cheap check before any DB operations)
+    req.validate()?;
+
     let mut conn = state.db.get()?;
 
     // Look up project by public key
@@ -54,29 +98,18 @@ pub async fn redeem_with_code(
     let project_id = project.id;
 
     // Validate device type
-    let device_type = req
-        .device_type
-        .parse::<DeviceType>()
-        .ok()
-        .ok_or_else(|| {
-            AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into())
-        })?;
+    let device_type = req.device_type.parse::<DeviceType>().ok().ok_or_else(|| {
+        AppError::BadRequest("Invalid device_type. Must be 'uuid' or 'machine'".into())
+    })?;
 
-    // Look up the activation code
-    let activation_code = queries::get_activation_code_by_code(&conn, &req.code)?
-        .ok_or_else(|| AppError::NotFound("Activation code not found or expired".into()))?;
-
-    // Check if already used or expired (generic message to prevent enumeration)
-    if activation_code.used || Utc::now().timestamp() > activation_code.expires_at {
-        return Err(AppError::Forbidden("Cannot be redeemed".into()));
-    }
+    // Atomically claim the activation code (prevents race conditions where multiple
+    // concurrent requests could use the same code to create multiple devices)
+    let activation_code = queries::try_claim_activation_code(&conn, &req.code)?
+        .ok_or_else(|| AppError::Forbidden("Cannot be redeemed".into()))?;
 
     // Get the license
     let license = queries::get_license_by_id(&conn, &activation_code.license_id)?
         .ok_or_else(|| AppError::Internal("License not found".into()))?;
-
-    // Mark activation code as used
-    queries::mark_activation_code_used(&conn, &activation_code.id)?;
 
     // Proceed with normal redemption logic
     redeem_license_internal(

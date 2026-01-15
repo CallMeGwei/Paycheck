@@ -6,10 +6,18 @@
 //! Note: Licenses are no longer encrypted, so only project private keys
 //! and organization payment configs need rotation.
 
+#[path = "../common/mod.rs"]
 mod common;
 
 use common::*;
 use rusqlite::Connection;
+
+// ============ Test Key Constants ============
+
+/// Bytes for the "old" master key used before rotation
+const OLD_KEY_BYTES: [u8; 32] = [1u8; 32];
+/// Bytes for the "new" master key used after rotation
+const NEW_KEY_BYTES: [u8; 32] = [2u8; 32];
 
 /// Simulate key rotation for a project's private key
 fn rotate_project_key(
@@ -94,10 +102,10 @@ fn rotate_org_payment_configs(
 // ============ Project Private Key Rotation ============
 
 #[test]
-fn test_project_private_key_rotation_works() {
+fn test_project_private_key_reencrypts_with_new_master_key() {
     let conn = setup_test_db();
-    let old_key = MasterKey::from_bytes([1u8; 32]);
-    let new_key = MasterKey::from_bytes([2u8; 32]);
+    let old_key = MasterKey::from_bytes(OLD_KEY_BYTES);
+    let new_key = MasterKey::from_bytes(NEW_KEY_BYTES);
 
     // Create org and project with old key
     let org = create_test_org(&conn, "Test Org");
@@ -129,7 +137,10 @@ fn test_project_private_key_rotation_works() {
     let decrypted = old_key
         .decrypt_private_key(&project.id, &fetched.private_key)
         .expect("Should decrypt with old key");
-    assert_eq!(decrypted, private_key_bytes);
+    assert_eq!(
+        decrypted, private_key_bytes,
+        "decrypted private key should match original plaintext before rotation"
+    );
 
     // Rotate the key
     rotate_project_key(&conn, &project.id, &old_key, &new_key).expect("Rotation should succeed");
@@ -139,22 +150,28 @@ fn test_project_private_key_rotation_works() {
         .unwrap()
         .unwrap();
     let result = old_key.decrypt_private_key(&project.id, &fetched.private_key);
-    assert!(result.is_err(), "Old key should no longer decrypt");
+    assert!(
+        result.is_err(),
+        "old key should fail to decrypt after rotation"
+    );
 
     // Verify new key works
     let decrypted = new_key
         .decrypt_private_key(&project.id, &fetched.private_key)
         .expect("New key should decrypt");
-    assert_eq!(decrypted, private_key_bytes);
+    assert_eq!(
+        decrypted, private_key_bytes,
+        "decrypted private key should match original plaintext after rotation with new key"
+    );
 }
 
 // ============ Organization Payment Config Rotation ============
 
 #[test]
-fn test_org_stripe_config_rotation_works() {
+fn test_org_stripe_config_reencrypts_with_new_master_key() {
     let conn = setup_test_db();
-    let old_key = MasterKey::from_bytes([1u8; 32]);
-    let new_key = MasterKey::from_bytes([2u8; 32]);
+    let old_key = MasterKey::from_bytes(OLD_KEY_BYTES);
+    let new_key = MasterKey::from_bytes(NEW_KEY_BYTES);
 
     // Create org
     let org = create_test_org(&conn, "Test Org");
@@ -165,8 +182,14 @@ fn test_org_stripe_config_rotation_works() {
         .encrypt_private_key(&org.id, stripe_config.as_bytes())
         .unwrap();
 
-    queries::update_organization_encrypted_configs(&conn, &org.id, Some(&encrypted_stripe), None, None)
-        .unwrap();
+    queries::update_organization_encrypted_configs(
+        &conn,
+        &org.id,
+        Some(&encrypted_stripe),
+        None,
+        None,
+    )
+    .unwrap();
 
     // Verify we can decrypt with old key
     let fetched = queries::get_organization_by_id(&conn, &org.id)
@@ -175,7 +198,11 @@ fn test_org_stripe_config_rotation_works() {
     let decrypted = old_key
         .decrypt_private_key(&org.id, fetched.stripe_config_encrypted.as_ref().unwrap())
         .expect("Should decrypt with old key");
-    assert_eq!(decrypted, stripe_config.as_bytes());
+    assert_eq!(
+        decrypted,
+        stripe_config.as_bytes(),
+        "decrypted Stripe config should match original JSON before rotation"
+    );
 
     // Rotate the key
     rotate_org_payment_configs(&conn, &org.id, &old_key, &new_key)
@@ -187,20 +214,27 @@ fn test_org_stripe_config_rotation_works() {
         .unwrap();
     let result =
         old_key.decrypt_private_key(&org.id, fetched.stripe_config_encrypted.as_ref().unwrap());
-    assert!(result.is_err(), "Old key should no longer decrypt");
+    assert!(
+        result.is_err(),
+        "old key should fail to decrypt Stripe config after rotation"
+    );
 
     // Verify new key works
     let decrypted = new_key
         .decrypt_private_key(&org.id, fetched.stripe_config_encrypted.as_ref().unwrap())
         .expect("New key should decrypt");
-    assert_eq!(decrypted, stripe_config.as_bytes());
+    assert_eq!(
+        decrypted,
+        stripe_config.as_bytes(),
+        "decrypted Stripe config should match original JSON after rotation with new key"
+    );
 }
 
 #[test]
-fn test_org_lemonsqueezy_config_rotation_works() {
+fn test_org_lemonsqueezy_config_reencrypts_with_new_master_key() {
     let conn = setup_test_db();
-    let old_key = MasterKey::from_bytes([1u8; 32]);
-    let new_key = MasterKey::from_bytes([2u8; 32]);
+    let old_key = MasterKey::from_bytes(OLD_KEY_BYTES);
+    let new_key = MasterKey::from_bytes(NEW_KEY_BYTES);
 
     // Create org
     let org = create_test_org(&conn, "Test Org");
@@ -221,7 +255,11 @@ fn test_org_lemonsqueezy_config_rotation_works() {
     let decrypted = old_key
         .decrypt_private_key(&org.id, fetched.ls_config_encrypted.as_ref().unwrap())
         .expect("Should decrypt with old key");
-    assert_eq!(decrypted, ls_config.as_bytes());
+    assert_eq!(
+        decrypted,
+        ls_config.as_bytes(),
+        "decrypted LemonSqueezy config should match original JSON before rotation"
+    );
 
     // Rotate the key
     rotate_org_payment_configs(&conn, &org.id, &old_key, &new_key)
@@ -233,11 +271,18 @@ fn test_org_lemonsqueezy_config_rotation_works() {
         .unwrap();
     let result =
         old_key.decrypt_private_key(&org.id, fetched.ls_config_encrypted.as_ref().unwrap());
-    assert!(result.is_err(), "Old key should no longer decrypt");
+    assert!(
+        result.is_err(),
+        "old key should fail to decrypt LemonSqueezy config after rotation"
+    );
 
     // Verify new key works
     let decrypted = new_key
         .decrypt_private_key(&org.id, fetched.ls_config_encrypted.as_ref().unwrap())
         .expect("New key should decrypt");
-    assert_eq!(decrypted, ls_config.as_bytes());
+    assert_eq!(
+        decrypted,
+        ls_config.as_bytes(),
+        "decrypted LemonSqueezy config should match original JSON after rotation with new key"
+    );
 }

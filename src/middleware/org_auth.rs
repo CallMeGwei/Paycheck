@@ -1,3 +1,94 @@
+//! Organization member authentication middleware.
+//!
+//! This module implements a **three-path authentication system** for org-level
+//! endpoints (`/orgs/{org_id}/*`). Requests are authenticated in priority order:
+//!
+//! # Authentication Paths
+//!
+//! ## Path 1: Operator Impersonation (Highest Priority)
+//!
+//! **Trigger:** `X-On-Behalf-Of: {target_user_id}` header present
+//!
+//! - User must be an `admin+` operator (owner or admin role)
+//! - Target user must be a member of the specified org
+//! - Request executes with **target member's actual role** in that org
+//! - Useful for: Admin support, testing member workflows, member-initiated actions
+//!
+//! **Audit trail:** Includes explicit `impersonator` details in JSON:
+//! ```json
+//! {
+//!   "impersonator": {"user_id": "op123", "email": "admin@example.com"}
+//! }
+//! ```
+//! The `user_id` in the audit log is the **impersonator's** ID, not the target's.
+//!
+//! **Errors:**
+//! - `403 Forbidden`: Header present but user is not an admin+ operator
+//! - `404 Not Found`: Target user is not a member of the specified org
+//!
+//! ## Path 2: Normal Org Member Authentication
+//!
+//! **Trigger:** No `X-On-Behalf-Of` header, user is an org member
+//!
+//! - User's org membership is validated via `org_members` table
+//! - Request executes with user's **actual role** in that org
+//! - API key scopes are checked if applicable
+//! - Most common path for regular org operations
+//!
+//! **Audit trail:** No impersonation details; shows authenticated user's info.
+//!
+//! **Errors:**
+//! - `403 Forbidden`: API key lacks required scope for org
+//! - Continues to Path 3 if user is not an org member
+//!
+//! ## Path 3: Synthetic Operator Direct Access
+//!
+//! **Trigger:** User is NOT an org member, but IS an admin+ operator
+//!
+//! - User must be an `admin+` operator (owner or admin role)
+//! - A synthetic `OrgMemberWithUser` is created with `Owner` role
+//! - Synthetic member ID format: `operator:{operator.id}`
+//! - Request executes with **owner-level access** to all org operations
+//! - Useful for: Admin support/troubleshooting, operator dashboard access
+//!
+//! **Audit trail:** No indication this is synthetic access (by design—support
+//! operations appear normal in logs).
+//!
+//! **Errors:**
+//! - `403 Forbidden`: User is an operator but role is less than admin
+//! - `403 Forbidden`: User is neither an org member nor an admin+ operator
+//!
+//! # Security Properties
+//!
+//! - **Path precedence:** Impersonation is checked first, preventing accidental
+//!   fallthrough to synthetic access
+//! - **Role requirements:** Impersonation and synthetic access require admin+ role
+//! - **404 not 403:** Non-member lookups return 404, preventing org enumeration
+//! - **API key scopes:** Checked only for normal member auth (Path 2)
+//! - **Audit logs record the acting user**, enabling traceability of all actions
+//!
+//! # Project-Level Authentication
+//!
+//! The `org_member_project_auth` middleware extends the three-path system with:
+//! - Project existence and ownership validation
+//! - Project-level role resolution (for `Member` org role users)
+//! - Owner/Admin org members get implicit project access
+//! - `Member` role users need explicit `project_members` entries
+//!
+//! # Usage
+//!
+//! ```ignore
+//! // Org-level routes (members, projects, audit logs)
+//! Router::new()
+//!     .route("/orgs/:org_id/members", get(list_members))
+//!     .layer(middleware::from_fn_with_state(state.clone(), org_member_auth))
+//!
+//! // Project-level routes (products, licenses)
+//! Router::new()
+//!     .route("/orgs/:org_id/projects/:project_id/products", get(list_products))
+//!     .layer(middleware::from_fn_with_state(state.clone(), org_member_project_auth))
+//! ```
+
 use std::collections::HashMap;
 
 use axum::{
@@ -7,17 +98,18 @@ use axum::{
     response::Response,
 };
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::jwt::validate_first_party_token;
 use crate::models::{
-    AccessLevel, AuditLogNames, OrgMemberRole, OrgMemberWithUser, OperatorRole,
-    ProjectMemberRole, User,
+    AccessLevel, AuditLogNames, OperatorRole, OrgMemberRole, OrgMemberWithUser, ProjectMemberRole,
+    User,
 };
 use crate::util::extract_bearer_token;
 
 use super::AuthMethod;
 
-/// Header name for operator impersonation
+/// Header name for operator impersonation.
+/// Value should be a `user_id` (not member_id).
 const ON_BEHALF_OF_HEADER: &str = "x-on-behalf-of";
 
 #[derive(Clone)]
@@ -31,6 +123,8 @@ pub struct OrgMemberContext {
     pub impersonator: Option<ImpersonatorInfo>,
     /// How the request was authenticated (API key or JWT)
     pub auth_method: AuthMethod,
+    /// API key access level (None for JWT auth, Some for scoped API key auth)
+    pub api_key_access: Option<AccessLevel>,
 }
 
 #[derive(Clone)]
@@ -42,6 +136,11 @@ pub struct ImpersonatorInfo {
 
 impl OrgMemberContext {
     pub fn require_owner(&self) -> Result<(), StatusCode> {
+        // Check API key access level first - View-only keys cannot write
+        if let Some(AccessLevel::View) = self.api_key_access {
+            return Err(StatusCode::FORBIDDEN);
+        }
+
         if self.member.role.can_manage_members() {
             Ok(())
         } else {
@@ -50,6 +149,11 @@ impl OrgMemberContext {
     }
 
     pub fn require_admin(&self) -> Result<(), StatusCode> {
+        // Check API key access level first - View-only keys cannot write
+        if let Some(AccessLevel::View) = self.api_key_access {
+            return Err(StatusCode::FORBIDDEN);
+        }
+
         if matches!(
             self.member.role,
             OrgMemberRole::Owner | OrgMemberRole::Admin
@@ -61,6 +165,12 @@ impl OrgMemberContext {
     }
 
     pub fn can_write_project(&self) -> bool {
+        // Check API key access level first - View-only keys cannot write
+        if let Some(AccessLevel::View) = self.api_key_access {
+            return false;
+        }
+
+        // Then check role-based permissions
         matches!(
             self.member.role,
             OrgMemberRole::Owner | OrgMemberRole::Admin
@@ -91,8 +201,8 @@ fn try_operator_impersonation(
     on_behalf_of: Option<&str>,
     org_id: &str,
 ) -> Result<Option<(OrgMemberWithUser, ImpersonatorInfo)>, StatusCode> {
-    // Must have X-On-Behalf-Of header for impersonation
-    let member_id = match on_behalf_of {
+    // Must have X-On-Behalf-Of header for impersonation (takes user_id)
+    let target_user_id = match on_behalf_of {
         Some(id) => id,
         None => return Ok(None), // No impersonation header - not an impersonation attempt
     };
@@ -116,15 +226,10 @@ fn try_operator_impersonation(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Load the target org member with user details
-    let member = queries::get_org_member_with_user_by_id(&conn, member_id)
+    // Load the target org member by user_id and org_id
+    let member = queries::get_org_member_with_user_by_user_and_org(&conn, target_user_id, org_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Verify the member belongs to the specified org
-    if member.org_id != org_id {
-        return Err(StatusCode::FORBIDDEN);
-    }
 
     let impersonator = ImpersonatorInfo {
         user_id: user.id.clone(),
@@ -135,14 +240,22 @@ fn try_operator_impersonation(
     Ok(Some((member, impersonator)))
 }
 
-/// Check if the API key has access to the specified org.
-/// Returns Ok(()) if access is granted, Err if denied.
+/// Check if the API key has access to the specified org (and optionally project).
+/// Returns Ok(Some(AccessLevel)) if access is granted via scopes.
+/// Returns Ok(None) if the key has no scopes (full access based on membership).
+/// Returns Err if access is denied.
+///
+/// For org-level endpoints (project_id is None), only org-level scopes are accepted.
+/// Project-scoped keys cannot access org-level endpoints.
+///
+/// For project-level endpoints (project_id is Some), both project-specific and
+/// org-level scopes are accepted (org-level implies access to all projects).
 fn check_api_key_scope_for_org(
     state: &AppState,
     api_key: &str,
     org_id: &str,
-    require_admin: bool,
-) -> Result<(), StatusCode> {
+    project_id: Option<&str>,
+) -> Result<Option<AccessLevel>, StatusCode> {
     let conn = state
         .db
         .get()
@@ -170,24 +283,23 @@ fn check_api_key_scope_for_org(
 
     if !has_scopes {
         // No scopes = full access (based on membership)
-        return Ok(());
+        return Ok(None);
     }
 
-    // Check if org is in scopes
-    let required_access = if require_admin {
-        AccessLevel::Admin
+    // Get access level based on whether this is org-level or project-level endpoint
+    let access_level = if let Some(proj_id) = project_id {
+        // Project-level endpoint: accept project-specific OR org-level scopes
+        queries::get_api_key_access_level(&conn, &key_id, org_id, Some(proj_id))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
-        AccessLevel::View
+        // Org-level endpoint: ONLY accept org-level scopes (not project-specific)
+        queries::get_api_key_org_level_access(&conn, &key_id, org_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
 
-    let has_access =
-        queries::check_api_key_scope(&conn, &key_id, org_id, None, required_access)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if has_access {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
+    match access_level {
+        Some(level) => Ok(Some(level)),
+        None => Err(StatusCode::FORBIDDEN),
     }
 }
 
@@ -222,6 +334,27 @@ async fn authenticate_user_jwt(
     Ok((user, auth_method))
 }
 
+/// Middleware for org-level endpoints (`/orgs/{org_id}/*`).
+///
+/// Implements the three-path authentication system documented at module level.
+/// Inserts an `OrgMemberContext` into request extensions on success.
+///
+/// # Authentication Flow
+///
+/// 1. Extract bearer token and optional `X-On-Behalf-Of` header
+/// 2. Authenticate user via JWT or API key
+/// 3. **Path 1:** Try operator impersonation (if header present)
+/// 4. **Path 2:** Try normal org member authentication
+/// 5. **Path 3:** Try synthetic operator access (admin+ operators)
+/// 6. Return 403 if none of the above paths succeed
+///
+/// # Request Extensions
+///
+/// On success, inserts `OrgMemberContext` containing:
+/// - `member`: The org member (real or synthetic)
+/// - `user`: The authenticated user
+/// - `impersonator`: Set only for Path 1 (impersonation)
+/// - `auth_method`: How the request was authenticated
 pub async fn org_member_auth(
     State(state): State<AppState>,
     Path(params): Path<HashMap<String, String>>,
@@ -271,14 +404,18 @@ pub async fn org_member_auth(
             project_role: None,
             impersonator: Some(impersonator),
             auth_method,
+            api_key_access: None, // Operators bypass scope checks
         });
         return Ok(next.run(request).await);
     }
 
     // Check API key scopes (if any) - only for API key auth
-    if api_key_record.is_some() {
-        check_api_key_scope_for_org(&state, token, org_id, false)?;
-    }
+    // For org-level endpoints, only org-level scopes are accepted (project-scoped keys are rejected)
+    let api_key_access = if api_key_record.is_some() {
+        check_api_key_scope_for_org(&state, token, org_id, None)?
+    } else {
+        None
+    };
 
     // Try normal org member authentication first
     let member = queries::get_org_member_with_user_by_user_and_org(&conn, &user.id, org_id)
@@ -292,6 +429,7 @@ pub async fn org_member_auth(
             project_role: None,
             impersonator: None,
             auth_method,
+            api_key_access,
         });
         return Ok(next.run(request).await);
     }
@@ -321,6 +459,7 @@ pub async fn org_member_auth(
             project_role: None,
             impersonator: None,
             auth_method,
+            api_key_access: None, // Operators bypass scope checks
         });
         return Ok(next.run(request).await);
     }
@@ -337,6 +476,29 @@ pub struct OrgProjectPath {
     pub project_id: String,
 }
 
+/// Middleware for project-level endpoints (`/orgs/{org_id}/projects/{project_id}/*`).
+///
+/// Extends `org_member_auth` with project-level access checks. Uses the same
+/// three-path authentication system, then validates project access.
+///
+/// # Additional Checks
+///
+/// After org authentication succeeds, this middleware:
+/// 1. Validates the project exists and belongs to the org
+/// 2. Resolves project-level role:
+///    - **Owner/Admin** org members: Implicit access (no project member entry needed)
+///    - **Member** org role: Must have explicit `project_members` entry
+/// 3. Returns 404 if user has no access (prevents project enumeration)
+///
+/// # Request Extensions
+///
+/// On success, inserts `OrgMemberContext` with `project_role` populated:
+/// - `Some(ProjectMemberRole::Admin)`: Can modify project (update, manage products/licenses)
+/// - `Some(ProjectMemberRole::View)`: Read-only access
+/// - `None`: Owner/Admin org members (implicit full access)
+///
+/// Handlers should use `ctx.can_write_project()` to check write access, which
+/// returns true for Owner/Admin org members OR ProjectMemberRole::Admin.
 pub async fn org_member_project_auth(
     State(state): State<AppState>,
     Path(params): Path<HashMap<String, String>>,
@@ -378,52 +540,53 @@ pub async fn org_member_project_auth(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Try operator impersonation first
-    let (member, impersonator) =
-        if let Some((member, impersonator)) =
-            try_operator_impersonation(&state, &user, on_behalf_of, org_id)?
-        {
-            (member, Some(impersonator))
+    let (member, impersonator, api_key_access) = if let Some((member, impersonator)) =
+        try_operator_impersonation(&state, &user, on_behalf_of, org_id)?
+    {
+        (member, Some(impersonator), None) // Operators bypass scope checks
+    } else {
+        // Check API key scopes (if any) - only for API key auth
+        // For project-level endpoints, pass project_id to enforce project-level scope checking
+        let api_key_access = if is_api_key {
+            check_api_key_scope_for_org(&state, token, org_id, Some(project_id))?
         } else {
-            // Check API key scopes (if any) - only for API key auth
-            if is_api_key {
-                check_api_key_scope_for_org(&state, token, org_id, false)?;
-            }
+            None
+        };
 
-            // Try normal org member authentication
-            let member =
-                queries::get_org_member_with_user_by_user_and_org(&conn, &user.id, org_id)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // Try normal org member authentication
+        let member = queries::get_org_member_with_user_by_user_and_org(&conn, &user.id, org_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            if let Some(member) = member {
-                (member, None)
-            } else {
-                // Not an org member - check if they're an operator with admin+ role
-                let operator = queries::get_operator_by_user_id(&conn, &user.id)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(member) = member {
+            (member, None, api_key_access)
+        } else {
+            // Not an org member - check if they're an operator with admin+ role
+            let operator = queries::get_operator_by_user_id(&conn, &user.id)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                if let Some(operator) = operator {
-                    if matches!(operator.role, OperatorRole::Owner | OperatorRole::Admin) {
-                        // Operator with admin+ role gets synthetic owner access
-                        let synthetic_member = OrgMemberWithUser {
-                            id: format!("operator:{}", operator.id),
-                            user_id: user.id.clone(),
-                            email: user.email.clone(),
-                            name: user.name.clone(),
-                            org_id: org_id.to_string(),
-                            role: OrgMemberRole::Owner,
-                            created_at: operator.created_at,
-                            deleted_at: None,
-                            deleted_cascade_depth: None,
-                        };
-                        (synthetic_member, None)
-                    } else {
-                        return Err(StatusCode::FORBIDDEN);
-                    }
+            if let Some(operator) = operator {
+                if matches!(operator.role, OperatorRole::Owner | OperatorRole::Admin) {
+                    // Operator with admin+ role gets synthetic owner access
+                    let synthetic_member = OrgMemberWithUser {
+                        id: format!("operator:{}", operator.id),
+                        user_id: user.id.clone(),
+                        email: user.email.clone(),
+                        name: user.name.clone(),
+                        org_id: org_id.to_string(),
+                        role: OrgMemberRole::Owner,
+                        created_at: operator.created_at,
+                        deleted_at: None,
+                        deleted_cascade_depth: None,
+                    };
+                    (synthetic_member, None, None) // Operators bypass scope checks
                 } else {
                     return Err(StatusCode::FORBIDDEN);
                 }
+            } else {
+                return Err(StatusCode::FORBIDDEN);
             }
-        };
+        }
+    };
 
     // Check project exists and belongs to org
     let project = queries::get_project_by_id(&conn, project_id)
@@ -455,6 +618,7 @@ pub async fn org_member_project_auth(
         project_role,
         impersonator,
         auth_method,
+        api_key_access,
     });
 
     Ok(next.run(request).await)

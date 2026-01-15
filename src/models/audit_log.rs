@@ -362,7 +362,7 @@ impl AuditLog {
             "purge" => "purged",
             "restore" => "restored",
             "hard" => "hard", // hard_delete -> hard deleted
-            other => other, // Unknown verbs pass through unchanged
+            other => other,   // Unknown verbs pass through unchanged
         }
     }
 }
@@ -569,7 +569,11 @@ mod tests {
 
         let response: AuditLogResponse = log.into();
         assert!(response.formatted.contains("[User]"));
-        assert!(response.formatted.contains("`John Smith <john@example.com>`"));
+        assert!(
+            response
+                .formatted
+                .contains("`John Smith <john@example.com>`")
+        );
         assert!(response.formatted.contains("created organization"));
         assert_eq!(response.log.id, "log12345678");
     }

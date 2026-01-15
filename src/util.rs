@@ -206,4 +206,3 @@ impl<'a> AuditLogBuilder<'a> {
         )
     }
 }
-

@@ -127,9 +127,7 @@ pub async fn initiate_buy(
 
             // Get price from payment config
             let price_cents = payment_config.price_cents.ok_or_else(|| {
-                AppError::BadRequest(
-                    "Payment config has no price_cents configured.".into(),
-                )
+                AppError::BadRequest("Payment config has no price_cents configured.".into())
             })? as u64;
             let currency = payment_config.currency.as_deref().unwrap_or("usd");
 
@@ -155,9 +153,7 @@ pub async fn initiate_buy(
 
             // Get variant ID from payment config
             let variant_id = payment_config.ls_variant_id.as_ref().ok_or_else(|| {
-                AppError::BadRequest(
-                    "Payment config has no ls_variant_id configured.".into(),
-                )
+                AppError::BadRequest("Payment config has no ls_variant_id configured.".into())
             })?;
 
             let client = LemonSqueezyClient::new(&config);

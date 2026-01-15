@@ -260,6 +260,15 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             UNIQUE(provider, event_id)
         );
         CREATE INDEX IF NOT EXISTS idx_webhook_events_lookup ON webhook_events(provider, event_id);
+
+        -- System configuration (stable secrets that survive master key rotation)
+        -- Used for email HMAC key which must remain stable so email hashes stay valid
+        CREATE TABLE IF NOT EXISTS system_config (
+            key TEXT PRIMARY KEY,
+            value BLOB NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         "#,
     )?;
     Ok(())

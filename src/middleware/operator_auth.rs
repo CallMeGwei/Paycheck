@@ -5,7 +5,7 @@ use axum::{
     response::Response,
 };
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::jwt::validate_first_party_token;
 use crate::models::{AuditLogNames, OperatorRole, OperatorWithUser, User};
 use crate::util::extract_bearer_token;
@@ -126,7 +126,8 @@ pub async fn operator_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let (operator, user, auth_method) = authenticate_from_request(&state, request.headers()).await?;
+    let (operator, user, auth_method) =
+        authenticate_from_request(&state, request.headers()).await?;
 
     request.extensions_mut().insert(OperatorContext {
         operator,
@@ -141,7 +142,8 @@ pub async fn require_owner_role(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let (operator, user, auth_method) = authenticate_from_request(&state, request.headers()).await?;
+    let (operator, user, auth_method) =
+        authenticate_from_request(&state, request.headers()).await?;
 
     if !matches!(operator.role, OperatorRole::Owner) {
         return Err(StatusCode::FORBIDDEN);
@@ -160,7 +162,8 @@ pub async fn require_admin_role(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let (operator, user, auth_method) = authenticate_from_request(&state, request.headers()).await?;
+    let (operator, user, auth_method) =
+        authenticate_from_request(&state, request.headers()).await?;
 
     if !matches!(operator.role, OperatorRole::Owner | OperatorRole::Admin) {
         return Err(StatusCode::FORBIDDEN);

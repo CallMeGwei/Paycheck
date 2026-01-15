@@ -17,7 +17,7 @@ use crate::util::AuditLogBuilder;
 pub struct ProjectMemberPath {
     pub org_id: String,
     pub project_id: String,
-    pub member_id: String,
+    pub user_id: String,
 }
 
 pub async fn create_project_member(
@@ -67,6 +67,7 @@ pub async fn create_project_member(
     Ok(Json(ProjectMemberWithDetails {
         id: project_member.id,
         org_member_id: project_member.org_member_id,
+        user_id: target_member.user_id,
         project_id: project_member.project_id,
         role: project_member.role,
         created_at: project_member.created_at,
@@ -94,13 +95,13 @@ pub async fn get_project_member(
 ) -> Result<Json<ProjectMemberWithDetails>> {
     let conn = state.db.get()?;
 
-    let member = queries::get_project_member_by_id(&conn, &path.member_id)?
-        .ok_or_else(|| AppError::NotFound("Project member not found".into()))?;
-
-    // Verify it belongs to the specified project
-    if member.project_id != path.project_id {
-        return Err(AppError::NotFound("Project member not found".into()));
-    }
+    let member = queries::get_project_member_by_user_and_project(
+        &conn,
+        &path.user_id,
+        &path.org_id,
+        &path.project_id,
+    )?
+    .ok_or_else(|| AppError::NotFound("User is not a member of this project".into()))?;
 
     Ok(Json(member))
 }
@@ -120,26 +121,32 @@ pub async fn update_project_member(
     let audit_conn = state.audit.get()?;
 
     // Fetch member first for audit log (before update)
-    let existing = queries::get_project_member_by_id(&conn, &path.member_id)?
-        .ok_or_else(|| AppError::NotFound("Project member not found".into()))?;
+    let existing = queries::get_project_member_by_user_and_project(
+        &conn,
+        &path.user_id,
+        &path.org_id,
+        &path.project_id,
+    )?
+    .ok_or_else(|| AppError::NotFound("User is not a member of this project".into()))?;
 
-    if existing.project_id != path.project_id {
-        return Err(AppError::NotFound("Project member not found".into()));
-    }
-
-    let updated = queries::update_project_member(&conn, &path.member_id, &path.project_id, &input)?;
+    let updated = queries::update_project_member(&conn, &existing.id, &path.project_id, &input)?;
     if !updated {
-        return Err(AppError::NotFound("Project member not found".into()));
+        return Err(AppError::NotFound(
+            "User is not a member of this project".into(),
+        ));
     }
 
     AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
         .actor(ActorType::User, Some(&ctx.member.user_id))
         .action(AuditAction::UpdateProjectMember)
-        .resource("project_member", &path.member_id)
+        .resource("project_member", &existing.id)
         .details(&serde_json::json!({ "role": input.role }))
         .org(&path.org_id)
         .project(&path.project_id)
-        .names(&ctx.audit_names().resource_user(&existing.name, &existing.email))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&existing.name, &existing.email),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 
@@ -160,25 +167,31 @@ pub async fn delete_project_member(
     let audit_conn = state.audit.get()?;
 
     // Fetch member first for audit log (before delete)
-    let existing = queries::get_project_member_by_id(&conn, &path.member_id)?
-        .ok_or_else(|| AppError::NotFound("Project member not found".into()))?;
+    let existing = queries::get_project_member_by_user_and_project(
+        &conn,
+        &path.user_id,
+        &path.org_id,
+        &path.project_id,
+    )?
+    .ok_or_else(|| AppError::NotFound("User is not a member of this project".into()))?;
 
-    if existing.project_id != path.project_id {
-        return Err(AppError::NotFound("Project member not found".into()));
-    }
-
-    let deleted = queries::delete_project_member(&conn, &path.member_id, &path.project_id)?;
+    let deleted = queries::delete_project_member(&conn, &existing.id, &path.project_id)?;
     if !deleted {
-        return Err(AppError::NotFound("Project member not found".into()));
+        return Err(AppError::NotFound(
+            "User is not a member of this project".into(),
+        ));
     }
 
     AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
         .actor(ActorType::User, Some(&ctx.member.user_id))
         .action(AuditAction::DeleteProjectMember)
-        .resource("project_member", &path.member_id)
+        .resource("project_member", &existing.id)
         .org(&path.org_id)
         .project(&path.project_id)
-        .names(&ctx.audit_names().resource_user(&existing.name, &existing.email))
+        .names(
+            &ctx.audit_names()
+                .resource_user(&existing.name, &existing.email),
+        )
         .auth_method(&ctx.auth_method)
         .save()?;
 

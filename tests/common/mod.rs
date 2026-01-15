@@ -3,6 +3,28 @@
 #![allow(dead_code)]
 
 use axum::Router;
+
+// ============ Time Constants ============
+// Use these with future_timestamp() and past_timestamp() for readable tests
+
+/// One year in days (365)
+pub const ONE_YEAR: i64 = 365;
+/// One month in days (30)
+pub const ONE_MONTH: i64 = 30;
+/// One week in days (7)
+pub const ONE_WEEK: i64 = 7;
+/// One day
+pub const ONE_DAY: i64 = 1;
+/// One hour in days (for sub-day precision, use directly with timestamp math)
+pub const ONE_HOUR_SECS: i64 = 3600;
+
+// Semantic aliases for common test scenarios
+/// License validity period for standard tests
+pub const LICENSE_VALID_DAYS: i64 = 365;
+/// Short expiry for edge case tests
+pub const EXPIRES_SOON_DAYS: i64 = 1;
+/// Updates validity period
+pub const UPDATES_VALID_DAYS: i64 = 180;
 use axum::routing::{get, post};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -10,12 +32,12 @@ use rusqlite::Connection;
 use std::sync::Arc;
 
 // Re-export the main library crate
-pub use paycheck::crypto::MasterKey;
+pub use paycheck::crypto::{EmailHasher, MasterKey};
 pub use paycheck::db::{AppState, init_audit_db, init_db, queries};
 pub use paycheck::email::EmailService;
 pub use paycheck::handlers::public::{
-    deactivate_device, get_license_info, initiate_buy, payment_callback,
-    redeem_with_code, request_activation_code, validate_license,
+    deactivate_device, get_license_info, initiate_buy, payment_callback, redeem_with_code,
+    request_activation_code, validate_license,
 };
 pub use paycheck::jwt::{self, JwksCache};
 pub use paycheck::models::*;
@@ -25,6 +47,13 @@ pub use paycheck::rate_limit::ActivationRateLimiter;
 pub fn test_master_key() -> MasterKey {
     // Use a fixed test key (32 bytes of zeros - ONLY for testing!)
     MasterKey::from_bytes([0u8; 32])
+}
+
+/// Create a test email hasher (deterministic for testing)
+pub fn test_email_hasher() -> EmailHasher {
+    // Use a fixed test key (32 bytes of 0xAA - ONLY for testing!)
+    // Different from master key to ensure they're independent
+    EmailHasher::from_bytes([0xAA; 32])
 }
 
 /// Create an in-memory test database with schema initialized
@@ -97,8 +126,8 @@ pub fn create_test_org_member(
         user_id: user.id.clone(),
         role,
     };
-    let member = queries::create_org_member(conn, org_id, &input)
-        .expect("Failed to create test org member");
+    let member =
+        queries::create_org_member(conn, org_id, &input).expect("Failed to create test org member");
 
     // Create an API key for the user
     let (_, api_key) = queries::create_api_key(conn, &member.user_id, "Default", None, true, None)
@@ -163,7 +192,7 @@ pub fn create_test_payment_config(
         .expect("Failed to create test payment config")
 }
 
-/// Create a test license (no longer uses master_key - email hash is the identity)
+/// Create a test license (uses master key for secure email hashing)
 pub fn create_test_license(
     conn: &Connection,
     project_id: &str,
@@ -171,7 +200,7 @@ pub fn create_test_license(
     expires_at: Option<i64>,
 ) -> License {
     let input = CreateLicense {
-        email_hash: Some(queries::hash_email("test@example.com")),
+        email_hash: Some(test_email_hasher().hash("test@example.com")),
         customer_id: Some("test-customer".to_string()),
         expires_at,
         updates_expires_at: expires_at,
@@ -221,6 +250,7 @@ pub fn past_timestamp(days: i64) -> i64 {
 /// Create an AppState for testing with in-memory databases
 pub fn create_test_app_state() -> AppState {
     let master_key = test_master_key();
+    let email_hasher = test_email_hasher();
 
     let manager = SqliteConnectionManager::memory();
     let pool = Pool::builder().max_size(4).build(manager).unwrap();
@@ -242,6 +272,7 @@ pub fn create_test_app_state() -> AppState {
         base_url: "http://localhost:3000".to_string(),
         audit_log_enabled: false,
         master_key,
+        email_hasher,
         success_page_url: "http://localhost:3000/success".to_string(),
         activation_rate_limiter: Arc::new(ActivationRateLimiter::default()),
         email_service: Arc::new(EmailService::new(None, "test@example.com".to_string())),
@@ -358,7 +389,7 @@ pub fn create_test_license_with_subscription(
     subscription_id: &str,
 ) -> License {
     let input = CreateLicense {
-        email_hash: Some(queries::hash_email("test@example.com")),
+        email_hash: Some(test_email_hasher().hash("test@example.com")),
         customer_id: Some("test-customer".to_string()),
         expires_at,
         updates_expires_at: expires_at,
@@ -379,4 +410,168 @@ pub fn create_test_activation_code(
 ) -> ActivationCode {
     queries::create_activation_code(conn, license_id, prefix)
         .expect("Failed to create test activation code")
+}
+
+// ============ Security Test Utilities ============
+
+/// Create an API key with org-level scope restriction
+pub fn create_api_key_with_org_scope(
+    conn: &Connection,
+    user_id: &str,
+    org_id: &str,
+    access: AccessLevel,
+) -> String {
+    let scope = CreateApiKeyScope {
+        org_id: org_id.to_string(),
+        project_id: None,
+        access,
+    };
+    let (_, raw_key) = queries::create_api_key(conn, user_id, "Scoped", None, true, Some(&[scope]))
+        .expect("Failed to create API key with org scope");
+    raw_key
+}
+
+/// Create an API key with project-level scope restriction
+pub fn create_api_key_with_project_scope(
+    conn: &Connection,
+    user_id: &str,
+    org_id: &str,
+    project_id: &str,
+    access: AccessLevel,
+) -> String {
+    let scope = CreateApiKeyScope {
+        org_id: org_id.to_string(),
+        project_id: Some(project_id.to_string()),
+        access,
+    };
+    let (_, raw_key) = queries::create_api_key(conn, user_id, "Scoped", None, true, Some(&[scope]))
+        .expect("Failed to create API key with project scope");
+    raw_key
+}
+
+/// Create an API key that is already expired
+pub fn create_expired_api_key(conn: &Connection, user_id: &str) -> String {
+    // Pass -1 days to create a key that expired 1 day ago
+    // The create_api_key function calculates: expires_at = now + days * 86400
+    // So -1 gives us: now - 86400 (1 day in the past)
+    let (_, raw_key) = queries::create_api_key(conn, user_id, "Expired", Some(-1), true, None)
+        .expect("Failed to create expired API key");
+    raw_key
+}
+
+/// Create an API key and immediately revoke it
+pub fn create_revoked_api_key(conn: &Connection, user_id: &str) -> String {
+    let (api_key_record, raw_key) =
+        queries::create_api_key(conn, user_id, "Revoked", None, true, None)
+            .expect("Failed to create API key");
+
+    queries::revoke_api_key(conn, &api_key_record.id).expect("Failed to revoke API key");
+
+    raw_key
+}
+
+/// Create a project member with a specific role
+pub fn create_test_project_member(
+    conn: &Connection,
+    org_member_id: &str,
+    project_id: &str,
+    role: ProjectMemberRole,
+) -> ProjectMember {
+    let input = CreateProjectMember {
+        org_member_id: org_member_id.to_string(),
+        role,
+    };
+    queries::create_project_member(conn, project_id, &input)
+        .expect("Failed to create test project member")
+}
+
+/// Generate a malicious input string for SQL injection testing
+pub fn sql_injection_payloads() -> Vec<&'static str> {
+    vec![
+        "'; DROP TABLE users; --",
+        "1' OR '1'='1",
+        "1; DELETE FROM licenses WHERE 1=1; --",
+        "' UNION SELECT * FROM api_keys --",
+        "admin'--",
+        "1' AND 1=0 UNION SELECT id, key_hash, 1, 1, 1, 1, 1, 1, 1, 1 FROM api_keys--",
+    ]
+}
+
+/// Generate path traversal payloads for testing
+pub fn path_traversal_payloads() -> Vec<&'static str> {
+    vec![
+        "../../../etc/passwd",
+        "..\\..\\..\\windows\\system32\\config\\sam",
+        "....//....//....//etc/passwd",
+        "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+        "..%252f..%252f..%252fetc/passwd",
+    ]
+}
+
+/// Generate unicode/encoding attack payloads
+pub fn unicode_attack_payloads() -> Vec<&'static str> {
+    vec![
+        "test\x00admin",     // Null byte
+        "test\u{202E}admin", // RTL override
+        "tеst",              // Cyrillic 'е' (U+0435)
+        "test\u{FEFF}admin", // BOM
+        "\u{0000}",          // Null char
+    ]
+}
+
+/// Sign JWT claims with a custom expiration offset (for testing expired/fresh tokens)
+/// `exp_offset_secs` is added to the current time to set the JWT `exp` claim.
+/// Use negative values to create already-expired tokens.
+pub fn sign_claims_with_exp_offset(
+    claims: &jwt::LicenseClaims,
+    private_key: &[u8],
+    subject: &str,
+    audience: &str,
+    jti: &str,
+    exp_offset_secs: i64,
+) -> String {
+    use ed25519_dalek::SigningKey;
+    use jwt_simple::prelude::*;
+
+    let key_bytes: [u8; 32] = private_key.try_into().expect("Invalid private key length");
+    let signing_key = SigningKey::from_bytes(&key_bytes);
+    let key_pair = Ed25519KeyPair::from_bytes(&signing_key.to_keypair_bytes())
+        .expect("Failed to create key pair");
+
+    // Calculate absolute expiration time
+    let exp_time = chrono::Utc::now().timestamp() + exp_offset_secs;
+
+    // Create claims - use a duration and then override the expires_at field
+    let mut jwt_claims = Claims::with_custom_claims(claims.clone(), Duration::from_secs(3600))
+        .with_issuer("paycheck")
+        .with_subject(subject)
+        .with_audience(audience)
+        .with_jwt_id(jti);
+
+    // Override the expiration time
+    jwt_claims.expires_at = Some(UnixTimeStamp::from_secs(exp_time as u64));
+
+    key_pair.sign(jwt_claims).expect("Failed to sign token")
+}
+
+/// Create a license at device limit (all slots used)
+pub fn create_license_at_device_limit(
+    conn: &Connection,
+    project_id: &str,
+    product: &Product,
+) -> (License, Vec<Device>) {
+    let license = create_test_license(conn, project_id, &product.id, Some(future_timestamp(365)));
+
+    let mut devices = Vec::new();
+    for i in 0..product.device_limit {
+        let device = create_test_device(
+            conn,
+            &license.id,
+            &format!("device_{}", i),
+            DeviceType::Uuid,
+        );
+        devices.push(device);
+    }
+
+    (license, devices)
 }

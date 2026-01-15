@@ -72,8 +72,9 @@ impl Organization {
         };
 
         let decrypted = master_key.decrypt_private_key(&self.id, encrypted)?;
-        let api_key = String::from_utf8(decrypted)
-            .map_err(|_| crate::error::AppError::Internal("Invalid UTF-8 in Resend API key".into()))?;
+        let api_key = String::from_utf8(decrypted).map_err(|_| {
+            crate::error::AppError::Internal("Invalid UTF-8 in Resend API key".into())
+        })?;
         Ok(Some(api_key))
     }
 
@@ -126,7 +127,9 @@ impl UpdateOrganization {
         if let Some(Some(ref provider)) = self.payment_provider
             && provider.trim().is_empty()
         {
-            return Err(AppError::BadRequest("payment_provider cannot be empty".into()));
+            return Err(AppError::BadRequest(
+                "payment_provider cannot be empty".into(),
+            ));
         }
         Ok(())
     }

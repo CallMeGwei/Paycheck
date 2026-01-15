@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::db::{queries, AppState};
+use crate::db::{AppState, queries};
 use crate::error::{AppError, Result};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
@@ -72,7 +72,10 @@ pub async fn create_organization(
         .auth_method(&ctx.auth_method)
         .save()?;
 
-    Ok(Json(OrganizationCreated { organization, owner }))
+    Ok(Json(OrganizationCreated {
+        organization,
+        owner,
+    }))
 }
 
 /// Query parameters for listing organizations
@@ -237,7 +240,11 @@ pub async fn hard_delete_organization(
 
     // Get org info for audit log (may be soft-deleted already)
     let existing = queries::get_organization_by_id(&conn, &id)?
-        .or_else(|| queries::get_deleted_organization_by_id(&conn, &id).ok().flatten())
+        .or_else(|| {
+            queries::get_deleted_organization_by_id(&conn, &id)
+                .ok()
+                .flatten()
+        })
         .ok_or_else(|| AppError::NotFound("Organization not found".into()))?;
 
     // Perform hard delete (CASCADE removes all related data)
@@ -262,5 +269,7 @@ pub async fn hard_delete_organization(
         ctx.user.id
     );
 
-    Ok(Json(serde_json::json!({ "success": true, "permanently_deleted": true })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "permanently_deleted": true }),
+    ))
 }
