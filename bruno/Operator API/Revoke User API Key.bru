@@ -1,0 +1,27 @@
+meta {
+  name: Revoke User API Key
+  type: http
+  seq: 23
+}
+
+delete {
+  url: {{base_url}}/operators/users/{{user_id}}/api-keys/{{key_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+docs {
+  Revoke a specific API key for a user.
+
+  Requires admin+ operator role.
+
+  The key is soft-deleted (revoked_at timestamp set).
+  Revoked keys are excluded from list and cannot authenticate.
+
+  Returns:
+  { "success": true }
+}
