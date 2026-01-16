@@ -15,6 +15,16 @@ auth:bearer {
 }
 
 docs {
-  Get operator role for a user by their user_id.
-  Returns 404 if the user is not an operator.
+  Get operator details by user_id.
+  Returns 404 if the user doesn't exist or is not an operator.
+
+  Returns the User object with operator_role set:
+  {
+    "id": "user_123",
+    "email": "admin@example.com",
+    "name": "Admin User",
+    "operator_role": "admin",
+    "created_at": 1234567890,
+    "updated_at": 1234567890
+  }
 }

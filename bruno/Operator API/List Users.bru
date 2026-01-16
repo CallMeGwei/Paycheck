@@ -39,7 +39,7 @@ docs {
         "name": "Admin User",
         "created_at": 1234567890,
         "updated_at": 1234567890,
-        "operator": { "id": "op_1", "role": "admin" },
+        "operator_role": "admin",
         "memberships": [
           { "id": "mem_1", "org_id": "org_1", "org_name": "Acme", "role": "owner" }
         ]
@@ -49,4 +49,6 @@ docs {
     "limit": 50,
     "offset": 0
   }
+
+  Note: operator_role is only present if the user is an operator.
 }

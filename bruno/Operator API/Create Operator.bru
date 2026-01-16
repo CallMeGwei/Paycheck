@@ -22,7 +22,7 @@ body:json {
 }
 
 docs {
-  Create a new operator (requires owner role).
+  Grant operator role to a user (requires owner role).
 
   The user must already exist in the users table.
   No API key is created - use Console or create one separately.
@@ -33,14 +33,16 @@ docs {
   - view: Read-only access
 
   Request body:
-  - user_id: Required. ID of existing user to link as operator
+  - user_id: Required. ID of existing user to grant operator role
   - role: Required. One of "owner", "admin", "view"
 
-  Returns the operator record (with user details via join):
+  Returns the User object with operator_role set:
   {
-    "id": "...",
-    "user_id": "...",
-    "role": "admin",
-    "created_at": 1234567890
+    "id": "user_123",
+    "email": "admin@example.com",
+    "name": "Admin User",
+    "operator_role": "admin",
+    "created_at": 1234567890,
+    "updated_at": 1234567890
   }
 }

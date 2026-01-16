@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}/api-keys
+  url: {{base_url}}/orgs/{{org_id}}/members/{{user_id}}/api-keys
   body: none
   auth: bearer
 }
@@ -20,9 +20,9 @@ docs {
   Members can see their own keys.
   Owner role can see any member's keys.
 
-  Returns list of keys (without full key values):
+  Returns paginated list of keys (without full key values):
   {
-    "keys": [
+    "items": [
       {
         "id": "key_abc123",
         "name": "Console",
@@ -33,6 +33,9 @@ docs {
         "expires_at": null,
         "scopes": null
       }
-    ]
+    ],
+    "total": 1,
+    "limit": 50,
+    "offset": 0
   }
 }

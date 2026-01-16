@@ -28,4 +28,14 @@ docs {
   - role: Optional. One of "owner", "admin", "view"
 
   Note: To update user name/email, update the user record directly.
+
+  Returns the updated User object with operator_role:
+  {
+    "id": "user_123",
+    "email": "admin@example.com",
+    "name": "Admin User",
+    "operator_role": "view",
+    "created_at": 1234567890,
+    "updated_at": 1234567890
+  }
 }

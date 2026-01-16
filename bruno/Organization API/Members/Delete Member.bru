@@ -5,7 +5,7 @@ meta {
 }
 
 delete {
-  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}
+  url: {{base_url}}/orgs/{{org_id}}/members/{{user_id}}
   body: none
   auth: bearer
 }
@@ -18,7 +18,7 @@ docs {
   Soft-delete an org member (requires owner role).
 
   This performs a soft delete - the member can be restored later using
-  POST /orgs/{org_id}/members/{member_id}/restore.
+  POST /orgs/{org_id}/members/{user_id}/restore.
 
   Cannot delete yourself.
 

@@ -5,7 +5,7 @@ meta {
 }
 
 delete {
-  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}/api-keys/{{key_id}}
+  url: {{base_url}}/orgs/{{org_id}}/members/{{user_id}}/api-keys/{{key_id}}
   body: none
   auth: bearer
 }
@@ -24,5 +24,5 @@ docs {
   Revoked keys are excluded from list and cannot authenticate.
 
   Returns:
-  { "revoked": true }
+  { "success": true }
 }

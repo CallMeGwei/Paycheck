@@ -17,5 +17,20 @@ auth:bearer {
 docs {
   List all operators (requires owner role).
 
-  Returns array of operator objects.
+  Returns paginated array of User objects with operator_role set:
+  {
+    "items": [
+      {
+        "id": "user_123",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "operator_role": "admin",
+        "created_at": 1234567890,
+        "updated_at": 1234567890
+      }
+    ],
+    "total": 1,
+    "limit": 50,
+    "offset": 0
+  }
 }
