@@ -1,6 +1,6 @@
 # Paycheck TypeScript SDK
 
-Official TypeScript/JavaScript SDK for [Paycheck](https://github.com/your-org/paycheck) - offline-first licensing system for vibe coders and indie devs.
+Official TypeScript/JavaScript SDK for [Paycheck](https://paycheck.dev) - offline-first licensing system for vibe coders and indie devs.
 
 ## Packages
 

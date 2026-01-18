@@ -1,6 +1,6 @@
 # Paycheck Rust SDK
 
-Official Rust SDK for [Paycheck](https://github.com/your-org/paycheck) - the offline-first licensing system for indie developers.
+Official Rust SDK for [Paycheck](https://paycheck.dev) - the offline-first licensing system for indie developers.
 
 ## Installation
 

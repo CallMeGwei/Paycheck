@@ -37,7 +37,7 @@ docker compose logs paycheck | grep "BOOTSTRAP OPERATOR"
 services:
   paycheck:
     build: .
-    # Or use pre-built: image: ghcr.io/your-org/paycheck:latest
+    # Or use pre-built: image: ghcr.io/CallMeGwei/Paycheck:latest
     container_name: paycheck
     restart: unless-stopped
     ports:
@@ -90,7 +90,7 @@ On your build machine:
 
 ```bash
 # Clone and build release binary
-git clone https://github.com/your-org/paycheck.git
+git clone https://github.com/CallMeGwei/Paycheck.git
 cd paycheck
 cargo build --release
 

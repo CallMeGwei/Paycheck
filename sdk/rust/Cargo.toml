@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Paycheck licensing SDK for Rust applications"
 license = "MIT"
-repository = "https://github.com/your-org/paycheck"
+repository = "https://github.com/CallMeGwei/Paycheck"
 keywords = ["paycheck", "licensing", "license", "jwt", "ed25519"]
 categories = ["authentication", "api-bindings"]
 
