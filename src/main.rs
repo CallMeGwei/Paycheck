@@ -362,7 +362,7 @@ fn seed_dev_data(state: &AppState) {
         org.id, project.id
     );
     println!("  -H 'Authorization: Bearer {}' \\", operator_api_key);
-    println!("  -H 'X-On-Behalf-Of: {}' \\", member.id);
+    println!("  -H 'X-On-Behalf-Of: {}' \\", member.user_id);
     println!("  -H 'Content-Type: application/json' \\");
     println!("  -d '{{\"product_id\": \"{}\"}}'", product.id);
     println!();

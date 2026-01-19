@@ -5,13 +5,13 @@ meta {
 }
 
 post {
-  url: {{base_url}}/orgs/{{org_id}}/members/{{member_id}}/api-keys
+  url: {{base_url}}/orgs/{{org_id}}/members/{{user_id}}/api-keys
   body: json
   auth: bearer
 }
 
 headers {
-  X-On-Behalf-Of: {{member_id}}
+  X-On-Behalf-Of: {{user_id}}
 }
 
 auth:bearer {
@@ -33,7 +33,7 @@ docs {
 
   Requirements:
   - Operator must have admin or owner role
-  - X-On-Behalf-Of header must contain the member_id
+  - X-On-Behalf-Of header must contain the user_id
 
   Request body:
   - name: Required. Display name for the key

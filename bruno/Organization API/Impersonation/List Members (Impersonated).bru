@@ -15,7 +15,7 @@ auth:bearer {
 }
 
 headers {
-  X-On-Behalf-Of: {{member_id}}
+  X-On-Behalf-Of: {{user_id}}
 }
 
 docs {
@@ -26,8 +26,8 @@ docs {
 
   Requirements:
   - Operator must have admin or owner role
-  - X-On-Behalf-Of header must contain a valid member_id
-  - The member must belong to the org in the URL path
+  - X-On-Behalf-Of header must contain a valid user_id
+  - The user must be a member of the org in the URL path
 
   The request executes with the impersonated member's permissions.
 }

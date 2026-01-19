@@ -11,7 +11,7 @@ post {
 }
 
 headers {
-  X-On-Behalf-Of: {{member_id}}
+  X-On-Behalf-Of: {{user_id}}
 }
 
 auth:bearer {
@@ -35,7 +35,7 @@ docs {
   
   Requirements:
   - Operator must have admin or owner role
-  - X-On-Behalf-Of must be a member with owner/admin role in the org
+  - X-On-Behalf-Of must be a user_id of a member with owner/admin role in the org
   
   Modify the body for each tier:
   - Free: license_exp_days=null, device_limit=1
