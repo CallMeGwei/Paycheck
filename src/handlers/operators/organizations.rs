@@ -15,15 +15,22 @@ use crate::models::{
 };
 use crate::pagination::Paginated;
 use crate::util::AuditLogBuilder;
+use std::collections::HashMap;
 
-/// Helper to convert Organization to OrganizationPublic by querying service config existence
+/// Helper to convert Organization to OrganizationPublic by querying service configs
 fn org_to_public(conn: &Connection, org: Organization) -> Result<OrganizationPublic> {
-    let has_stripe = queries::org_has_service_config(conn, &org.id, ServiceProvider::Stripe)?;
-    let has_ls = queries::org_has_service_config(conn, &org.id, ServiceProvider::LemonSqueezy)?;
-    let has_resend = queries::org_has_service_config(conn, &org.id, ServiceProvider::Resend)?;
-    Ok(OrganizationPublic::from_with_service_configs(
-        org, has_stripe, has_ls, has_resend,
-    ))
+    let configs = queries::get_org_service_configs(conn, &org.id)?;
+
+    // Group providers by category
+    let mut configured_services: HashMap<String, Vec<String>> = HashMap::new();
+    for config in configs {
+        configured_services
+            .entry(config.category.as_str().to_string())
+            .or_default()
+            .push(config.provider.as_str().to_string());
+    }
+
+    Ok(OrganizationPublic::from_with_configs(org, configured_services))
 }
 
 /// Helper to convert multiple Organizations to OrganizationPublic

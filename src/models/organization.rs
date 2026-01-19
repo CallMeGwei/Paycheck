@@ -104,14 +104,14 @@ where
     Ok(Some(Option::deserialize(deserializer)?))
 }
 
-/// Public view of an organization (includes payment config status)
+/// Public view of an organization (includes configured services)
 #[derive(Debug, Clone, Serialize)]
 pub struct OrganizationPublic {
     pub id: String,
     pub name: String,
-    pub has_stripe: bool,
-    pub has_lemonsqueezy: bool,
-    pub has_resend: bool,
+    /// Configured external services grouped by category
+    /// e.g. { "payment": ["stripe", "lemonsqueezy"], "email": ["resend"] }
+    pub configured_services: std::collections::HashMap<String, Vec<String>>,
     pub payment_provider: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -124,19 +124,15 @@ pub struct OrganizationPublic {
 }
 
 impl OrganizationPublic {
-    /// Create OrganizationPublic with service config flags
-    pub fn from_with_service_configs(
+    /// Create OrganizationPublic with configured services map
+    pub fn from_with_configs(
         org: Organization,
-        has_stripe: bool,
-        has_lemonsqueezy: bool,
-        has_resend: bool,
+        configured_services: std::collections::HashMap<String, Vec<String>>,
     ) -> Self {
         Self {
             id: org.id,
             name: org.name,
-            has_stripe,
-            has_lemonsqueezy,
-            has_resend,
+            configured_services,
             payment_provider: org.payment_provider,
             created_at: org.created_at,
             updated_at: org.updated_at,
