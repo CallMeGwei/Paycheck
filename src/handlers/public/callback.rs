@@ -18,7 +18,6 @@ pub struct CallbackQuery {
 /// Query params appended to redirect:
 /// - code: A short-lived activation code (PREFIX-XXXX-XXXX format)
 /// - status: "success" or "pending"
-/// - project_id: The project ID (needed for activation)
 ///
 /// Note: No JWT or license key is returned here. The user must call /redeem
 /// with the activation code and device info to get a JWT.
@@ -72,11 +71,7 @@ pub async fn payment_callback(
     // User must activate via /redeem with device info to get JWT
     let redirect_url = append_query_params(
         base_redirect,
-        &[
-            ("code", &activation_code.code),
-            ("project_id", &product.project_id),
-            ("status", "success"),
-        ],
+        &[("code", &activation_code.code), ("status", "success")],
     );
 
     Ok(Redirect::temporary(&redirect_url))

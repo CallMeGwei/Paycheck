@@ -67,8 +67,6 @@ export interface CallbackResult {
   status: 'success' | 'pending';
   /** Short-lived activation code (PREFIX-XXXX-XXXX format, 30 min TTL) */
   code?: string;
-  /** Project ID (needed for activation) */
-  projectId?: string;
 }
 
 /**
@@ -212,7 +210,8 @@ export type PaycheckErrorCode =
   | 'INVALID_LICENSE_KEY'
   | 'INVALID_CODE'
   | 'NETWORK_ERROR'
-  | 'VALIDATION_ERROR';
+  | 'VALIDATION_ERROR'
+  | 'DUPLICATE_REQUEST';
 
 /**
  * Paycheck SDK error

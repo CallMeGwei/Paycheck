@@ -104,6 +104,36 @@ export interface CallbackActivationResult {
 const DEFAULT_BASE_URL = 'https://api.paycheck.dev';
 
 /**
+ * Converts a snake_case string to camelCase
+ */
+function snakeToCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+/**
+ * Recursively converts all snake_case keys in an object to camelCase
+ */
+function keysToCamelCase<T>(obj: unknown): T {
+  if (obj === null || obj === undefined) {
+    return obj as T;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => keysToCamelCase(item)) as T;
+  }
+
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[snakeToCamel(key)] = keysToCamelCase(value);
+    }
+    return result as T;
+  }
+
+  return obj as T;
+}
+
+/**
  * Maps HTTP status codes to error codes
  */
 function mapStatusToErrorCode(
@@ -243,7 +273,8 @@ export class Paycheck {
       );
     }
 
-    return (await response.json()) as T;
+    const data = await response.json();
+    return keysToCamelCase<T>(data);
   }
 
   private async ensureFreshToken(): Promise<string> {
@@ -856,9 +887,8 @@ export class Paycheck {
 
     const status = (params.get('status') || 'success') as 'success' | 'pending';
     const code = params.get('code') || undefined;
-    const projectId = params.get('project_id') || undefined;
 
-    return { status, code, projectId };
+    return { status, code };
   }
 
   /**

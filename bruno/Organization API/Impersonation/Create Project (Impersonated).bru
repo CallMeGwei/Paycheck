@@ -20,17 +20,33 @@ auth:bearer {
 
 body:json {
   {
-    "name": "Paycheck",
-    "license_key_prefix": "PC"
+    "name": "My App",
+    "license_key_prefix": "MYAPP",
+    "redirect_url": "https://myapp.com/activated",
+    "email_from": "noreply@myapp.com",
+    "email_enabled": true,
+    "email_webhook_url": null
   }
 }
 
 docs {
   Create a project using operator impersonation.
-  
+
   Requirements:
   - Operator must have admin or owner role
   - X-On-Behalf-Of must be a user_id of a member with owner/admin role in the org
-  
-  Returns the project with its public key.
+
+  Fields:
+  - name: Project display name
+  - license_key_prefix: Optional prefix for activation codes (default: "PC")
+  - redirect_url: Optional post-payment redirect URL (default: Paycheck success page)
+  - email_from: Optional "from" address for activation emails (REQUIRES org resend_api_key)
+  - email_enabled: Enable/disable email delivery (default: true)
+  - email_webhook_url: Optional webhook URL for DIY email delivery
+
+  Redirect URL:
+  - After payment, users are redirected to this URL with ?code=XXX&project_id=XXX&status=success
+  - If not configured, users see a Paycheck-hosted success page with the activation code
+
+  Returns project with public_key for SDK integration.
 }

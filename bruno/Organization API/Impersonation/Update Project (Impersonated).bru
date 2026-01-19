@@ -1,5 +1,5 @@
 meta {
-  name: Update Project
+  name: Update Project (Impersonated)
   type: http
   seq: 4
 }
@@ -10,8 +10,12 @@ put {
   auth: bearer
 }
 
+headers {
+  X-On-Behalf-Of: {{user_id}}
+}
+
 auth:bearer {
-  token: {{org_member_api_key}}
+  token: {{operator_api_key}}
 }
 
 body:json {
@@ -26,10 +30,13 @@ body:json {
 }
 
 docs {
-  Update a project (requires write access).
-  All fields are optional - only include fields you want to update.
+  Update a project using operator impersonation.
 
-  Fields:
+  Requirements:
+  - Operator must have admin or owner role
+  - X-On-Behalf-Of must be a user_id of a member with write access to the project
+
+  Fields (all optional - only include fields you want to update):
   - name: Project display name
   - license_key_prefix: Prefix for activation codes (e.g., "MYAPP" -> "MYAPP-XXXX-XXXX")
   - redirect_url: Post-payment redirect URL (set to null to use Paycheck success page)
@@ -40,14 +47,4 @@ docs {
   Redirect URL:
   - After payment, users are redirected to this URL with ?code=XXX&project_id=XXX&status=success
   - Set to null to use Paycheck's hosted success page
-  - One URL per project (no allowlist needed - project = environment)
-
-  Email configuration:
-  - To use Resend email with custom from address, org must have resend_api_key configured
-  - To switch to webhook mode: set email_webhook_url to your endpoint URL
-  - To disable email entirely: set email_enabled to false
-  - To clear a setting, set it to null
-
-  Note: Payment configuration (Stripe, LemonSqueezy) and Resend API key are managed
-  at the organization level. Use PUT /operators/organizations/{org_id}.
 }

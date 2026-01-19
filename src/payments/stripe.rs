@@ -180,9 +180,18 @@ pub struct StripeCheckoutSession {
     pub mode: Option<String>, // "payment" or "subscription"
     pub payment_status: String,
     pub customer: Option<String>,
+    /// Pre-filled email (if set when creating session)
     pub customer_email: Option<String>,
+    /// Customer details collected during checkout (contains the actual email entered)
+    pub customer_details: Option<StripeCustomerDetails>,
     pub subscription: Option<String>, // Present for subscription mode
     pub metadata: StripeMetadata,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StripeCustomerDetails {
+    pub email: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

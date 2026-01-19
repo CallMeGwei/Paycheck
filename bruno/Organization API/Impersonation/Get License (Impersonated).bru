@@ -1,0 +1,33 @@
+meta {
+  name: Get License (Impersonated)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{base_url}}/orgs/{{org_id}}/projects/{{project_id}}/licenses/{{license_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{operator_api_key}}
+}
+
+headers {
+  X-On-Behalf-Of: {{user_id}}
+}
+
+docs {
+  Get license details including devices and activation codes.
+
+  Returns:
+  - License status (active/expired/revoked)
+  - Creation date, expiration dates
+  - Activation count and limits
+  - Device count and limits
+  - List of active devices
+  - Payment provider info (if any)
+
+  Requires the impersonated member to have access to the project.
+}

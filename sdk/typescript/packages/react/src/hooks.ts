@@ -10,7 +10,11 @@ import type {
   CallbackActivationResult,
   RequestCodeResult,
 } from '@paycheck/sdk';
+import { PaycheckError } from '@paycheck/sdk';
 import { usePaycheck } from './provider';
+
+// Track codes being processed to prevent double-activation (survives React StrictMode remounts)
+const processingCodes = new Set<string>();
 
 /**
  * Options for useLicense hook
@@ -179,13 +183,25 @@ export function useLicense(options: UseLicenseOptions = {}): UseLicenseResult {
   // Actions
   const activateWithCode = useCallback(
     async (code: string, deviceInfo?: DeviceInfo): Promise<ActivationResult> => {
+      // Prevent double-activation (React StrictMode, accidental double-calls)
+      if (processingCodes.has(code)) {
+        throw new PaycheckError(
+          'DUPLICATE_REQUEST',
+          'This activation code is already being processed'
+        );
+      }
+
+      processingCodes.add(code);
       setLoading(true);
+
       try {
         const result = await paycheck.activateWithCode(code, deviceInfo);
         await reload();
         return result;
       } finally {
         setLoading(false);
+        // Keep in set briefly to handle rapid re-renders, then remove
+        setTimeout(() => processingCodes.delete(code), 1000);
       }
     },
     [paycheck, reload]
@@ -611,6 +627,16 @@ export function usePaymentCallback(
     window.history.replaceState({}, '', targetPath);
   }, [redirectTo]);
 
+  // Extract code from URL
+  const getCodeFromUrl = useCallback((urlString: string): string | null => {
+    try {
+      const urlObj = new URL(urlString);
+      return urlObj.searchParams.get('code');
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Perform activation
   const activate = useCallback(async (): Promise<CallbackActivationResult> => {
     const currentUrl = getUrl();
@@ -622,6 +648,24 @@ export function usePaymentCallback(
         error: 'No URL available',
       };
       return noUrlResult;
+    }
+
+    // Check for duplicate request (React StrictMode protection)
+    const code = getCodeFromUrl(currentUrl);
+    if (code && processingCodes.has(code)) {
+      // Already processing this code - return early without error
+      // (this is expected in StrictMode, not an error condition)
+      const duplicateResult: CallbackActivationResult = {
+        activated: false,
+        wasCallback: true,
+        status: 'success',
+        error: 'Activation already in progress',
+      };
+      return duplicateResult;
+    }
+
+    if (code) {
+      processingCodes.add(code);
     }
 
     setProcessing(true);
@@ -668,9 +712,14 @@ export function usePaymentCallback(
       return errorResult;
     } finally {
       setProcessing(false);
+      // Keep code in set briefly to handle rapid re-renders, then remove
+      if (code) {
+        setTimeout(() => processingCodes.delete(code), 1000);
+      }
     }
   }, [
     getUrl,
+    getCodeFromUrl,
     paycheck,
     deviceInfo,
     cleanUrl,

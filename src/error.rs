@@ -276,6 +276,8 @@ pub mod msg {
     pub const TIER_EMPTY: &str = "tier cannot be empty";
     pub const EMAIL_EMPTY: &str = "email cannot be empty";
     pub const INVALID_EMAIL_FORMAT: &str = "invalid email format";
+    pub const EMAIL_FROM_REQUIRES_ORG_RESEND_KEY: &str =
+        "email_from requires the organization to have a resend_api_key configured";
 
     // JWT/Token errors
     pub const INVALID_TOKEN_FORMAT: &str = "Invalid token format";

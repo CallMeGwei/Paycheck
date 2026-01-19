@@ -104,11 +104,14 @@ fn parse_checkout_completed(event: &StripeWebhookEvent) -> Result<WebhookEvent, 
         .project_id
         .ok_or((StatusCode::OK, "No project ID"))?;
 
+    // Get email from customer_details (entered during checkout)
+    let customer_email = session.customer_details.and_then(|d| d.email);
+
     Ok(WebhookEvent::CheckoutCompleted(CheckoutData {
         session_id,
         project_id,
         customer_id: session.customer,
-        customer_email: session.customer_email,
+        customer_email,
         subscription_id: session.subscription,
         order_id: Some(session.id),
     }))

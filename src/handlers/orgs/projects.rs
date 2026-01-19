@@ -31,6 +31,17 @@ pub async fn create_project(
     // Look up org for audit log
     let org = queries::get_organization_by_id(&conn, &org_id)?.or_not_found(msg::ORG_NOT_FOUND)?;
 
+    // Validate email_from requires org to have resend_api_key
+    if input.email_from.is_some() {
+        let org_resend_key =
+            queries::get_org_resend_api_key(&conn, &org_id, &state.master_key)?;
+        if org_resend_key.is_none() {
+            return Err(AppError::BadRequest(
+                msg::EMAIL_FROM_REQUIRES_ORG_RESEND_KEY.into(),
+            ));
+        }
+    }
+
     // Generate Ed25519 key pair
     let (private_key, public_key) = jwt::generate_keypair();
 
@@ -127,6 +138,18 @@ pub async fn update_project(
         queries::get_organization_by_id(&conn, &path.org_id)?.or_not_found(msg::ORG_NOT_FOUND)?;
     let existing = queries::get_project_by_id(&conn, &path.project_id)?
         .or_not_found(msg::PROJECT_NOT_FOUND)?;
+
+    // Validate email_from requires org to have resend_api_key
+    // Some(Some(value)) = setting to a value, Some(None) = clearing, None = unchanged
+    if matches!(input.email_from, Some(Some(_))) {
+        let org_resend_key =
+            queries::get_org_resend_api_key(&conn, &path.org_id, &state.master_key)?;
+        if org_resend_key.is_none() {
+            return Err(AppError::BadRequest(
+                msg::EMAIL_FROM_REQUIRES_ORG_RESEND_KEY.into(),
+            ));
+        }
+    }
 
     let project = queries::update_project(&conn, &path.project_id, &input)?
         .or_not_found(msg::PROJECT_NOT_FOUND)?;
