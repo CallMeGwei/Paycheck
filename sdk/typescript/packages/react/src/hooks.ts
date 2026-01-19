@@ -157,6 +157,20 @@ export function useLicense(options: UseLicenseOptions = {}): UseLicenseResult {
     reload();
   }, [reload]);
 
+  // Listen for cross-tab license changes (e.g., user clicked activation link in another tab)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key?.includes('paycheck')) {
+        reload();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [reload]);
+
   // Derived state
   const tier = license?.tier ?? null;
   const features = license?.features ?? [];

@@ -206,6 +206,8 @@ const {
 } = useLicense();
 ```
 
+**Cross-tab sync:** The hook automatically detects when a license is activated in another browser tab (e.g., user clicks an activation link that opens in a new tab) and updates the license state.
+
 #### `useLicenseStatus()`
 
 Simple status check (lighter than `useLicense`).
