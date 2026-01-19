@@ -10,14 +10,11 @@ async fn member_with_view_role_cannot_add_project_member() {
 
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
-    let (_user2, other_member, _) =
+    let (user2, _other_member, _) =
         create_test_org_member(&mut conn, &org.id, "other@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -27,8 +24,8 @@ async fn member_with_view_role_cannot_add_project_member() {
                 .header("Authorization", format!("Bearer {}", member_key))
                 .header("Content-Type", "application/json")
                 .body(Body::from(format!(
-                    r#"{{"org_member_id": "{}", "role": "view"}}"#,
-                    other_member.id
+                    r#"{{"user_id": "{}", "role": "view"}}"#,
+                    user2.id
                 )))
                 .unwrap(),
         )
@@ -52,14 +49,11 @@ async fn member_with_admin_project_role_can_add_project_member() {
 
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
-    let (_user2, other_member, _) =
+    let (user2, _other_member, _) =
         create_test_org_member(&mut conn, &org.id, "other@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::Admin,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::Admin)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -69,8 +63,8 @@ async fn member_with_admin_project_role_can_add_project_member() {
                 .header("Authorization", format!("Bearer {}", member_key))
                 .header("Content-Type", "application/json")
                 .body(Body::from(format!(
-                    r#"{{"org_member_id": "{}", "role": "view"}}"#,
-                    other_member.id
+                    r#"{{"user_id": "{}", "role": "view"}}"#,
+                    user2.id
                 )))
                 .unwrap(),
         )
@@ -95,11 +89,8 @@ async fn member_can_list_project_members_with_view_role() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(

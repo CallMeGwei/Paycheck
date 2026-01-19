@@ -2,34 +2,25 @@ use axum::{
     extract::{Extension, Query, State},
     http::HeaderMap,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::db::{AppState, queries};
 use crate::error::{AppError, OptionExt, Result, msg};
 use crate::extractors::{Json, Path};
 use crate::middleware::OperatorContext;
 use crate::models::{
-    ActorType, AuditAction, CreateOrgMember, CreateOrganization, OrgMember, OrgMemberRole,
-    Organization, UpdateOrganization,
+    ActorType, AuditAction, CreateOrgMember, CreateOrganization, OrgMemberRole,
+    OrganizationPublic, UpdateOrganization,
 };
 use crate::pagination::Paginated;
 use crate::util::AuditLogBuilder;
-
-#[derive(Serialize)]
-pub struct OrganizationCreated {
-    #[serde(flatten)]
-    pub organization: Organization,
-    /// Owner member (if owner_user_id provided). No API key - use Console or create one later.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<OrgMember>,
-}
 
 pub async fn create_organization(
     State(state): State<AppState>,
     Extension(ctx): Extension<OperatorContext>,
     headers: HeaderMap,
     Json(input): Json<CreateOrganization>,
-) -> Result<Json<OrganizationCreated>> {
+) -> Result<Json<OrganizationPublic>> {
     input.validate()?;
 
     let conn = state.db.get()?;
@@ -39,11 +30,11 @@ pub async fn create_organization(
     // If owner_user_id is provided, create the first org member as owner
     // The user must already exist in the users table
     // No API key is created - owner uses Console (impersonation) or creates a key later
-    let (owner, audit_details) = if let Some(owner_user_id) = &input.owner_user_id {
+    let audit_details = if let Some(owner_user_id) = &input.owner_user_id {
         let user = queries::get_user_by_id(&conn, owner_user_id)?
             .ok_or_else(|| AppError::BadRequest(msg::OWNER_USER_NOT_FOUND.into()))?;
 
-        let member = queries::create_org_member(
+        queries::create_org_member(
             &conn,
             &organization.id,
             &CreateOrgMember {
@@ -52,16 +43,13 @@ pub async fn create_organization(
             },
         )?;
 
-        (
-            Some(member),
-            serde_json::json!({
-                "name": input.name,
-                "owner_user_id": owner_user_id,
-                "owner_email": user.email
-            }),
-        )
+        serde_json::json!({
+            "name": input.name,
+            "owner_user_id": owner_user_id,
+            "owner_email": user.email
+        })
     } else {
-        (None, serde_json::json!({ "name": input.name }))
+        serde_json::json!({ "name": input.name })
     };
 
     AuditLogBuilder::new(&audit_conn, state.audit_log_enabled, &headers)
@@ -73,10 +61,7 @@ pub async fn create_organization(
         .auth_method(&ctx.auth_method)
         .save()?;
 
-    Ok(Json(OrganizationCreated {
-        organization,
-        owner,
-    }))
+    Ok(Json(organization.into()))
 }
 
 /// Query parameters for listing organizations
@@ -106,7 +91,7 @@ impl ListOrgsQuery {
 pub async fn list_organizations(
     State(state): State<AppState>,
     Query(query): Query<ListOrgsQuery>,
-) -> Result<Json<Paginated<Organization>>> {
+) -> Result<Json<Paginated<OrganizationPublic>>> {
     let conn = state.db.get()?;
     let limit = query.limit();
     let offset = query.offset();
@@ -119,17 +104,25 @@ pub async fn list_organizations(
         queries::list_organizations_paginated(&conn, limit, offset, query.include_deleted)?
     };
 
-    Ok(Json(Paginated::new(organizations, total, limit, offset)))
+    let organizations_public: Vec<OrganizationPublic> =
+        organizations.into_iter().map(Into::into).collect();
+
+    Ok(Json(Paginated::new(
+        organizations_public,
+        total,
+        limit,
+        offset,
+    )))
 }
 
 pub async fn get_organization(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<Organization>> {
+) -> Result<Json<OrganizationPublic>> {
     let conn = state.db.get()?;
     let organization =
         queries::get_organization_by_id(&conn, &id)?.or_not_found(msg::ORG_NOT_FOUND)?;
-    Ok(Json(organization))
+    Ok(Json(organization.into()))
 }
 
 pub async fn update_organization(
@@ -138,7 +131,7 @@ pub async fn update_organization(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(input): Json<UpdateOrganization>,
-) -> Result<Json<Organization>> {
+) -> Result<Json<OrganizationPublic>> {
     input.validate()?;
 
     let conn = state.db.get()?;
@@ -162,7 +155,7 @@ pub async fn update_organization(
         .auth_method(&ctx.auth_method)
         .save()?;
 
-    Ok(Json(organization))
+    Ok(Json(organization.into()))
 }
 
 pub async fn delete_organization(
@@ -196,7 +189,7 @@ pub async fn restore_organization(
     Extension(ctx): Extension<OperatorContext>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<Organization>> {
+) -> Result<Json<OrganizationPublic>> {
     let conn = state.db.get()?;
     let audit_conn = state.audit.get()?;
 
@@ -220,7 +213,7 @@ pub async fn restore_organization(
         .auth_method(&ctx.auth_method)
         .save()?;
 
-    Ok(Json(organization))
+    Ok(Json(organization.into()))
 }
 
 /// Hard delete an organization (GDPR compliance - permanently removes all data).

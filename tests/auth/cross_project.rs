@@ -90,11 +90,8 @@ async fn member_with_access_to_project1_cannot_access_project2() {
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
     // Give member access to project1 only
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project1.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project1.id, ProjectMemberRole::View)
+        .unwrap();
 
     // Should be able to access project1
     let response = app

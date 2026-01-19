@@ -585,20 +585,7 @@ mod organization_tests {
             json["name"], "Acme Corp",
             "Organization name should match request"
         );
-        // Owner member should be returned (OrgMember struct: id, user_id, org_id, role)
-        // No email in response - OrgMember doesn't have user details, use query below
-        assert!(
-            json["owner"]["id"].as_str().is_some(),
-            "Response should include owner member id"
-        );
-        assert_eq!(
-            json["owner"]["user_id"], owner_user_id,
-            "Owner should be linked to specified user"
-        );
-        assert_eq!(
-            json["owner"]["role"], "owner",
-            "Owner member should have owner role"
-        );
+        // OrganizationPublic doesn't include owner member - verify via database
 
         // Verify org member was created with full user details
         let mut conn = state.db.get().unwrap();

@@ -9,7 +9,7 @@ use crate::extractors::{Json, Path, RestoreRequest};
 use crate::jwt;
 use crate::middleware::OrgMemberContext;
 use crate::models::{
-    ActorType, AuditAction, CreateProject, LemonSqueezyConfigMasked, Project, ProjectPublic,
+    ActorType, AuditAction, CreateProject, LemonSqueezyConfigMasked, ProjectPublic,
     StripeConfigMasked, UpdateProject,
 };
 use crate::pagination::{Paginated, PaginationQuery};
@@ -220,7 +220,7 @@ pub async fn restore_project(
     Path(path): Path<crate::middleware::OrgProjectPath>,
     headers: HeaderMap,
     Json(input): Json<RestoreRequest>,
-) -> Result<Json<Project>> {
+) -> Result<Json<ProjectPublic>> {
     ctx.require_admin()?;
 
     let conn = state.db.get()?;
@@ -260,5 +260,5 @@ pub async fn restore_project(
         .auth_method(&ctx.auth_method)
         .save()?;
 
-    Ok(Json(project))
+    Ok(Json(project.into()))
 }

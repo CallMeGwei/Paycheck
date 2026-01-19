@@ -1608,11 +1608,13 @@ mod project_tests {
             let _project3 = create_test_project(&mut conn, &org.id, "Project 3", &master_key);
 
             // Only assign member to project1
-            let input = paycheck::models::CreateProjectMember {
-                org_member_id: member.id.clone(),
-                role: paycheck::models::ProjectMemberRole::View,
-            };
-            queries::create_project_member(&mut conn, &project1.id, &input).unwrap();
+            queries::create_project_member(
+                &mut conn,
+                &member.id,
+                &project1.id,
+                paycheck::models::ProjectMemberRole::View,
+            )
+            .unwrap();
 
             org_id = org.id;
             member_api_key = key;
@@ -2333,7 +2335,6 @@ mod project_member_tests {
 
         let org_id: String;
         let project_id: String;
-        let target_member_id: String;
         let target_user_id: String;
         let api_key: String;
 
@@ -2342,19 +2343,18 @@ mod project_member_tests {
             let org = create_test_org(&mut conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&mut conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (target_user, target, _) =
+            let (target_user, _target, _) =
                 create_test_org_member(&mut conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&mut conn, &org.id, "Test Project", &master_key);
 
             org_id = org.id;
             project_id = project.id;
-            target_member_id = target.id;
             target_user_id = target_user.id;
             api_key = key;
         }
 
         let body = json!({
-            "org_member_id": target_member_id,
+            "user_id": target_user_id,
             "role": "admin"
         });
 
@@ -2405,7 +2405,7 @@ mod project_member_tests {
 
         let org_id: String;
         let project_id: String;
-        let target_member_id: String;
+        let target_user_id: String;
         let api_key: String;
 
         {
@@ -2413,26 +2413,28 @@ mod project_member_tests {
             let org = create_test_org(&mut conn, "Test Org");
             let (_, _, key) =
                 create_test_org_member(&mut conn, &org.id, "owner@test.com", OrgMemberRole::Owner);
-            let (_, target, _) =
+            let (target_user, target, _) =
                 create_test_org_member(&mut conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&mut conn, &org.id, "Test Project", &master_key);
 
             // Already add member to project
-            let input = paycheck::models::CreateProjectMember {
-                org_member_id: target.id.clone(),
-                role: paycheck::models::ProjectMemberRole::View,
-            };
-            queries::create_project_member(&mut conn, &project.id, &input).unwrap();
+            queries::create_project_member(
+                &mut conn,
+                &target.id,
+                &project.id,
+                paycheck::models::ProjectMemberRole::View,
+            )
+            .unwrap();
 
             org_id = org.id;
             project_id = project.id;
-            target_member_id = target.id;
+            target_user_id = target_user.id;
             api_key = key;
         }
 
         // Try to add again
         let body = json!({
-            "org_member_id": target_member_id,
+            "user_id": target_user_id,
             "role": "admin"
         });
 
@@ -2529,17 +2531,21 @@ mod project_member_tests {
             let project = create_test_project(&mut conn, &org.id, "Test Project", &master_key);
 
             // Add both members to project
-            let input1 = paycheck::models::CreateProjectMember {
-                org_member_id: member1.id,
-                role: paycheck::models::ProjectMemberRole::Admin,
-            };
-            queries::create_project_member(&mut conn, &project.id, &input1).unwrap();
+            queries::create_project_member(
+                &mut conn,
+                &member1.id,
+                &project.id,
+                paycheck::models::ProjectMemberRole::Admin,
+            )
+            .unwrap();
 
-            let input2 = paycheck::models::CreateProjectMember {
-                org_member_id: member2.id,
-                role: paycheck::models::ProjectMemberRole::View,
-            };
-            queries::create_project_member(&mut conn, &project.id, &input2).unwrap();
+            queries::create_project_member(
+                &mut conn,
+                &member2.id,
+                &project.id,
+                paycheck::models::ProjectMemberRole::View,
+            )
+            .unwrap();
 
             org_id = org.id;
             project_id = project.id;
@@ -2602,11 +2608,13 @@ mod project_member_tests {
                 create_test_org_member(&mut conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&mut conn, &org.id, "Test Project", &master_key);
 
-            let input = paycheck::models::CreateProjectMember {
-                org_member_id: member.id,
-                role: paycheck::models::ProjectMemberRole::View,
-            };
-            let _pm = queries::create_project_member(&mut conn, &project.id, &input).unwrap();
+            let _pm = queries::create_project_member(
+                &mut conn,
+                &member.id,
+                &project.id,
+                paycheck::models::ProjectMemberRole::View,
+            )
+            .unwrap();
 
             org_id = org.id;
             project_id = project.id;
@@ -2727,11 +2735,13 @@ mod project_member_tests {
                 create_test_org_member(&mut conn, &org.id, "member@test.com", OrgMemberRole::Member);
             let project = create_test_project(&mut conn, &org.id, "Test Project", &master_key);
 
-            let input = paycheck::models::CreateProjectMember {
-                org_member_id: member.id,
-                role: paycheck::models::ProjectMemberRole::View,
-            };
-            let _pm = queries::create_project_member(&mut conn, &project.id, &input).unwrap();
+            let _pm = queries::create_project_member(
+                &mut conn,
+                &member.id,
+                &project.id,
+                paycheck::models::ProjectMemberRole::View,
+            )
+            .unwrap();
 
             org_id = org.id;
             project_id = project.id;
@@ -3630,14 +3640,11 @@ mod payment_config_tests {
 
             // Give member view access to project
             use paycheck::db::queries;
-            use paycheck::models::CreateProjectMember;
             queries::create_project_member(
                 &conn,
+                &member.id,
                 &project.id,
-                &CreateProjectMember {
-                    org_member_id: member.id.clone(),
-                    role: paycheck::models::ProjectMemberRole::View,
-                },
+                paycheck::models::ProjectMemberRole::View,
             )
             .unwrap();
 

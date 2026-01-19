@@ -91,11 +91,8 @@ async fn member_with_view_role_cannot_create_license() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -128,11 +125,8 @@ async fn member_with_view_role_can_list_licenses() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -166,11 +160,8 @@ async fn member_with_view_role_cannot_revoke_license() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -207,11 +198,8 @@ async fn member_with_admin_project_role_can_revoke_license() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::Admin,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::Admin)
+        .unwrap();
 
     let response = app
         .oneshot(

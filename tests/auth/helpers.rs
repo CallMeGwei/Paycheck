@@ -15,7 +15,7 @@ pub use tower::ServiceExt;
 pub use paycheck::config::RateLimitConfig;
 pub use paycheck::db::AppState;
 pub use paycheck::handlers;
-pub use paycheck::models::{CreateProjectMember, OperatorRole, OrgMemberRole, ProjectMemberRole};
+pub use paycheck::models::{OperatorRole, OrgMemberRole, ProjectMemberRole};
 
 /// Creates a test app with the full operator router (with middleware)
 pub fn operator_app() -> (Router, AppState) {

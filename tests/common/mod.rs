@@ -470,11 +470,7 @@ pub fn create_test_project_member(
     project_id: &str,
     role: ProjectMemberRole,
 ) -> ProjectMember {
-    let input = CreateProjectMember {
-        org_member_id: org_member_id.to_string(),
-        role,
-    };
-    queries::create_project_member(conn, project_id, &input)
+    queries::create_project_member(conn, org_member_id, project_id, role)
         .expect("Failed to create test project member")
 }
 

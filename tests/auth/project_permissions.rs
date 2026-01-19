@@ -82,11 +82,8 @@ async fn member_with_view_role_can_read_project() {
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
     // Add project membership with View role
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -118,11 +115,8 @@ async fn member_with_view_role_can_list_products() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -154,11 +148,8 @@ async fn member_with_view_role_cannot_create_product() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
             .oneshot(
@@ -196,11 +187,8 @@ async fn member_with_view_role_cannot_update_project() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::View,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::View)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -237,11 +225,8 @@ async fn member_with_admin_project_role_can_create_product() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::Admin,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::Admin)
+        .unwrap();
 
     let response = app
             .oneshot(
@@ -279,11 +264,8 @@ async fn member_with_admin_project_role_can_update_project() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::Admin,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::Admin)
+        .unwrap();
 
     let response = app
         .oneshot(
@@ -316,11 +298,8 @@ async fn member_with_admin_project_role_cannot_delete_project() {
     let (_user, member, member_key) =
         create_test_org_member(&mut conn, &org.id, "member@org.com", OrgMemberRole::Member);
 
-    let pm_input = CreateProjectMember {
-        org_member_id: member.id.clone(),
-        role: ProjectMemberRole::Admin,
-    };
-    queries::create_project_member(&mut conn, &project.id, &pm_input).unwrap();
+    queries::create_project_member(&mut conn, &member.id, &project.id, ProjectMemberRole::Admin)
+        .unwrap();
 
     // Project deletion requires org-level Admin or Owner
     let response = app
