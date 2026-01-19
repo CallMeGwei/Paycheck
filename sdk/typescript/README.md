@@ -37,8 +37,8 @@ const { valid, claims } = await paycheck.validate();
 if (valid) {
   console.log('Licensed! Tier:', claims.tier);
 } else {
-  // Activate with license key
-  const result = await paycheck.activate('PC-XXXXX-XXXXX');
+  // Activate with code (from payment callback or email recovery)
+  const result = await paycheck.activateWithCode('MYAPP-AB3D-EF5G');
   console.log('Activated! Features:', result.features);
 }
 
@@ -68,12 +68,12 @@ export function Providers({ children }) {
 import { useLicense, FeatureGate, LicenseGate } from '@paycheck/react';
 
 export function App() {
-  const { isLicensed, tier, loading, activate } = useLicense();
+  const { isLicensed, tier, loading, activateWithCode } = useLicense();
 
   if (loading) return <div>Loading...</div>;
 
   if (!isLicensed) {
-    return <LicenseKeyInput onActivate={activate} />;
+    return <ActivationCodeInput onActivate={activateWithCode} />;
   }
 
   return (
@@ -101,19 +101,30 @@ export function AppWithGates() {
 
 ## Payment Flow
 
+**Important:** The redirect URL after payment is configured per-project in your Paycheck dashboard or via the admin API, not per-request. This prevents open redirect vulnerabilities.
+
 ```typescript
-// 1. Start checkout
+// 1. Start checkout (redirect URL is configured on your project, not here)
 const { checkoutUrl } = await paycheck.checkout('product-uuid');
 
-// 2. Redirect to payment
+// 2. Redirect to payment provider (Stripe/LemonSqueezy)
 window.location.href = checkoutUrl;
 
-// 3. Handle callback (on your callback page)
-const result = paycheck.handleCallback(window.location.href);
-if (result.status === 'success' && result.licenseKey) {
-  // Activate to get JWT
-  await paycheck.activate(result.licenseKey);
-  router.push('/dashboard');
+// 3. Handle callback (on your configured redirect page, e.g., /success)
+// Option A: One-step activation (recommended)
+const result = await paycheck.handleCallbackAndActivate(window.location.href);
+if (result.activated) {
+  console.log('Welcome!', result.claims?.tier);
+  window.history.replaceState({}, '', '/dashboard'); // Clean URL
+} else if (result.wasCallback && result.error) {
+  console.error('Activation failed:', result.error);
+}
+
+// Option B: Manual two-step flow
+const callback = paycheck.handleCallback(window.location.href);
+if (callback.status === 'success' && callback.code) {
+  const activation = await paycheck.activateWithCode(callback.code);
+  console.log('Activated! Tier:', activation.tier);
 }
 ```
 
@@ -138,12 +149,13 @@ interface PaycheckOptions {
 #### Payment Flow
 
 - `checkout(productId, options?)` - Start a payment checkout session
-- `handleCallback(url)` - Parse callback URL and extract credentials
+- `handleCallback(url)` - Parse callback URL and extract activation code
+- `handleCallbackAndActivate(url, deviceInfo?)` - Parse callback and activate in one step (recommended)
 
 #### Activation
 
-- `activate(licenseKey, deviceInfo?)` - Activate with license key
-- `activateWithCode(code, deviceInfo?)` - Activate with redemption code
+- `activateWithCode(code, deviceInfo?)` - Activate with activation code (PREFIX-XXXX-XXXX format)
+- `requestActivationCode(email)` - Request activation code sent to purchase email
 - `importToken(token)` - Import JWT directly (offline activation)
 
 #### Validation (with Ed25519 signature verification)
@@ -180,7 +192,7 @@ Main hook for license state and actions. Performs Ed25519 signature verification
 
 ```typescript
 // Offline-first (default)
-const { isLicensed, tier, activate } = useLicense();
+const { isLicensed, tier, activateWithCode } = useLicense();
 
 // Online/subscription apps - use sync() instead of validate()
 const { isLicensed, synced, offline, tier } = useLicense({ sync: true });
@@ -196,8 +208,8 @@ const {
   error,        // Error message if validation failed
   synced,       // Whether server was reached (sync mode only)
   offline,      // Whether in offline mode (sync mode only)
-  activate,     // Activate function
-  activateWithCode, // Activate with code
+  activateWithCode, // Activate with code (PREFIX-XXXX-XXXX format)
+  requestActivationCode, // Request code sent to purchase email
   importToken,  // Import JWT directly (offline activation)
   refresh,      // Refresh token
   deactivate,   // Deactivate device
@@ -280,12 +292,12 @@ const paycheck = new Paycheck('your-public-key', {
 import { PaycheckError } from '@paycheck/sdk';
 
 try {
-  await paycheck.activate('invalid-key');
+  await paycheck.activateWithCode('INVALID-CODE');
 } catch (error) {
   if (error instanceof PaycheckError) {
     switch (error.code) {
-      case 'INVALID_LICENSE_KEY':
-        console.log('Key not found');
+      case 'INVALID_CODE':
+        console.log('Invalid or expired activation code');
         break;
       case 'DEVICE_LIMIT_REACHED':
         console.log('Too many devices');

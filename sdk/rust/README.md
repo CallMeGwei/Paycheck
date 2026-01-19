@@ -36,8 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Activate with license key
-    let result = paycheck.activate("PC-XXXXX-XXXXX", None).await?;
+    // Activate with code (from payment callback or email recovery)
+    let result = paycheck.activate_with_code("MYAPP-AB3D-EF5G", None).await?;
     println!("Activated! Features: {:?}", result.features);
 
     // Feature gating
@@ -88,23 +88,24 @@ pub struct PaycheckOptions {
 
 ### Payment Flow
 
+**Important:** The redirect URL after payment is configured per-project in your Paycheck dashboard or via the admin API, not per-request. This prevents open redirect vulnerabilities.
+
 ```rust
-// Start checkout
+// Start checkout (redirect URL is configured on your project, not here)
 let result = paycheck.checkout("product-uuid", None).await?;
 println!("Redirect to: {}", result.checkout_url);
 
 // With options
 let result = paycheck.checkout("product-uuid", Some(CheckoutOptions {
     customer_id: Some("customer-123".into()),
-    redirect: Some("https://myapp.com/callback".into()),
     ..Default::default()
 })).await?;
 
-// Parse callback (after payment redirect)
-let result = paycheck.handle_callback("https://myapp.com/callback?license_key=xxx")?;
+// Parse callback (after payment redirects to your configured redirect_url)
+let result = paycheck.handle_callback("https://myapp.com/success?code=MYAPP-AB3D-EF5G&status=success")?;
 if result.status == CallbackStatus::Success {
-    if let Some(key) = result.license_key {
-        paycheck.activate(&key, None).await?;
+    if let Some(code) = result.code {
+        paycheck.activate_with_code(&code, None).await?;
     }
 }
 ```
@@ -112,16 +113,18 @@ if result.status == CallbackStatus::Success {
 ### Activation
 
 ```rust
-// Activate with license key
-let result = paycheck.activate("PC-XXXXX", None).await?;
-
-// Activate with redemption code
-let result = paycheck.activate_with_code("short-code", None).await?;
+// Activate with activation code (PREFIX-XXXX-XXXX format, 30 min TTL)
+let result = paycheck.activate_with_code("MYAPP-AB3D-EF5G", None).await?;
+println!("Activated! Tier: {}", result.tier);
 
 // With device name
-let result = paycheck.activate("PC-XXXXX", Some(DeviceInfo {
+let result = paycheck.activate_with_code("MYAPP-AB3D-EF5G", Some(DeviceInfo {
     device_name: Some("John's MacBook".into()),
 })).await?;
+
+// Request activation code sent to purchase email (for license recovery)
+let result = paycheck.request_activation_code("user@example.com").await?;
+println!("{}", result.message);
 
 // Offline activation - import JWT directly (clipboard, QR code, etc.)
 let result = paycheck.import_token(&jwt);
@@ -262,10 +265,10 @@ let paycheck = Paycheck::new("your-public-key", PaycheckOptions {
 ```rust
 use paycheck_sdk::{PaycheckError, PaycheckErrorCode};
 
-match paycheck.activate("invalid-key", None).await {
+match paycheck.activate_with_code("INVALID-CODE", None).await {
     Ok(result) => println!("Activated!"),
     Err(e) => match e.code {
-        PaycheckErrorCode::InvalidLicenseKey => println!("Key not found"),
+        PaycheckErrorCode::InvalidCode => println!("Invalid or expired activation code"),
         PaycheckErrorCode::DeviceLimitReached => println!("Too many devices"),
         PaycheckErrorCode::LicenseRevoked => println!("License was revoked"),
         PaycheckErrorCode::NetworkError => println!("Network error: {}", e.message),

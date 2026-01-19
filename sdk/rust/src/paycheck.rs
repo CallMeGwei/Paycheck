@@ -160,6 +160,9 @@ impl Paycheck {
     // ==================== Core Methods ====================
 
     /// Start a checkout session to purchase a product.
+    ///
+    /// Note: Redirect URL is configured per-project in the Paycheck dashboard,
+    /// not per-request. This prevents open redirect vulnerabilities.
     pub async fn checkout(
         &self,
         product_id: &str,
@@ -173,8 +176,6 @@ impl Paycheck {
             provider: Option<String>,
             #[serde(skip_serializing_if = "Option::is_none")]
             customer_id: Option<String>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            redirect: Option<String>,
         }
 
         let opts = options.unwrap_or_default();
@@ -183,7 +184,6 @@ impl Paycheck {
             product_id: product_id.to_string(),
             provider: opts.provider,
             customer_id: opts.customer_id,
-            redirect: opts.redirect,
         };
 
         self.post("/buy", &body).await
@@ -824,13 +824,14 @@ impl std::fmt::Debug for Paycheck {
     }
 }
 
-/// Checkout options for the new API
+/// Checkout options for the new API.
+///
+/// Note: Redirect URL is configured per-project in the Paycheck dashboard,
+/// not per-request. This prevents open redirect vulnerabilities.
 #[derive(Debug, Clone, Default)]
 pub struct CheckoutOptions {
-    /// Payment provider
+    /// Payment provider (auto-detected if not specified)
     pub provider: Option<String>,
-    /// Customer ID
+    /// Your customer identifier (flows through to license)
     pub customer_id: Option<String>,
-    /// Redirect URL after payment
-    pub redirect: Option<String>,
 }

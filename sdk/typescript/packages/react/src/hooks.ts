@@ -74,17 +74,17 @@ export interface UseLicenseResult {
  * ```tsx
  * // Offline-first (default)
  * function App() {
- *   const { isLicensed, tier, activate, loading } = useLicense();
+ *   const { isLicensed, tier, activateWithCode, loading } = useLicense();
  *
  *   if (loading) return <div>Loading...</div>;
  *
  *   if (!isLicensed) {
  *     return (
  *       <div>
- *         <p>Please enter your license key</p>
+ *         <p>Please enter your activation code</p>
  *         <input onKeyDown={async (e) => {
  *           if (e.key === 'Enter') {
- *             await activate(e.currentTarget.value);
+ *             await activateWithCode(e.currentTarget.value);
  *           }
  *         }} />
  *       </div>

@@ -23,8 +23,8 @@
 //!         return Ok(());
 //!     }
 //!
-//!     // Activate with license key
-//!     let result = paycheck.activate("PC-XXXXX", None).await?;
+//!     // Activate with code (from payment callback or email recovery)
+//!     let result = paycheck.activate_with_code("MYAPP-AB3D-EF5G", None).await?;
 //!     println!("Activated! Tier: {}", result.tier);
 //!
 //!     // Feature gating
