@@ -161,7 +161,7 @@ export function useLicense(options: UseLicenseOptions = {}): UseLicenseResult {
     reload();
   }, [reload]);
 
-  // Listen for cross-tab license changes (e.g., user clicked activation link in another tab)
+  // Listen for license changes (cross-tab via storage event, same-tab via custom event)
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -171,8 +171,16 @@ export function useLicense(options: UseLicenseOptions = {}): UseLicenseResult {
       }
     };
 
+    const handleLicenseChange = () => {
+      reload();
+    };
+
     window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    window.addEventListener('paycheck:license-change', handleLicenseChange);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('paycheck:license-change', handleLicenseChange);
+    };
   }, [reload]);
 
   // Derived state

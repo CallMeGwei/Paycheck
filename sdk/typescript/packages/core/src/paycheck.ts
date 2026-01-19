@@ -223,6 +223,10 @@ export class Paycheck {
 
   private async storeToken(token: string): Promise<void> {
     await this.storage.set(STORAGE_KEYS.TOKEN, token);
+    // Emit custom event for same-tab listeners (storage event only fires cross-tab)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('paycheck:license-change'));
+    }
   }
 
   private async apiRequest<T>(
@@ -763,6 +767,10 @@ export class Paycheck {
    */
   clearToken(): void {
     this.storage.remove(STORAGE_KEYS.TOKEN);
+    // Emit custom event for same-tab listeners (storage event only fires cross-tab)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('paycheck:license-change'));
+    }
   }
 
   /**
