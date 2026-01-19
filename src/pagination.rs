@@ -30,8 +30,6 @@ impl PaginationQuery {
 /// Paginated response wrapper for list endpoints.
 #[derive(Debug, Serialize)]
 pub struct Paginated<T> {
-    /// The items in this page
-    pub items: Vec<T>,
     /// Total number of items (across all pages)
     pub total: i64,
     /// Maximum items per page (as requested)
@@ -40,6 +38,8 @@ pub struct Paginated<T> {
     pub offset: i64,
     /// Whether there are more items beyond this page
     pub has_more: bool,
+    /// The items in this page
+    pub items: Vec<T>,
 }
 
 impl<T> Paginated<T> {
@@ -47,11 +47,11 @@ impl<T> Paginated<T> {
     pub fn new(items: Vec<T>, total: i64, limit: i64, offset: i64) -> Self {
         let has_more = offset + (items.len() as i64) < total;
         Self {
-            items,
             total,
             limit,
             offset,
             has_more,
+            items,
         }
     }
 }
