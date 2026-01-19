@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [0.1.2] - 2026-01-19
+
+### Changed
+
+- **Breaking**: `POST /orgs/{org_id}/projects/{project_id}/members` now accepts `user_id` instead of `org_member_id` in request body
+
+### Fixed
+
+- Bruno API collection: project member endpoints now use `{{user_id}}` in URL paths to match API spec
+- Bruno API collection: environment variables consolidated to use `user_id` instead of `member_id`/`project_member_id`
+
+
 ## [0.1.1] - 2026-01-19
 
 ### Fixed
