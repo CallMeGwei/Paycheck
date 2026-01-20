@@ -32,14 +32,11 @@ pub struct Product {
     pub device_limit: Option<i32>,
     /// Devices not seen for this many days don't count against device_limit.
     /// None = disabled (all devices count regardless of activity).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub device_inactive_days: Option<i32>,
     pub features: Vec<String>,
     /// Canonical price in cents (for display and future provider sync)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub price_cents: Option<i64>,
     /// Currency code (e.g., "usd")
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
     pub created_at: i64,
     /// Soft delete timestamp (None = active, Some = deleted at this time)

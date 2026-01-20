@@ -656,6 +656,66 @@ fn test_update_product() {
     );
     // Verify other fields were NOT changed (outer None = skip update)
     assert_eq!(unlimited.name, "Premium", "name should be unchanged");
+
+    // Test updating device_inactive_days, price_cents, and currency to None
+    // First, set device_inactive_days to a value
+    let set_inactive_days = UpdateProduct {
+        name: None,
+        tier: None,
+        price_cents: None,
+        currency: None,
+        license_exp_days: None,
+        updates_exp_days: None,
+        activation_limit: None,
+        device_limit: None,
+        device_inactive_days: Some(Some(30)), // Set to 30 days
+        features: None,
+    };
+    queries::update_product(&mut conn, &product.id, &set_inactive_days)
+        .expect("Setting device_inactive_days failed");
+
+    let with_inactive = queries::get_product_by_id(&mut conn, &product.id)
+        .expect("Query failed")
+        .expect("Product not found");
+    assert_eq!(
+        with_inactive.device_inactive_days, Some(30),
+        "device_inactive_days should be 30"
+    );
+
+    // Now test updating all three nullable fields to None using Some(None)
+    let clear_nullable_fields = UpdateProduct {
+        name: None,
+        tier: None,
+        price_cents: Some(None),        // Clear price
+        currency: Some(None),           // Clear currency
+        license_exp_days: None,
+        updates_exp_days: None,
+        activation_limit: None,
+        device_limit: None,
+        device_inactive_days: Some(None), // Clear device_inactive_days
+        features: None,
+    };
+    queries::update_product(&mut conn, &product.id, &clear_nullable_fields)
+        .expect("Clearing nullable fields failed");
+
+    let cleared = queries::get_product_by_id(&mut conn, &product.id)
+        .expect("Query failed")
+        .expect("Product not found");
+
+    assert_eq!(
+        cleared.device_inactive_days, None,
+        "device_inactive_days should be None after Some(None) update"
+    );
+    assert_eq!(
+        cleared.price_cents, None,
+        "price_cents should be None after Some(None) update"
+    );
+    assert_eq!(
+        cleared.currency, None,
+        "currency should be None after Some(None) update"
+    );
+    // Verify name was NOT changed
+    assert_eq!(cleared.name, "Premium", "name should still be unchanged");
 }
 
 #[test]

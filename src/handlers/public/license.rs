@@ -34,11 +34,9 @@ pub struct LicenseResponse {
     pub updates_expires_at: Option<i64>,
     pub activation_count: i32,
     /// None = unlimited
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub activation_limit: Option<i32>,
     pub device_count: i32,
     /// None = unlimited
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub device_limit: Option<i32>,
     pub devices: Vec<LicenseDeviceInfo>,
 }

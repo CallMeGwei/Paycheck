@@ -111,39 +111,30 @@ pub struct AuditLog {
     pub timestamp: i64,
     pub actor_type: ActorType,
     /// User ID (references users.id, null for public/system)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     /// User email (denormalized for query convenience)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_email: Option<String>,
     /// User name (denormalized for query convenience)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_name: Option<String>,
     pub action: String,
     pub resource_type: String,
     pub resource_id: String,
     /// Name of the resource being acted upon (e.g., organization name, product name).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_name: Option<String>,
     /// Email of the resource (for user-related resources: operator, org_member, user, api_key).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_email: Option<String>,
     pub details: Option<serde_json::Value>,
     pub org_id: Option<String>,
     /// Name of the organization at the time of the action.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub org_name: Option<String>,
     pub project_id: Option<String>,
     /// Name of the project at the time of the action.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub project_name: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     /// Auth type used for this action ('api_key' or 'jwt')
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_type: Option<String>,
     /// Auth credential (API key prefix or JWT issuer URL)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_credential: Option<String>,
 }
 

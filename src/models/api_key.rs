@@ -22,11 +22,8 @@ pub struct ApiKey {
     /// If false, key is Console-managed and hidden from user
     pub user_manageable: bool,
     pub created_at: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<i64>,
 }
 
@@ -76,9 +73,7 @@ pub struct ApiKeyCreated {
     pub prefix: String,
     pub user_manageable: bool,
     pub created_at: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<ApiKeyScope>>,
 }
 
@@ -90,11 +85,8 @@ pub struct ApiKeyInfo {
     pub prefix: String,
     pub user_manageable: bool,
     pub created_at: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<ApiKeyScope>>,
 }
 

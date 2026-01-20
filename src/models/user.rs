@@ -58,7 +58,6 @@ pub struct User {
     pub email: String,
     pub name: String,
     /// Operator role (None = not an operator)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub operator_role: Option<crate::models::OperatorRole>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -125,7 +124,6 @@ pub struct UserWithRoles {
     pub created_at: i64,
     pub updated_at: i64,
     /// Operator role if user is an operator
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub operator_role: Option<crate::models::OperatorRole>,
     /// Org memberships
     pub memberships: Vec<UserOrgMembership>,

@@ -329,6 +329,99 @@ mod product_tests {
         assert_eq!(json["device_limit"], 10, "device limit should be updated");
     }
 
+    /// Tests that nullable fields can be set to null via JSON using explicit null values.
+    /// This verifies the double-Option deserialization pattern works through the HTTP layer.
+    #[tokio::test]
+    async fn test_update_product_nullable_fields_to_null() {
+        let (app, state) = org_app();
+        let master_key = test_master_key();
+
+        let org_id: String;
+        let project_id: String;
+        let product_id: String;
+        let api_key: String;
+
+        {
+            let mut conn = state.db.get().unwrap();
+            let org = create_test_org(&mut conn, "Test Org");
+            let (_, _, key) =
+                create_test_org_member(&mut conn, &org.id, "admin@test.com", OrgMemberRole::Owner);
+            let project = create_test_project(&mut conn, &org.id, "Test Project", &master_key);
+            let product = create_test_product(&mut conn, &project.id, "Pro Plan", "pro");
+
+            // Verify product has initial values
+            assert!(product.price_cents.is_some(), "product should have price_cents initially");
+            assert!(product.currency.is_some(), "product should have currency initially");
+            assert!(product.device_limit.is_some(), "product should have device_limit initially");
+
+            org_id = org.id;
+            project_id = project.id;
+            product_id = product.id;
+            api_key = key;
+        }
+
+        // Send JSON with explicit null values - this tests the double-Option deserialization
+        let body = json!({
+            "device_limit": null,
+            "price_cents": null,
+            "currency": null,
+            "device_inactive_days": null
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!(
+                        "/orgs/{}/projects/{}/products/{}",
+                        org_id, project_id, product_id
+                    ))
+                    .header("content-type", "application/json")
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::OK,
+            "update product should return 200 OK"
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        // Fields sent as null should now be null in the response
+        assert!(
+            json["device_limit"].is_null(),
+            "device_limit should be null after explicit null update, got: {:?}",
+            json["device_limit"]
+        );
+        assert!(
+            json["price_cents"].is_null(),
+            "price_cents should be null after explicit null update, got: {:?}",
+            json["price_cents"]
+        );
+        assert!(
+            json["currency"].is_null(),
+            "currency should be null after explicit null update, got: {:?}",
+            json["currency"]
+        );
+        assert!(
+            json["device_inactive_days"].is_null(),
+            "device_inactive_days should be null after explicit null update, got: {:?}",
+            json["device_inactive_days"]
+        );
+
+        // Other fields should be unchanged
+        assert_eq!(json["name"], "Pro Plan", "name should be unchanged");
+        assert_eq!(json["tier"], "pro", "tier should be unchanged");
+    }
+
     #[tokio::test]
     async fn test_delete_product_removes_product() {
         let (app, state) = org_app();

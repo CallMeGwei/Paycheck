@@ -215,7 +215,10 @@ if paycheck.covers_version(version_timestamp) {
 ```rust
 // Get full license info
 let info = paycheck.get_license_info().await?;
-println!("Devices: {}/{}", info.device_count, info.device_limit);
+match info.device_limit {
+    Some(limit) => println!("Devices: {}/{}", info.device_count, limit),
+    None => println!("Devices: {} (unlimited)", info.device_count),
+}
 
 // Deactivate current device
 let result = paycheck.deactivate().await?;

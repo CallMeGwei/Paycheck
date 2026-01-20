@@ -35,9 +35,9 @@ docs {
     "expires_at": null,
     "updates_expires_at": 1735689600,
     "activation_count": 3,
-    "activation_limit": 0,
+    "activation_limit": 5,
     "device_count": 2,
-    "device_limit": 5,
+    "device_limit": 3,
     "devices": [
       {
         "device_id": "...",
@@ -52,8 +52,8 @@ docs {
   Status values: "active", "expired", "revoked"
   expires_at: when license access ends (null = perpetual)
   updates_expires_at: when update access ends (null = lifetime updates)
-  activation_limit: 0 = unlimited
-  device_limit: 0 = unlimited
+  activation_limit: null = unlimited
+  device_limit: null = unlimited
 
   Note: tier and features are not included - they are in the JWT claims.
   Use your SDK to decode the JWT for those fields.

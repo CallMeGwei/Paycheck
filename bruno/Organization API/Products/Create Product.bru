@@ -22,7 +22,6 @@ body:json {
     "currency": "usd",
     "license_exp_days": 365,
     "updates_exp_days": 365,
-    "activation_limit": 0,
     "device_limit": 5,
     "features": ["advanced-export", "cloud-sync", "priority-support"]
   }
@@ -38,8 +37,8 @@ docs {
   - currency: Currency code (e.g., "usd")
   - license_exp_days: Days until license expires (null = perpetual, never expires)
   - updates_exp_days: Days until update access ends (null = perpetual)
-  - activation_limit: Max activations (0 = unlimited)
-  - device_limit: Max concurrent devices (0 = unlimited)
+  - activation_limit: Max activations (null = unlimited)
+  - device_limit: Max concurrent devices (null = unlimited)
   - features: Array of feature flags for hasFeature() checks
 
   IMPORTANT: license_exp_days and updates_exp_days
