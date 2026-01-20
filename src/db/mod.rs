@@ -1,8 +1,10 @@
 mod from_row;
+pub mod migrations;
 pub mod queries;
 mod schema;
 pub mod soft_delete;
 
+pub use migrations::{run_migrations, MigrationError, MigrationTarget};
 pub use schema::{init_audit_db, init_db};
 
 use std::sync::Arc;

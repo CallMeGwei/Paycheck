@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use paycheck::config::Config;
 use paycheck::crypto::{EmailHasher, MasterKey};
-use paycheck::db::{AppState, create_pool, init_audit_db, init_db, queries};
+use paycheck::db::{AppState, MigrationTarget, create_pool, init_audit_db, init_db, queries, run_migrations};
 use paycheck::email::EmailService;
 use paycheck::handlers;
 use paycheck::jwt::{self, JwksCache};
@@ -725,7 +725,29 @@ async fn main() {
     let audit_pool =
         create_pool(&config.audit_database_path).expect("Failed to create audit database pool");
 
-    // Initialize database schemas
+    // Run database migrations (with auto-backup before schema changes)
+    {
+        let mut conn = db_pool.get().expect("Failed to get connection for migration");
+        run_migrations(
+            &mut conn,
+            &config.database_path,
+            MigrationTarget::Main,
+            config.migration_backup_count,
+        )
+        .expect("Failed to run database migrations");
+    }
+    {
+        let mut conn = audit_pool.get().expect("Failed to get audit connection for migration");
+        run_migrations(
+            &mut conn,
+            &config.audit_database_path,
+            MigrationTarget::Audit,
+            config.migration_backup_count,
+        )
+        .expect("Failed to run audit database migrations");
+    }
+
+    // Initialize database schemas (idempotent - creates tables if missing)
     {
         let conn = db_pool.get().expect("Failed to get connection");
         init_db(&conn).expect("Failed to initialize database");

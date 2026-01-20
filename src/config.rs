@@ -101,6 +101,9 @@ pub struct Config {
     /// Trusted JWT issuers for first-party app authentication.
     /// Set via PAYCHECK_TRUSTED_ISSUERS (JSON array).
     pub trusted_issuers: Vec<TrustedIssuer>,
+    /// Number of database migration backups to keep.
+    /// Set via MIGRATION_BACKUP_COUNT. Default: 3. -1 = keep all. 0 = no backups.
+    pub migration_backup_count: i32,
 }
 
 /// Check that a file has secure permissions (owner read-only, no write, no group/other access).
@@ -308,6 +311,13 @@ impl Config {
             })
             .unwrap_or_default();
 
+        // Migration backup count (how many backups to keep)
+        // -1 = keep all backups, 0 = no backups, n = keep n backups
+        let migration_backup_count: i32 = env::var("MIGRATION_BACKUP_COUNT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3);
+
         Self {
             host,
             port,
@@ -329,6 +339,7 @@ impl Config {
             resend_api_key,
             default_from_email,
             trusted_issuers,
+            migration_backup_count,
         }
     }
 

@@ -243,6 +243,7 @@ Manage products and licenses. Requires org member API key.
 | `RATE_LIMIT_STANDARD_RPM` | Rate limit for most public endpoints | `30` |
 | `RATE_LIMIT_RELAXED_RPM` | Rate limit for /health | `60` |
 | `RATE_LIMIT_ORG_OPS_RPM` | Rate limit for /orgs/* endpoints | `3000` |
+| `MIGRATION_BACKUP_COUNT` | DB backups to keep (-1 = all, 0 = none) | `3` |
 
 ### Payment Setup
 
@@ -276,6 +277,33 @@ POST /orgs/{org}/projects/{proj}/products/{prod}/provider-links
 
 Note: `linked_id` is the provider's price/variant ID (Stripe Price ID or LemonSqueezy Variant ID).
 Product pricing (`price_cents`, `currency`) is stored on the Product for display purposes.
+
+### Database Migrations
+
+Migrations run automatically on server startup:
+
+1. **Version check**: Compares `PRAGMA user_version` against latest migration
+2. **Backup**: Creates `paycheck.db.backup_v{N}_{timestamp}` before any changes
+3. **Apply**: Runs pending migrations in transactions (rollback on failure)
+4. **Cleanup**: Removes old backups based on `MIGRATION_BACKUP_COUNT`
+
+```bash
+# Keep 3 backups (default)
+MIGRATION_BACKUP_COUNT=3
+
+# Keep all backups
+MIGRATION_BACKUP_COUNT=-1
+
+# Disable backups (not recommended for production)
+MIGRATION_BACKUP_COUNT=0
+```
+
+**Manual version check:**
+```bash
+sqlite3 paycheck.db "PRAGMA user_version"
+```
+
+**Recovery:** If migration fails, the transaction rolls back and the server exits with an error message pointing to the backup file.
 
 ## JWT Structure
 
