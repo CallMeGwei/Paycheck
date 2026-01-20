@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## [0.4.0] - 2026-01-20
+
+### Added
+
+- Database migration system with automatic backup before schema changes
+  - Migrations run on startup, tracked via `PRAGMA user_version`
+  - Creates timestamped backups (e.g., `paycheck.db.backup_v0_20260120_143022`)
+  - Configure retention with `MIGRATION_BACKUP_COUNT` (default: 3, -1 = keep all, 0 = none)
+
+### Changed
+
+- Subscription renewals now use the payment provider's billing period end date instead of calculating from `license_exp_days`
+
+
 ## [0.3.0] - 2026-01-20
 
 ### Added
