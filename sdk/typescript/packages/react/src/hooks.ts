@@ -16,12 +16,36 @@ import { usePaycheck } from './provider';
 // Track codes being processed to prevent double-activation (survives React StrictMode remounts)
 const processingCodes = new Set<string>();
 
+/** Minimum sync interval to prevent API abuse (5 minutes) */
+const MIN_SYNC_INTERVAL_SECONDS = 300;
+
 /**
  * Options for useLicense hook
  */
 export interface UseLicenseOptions {
   /** Use sync() instead of validate() for online apps (default: false) */
   sync?: boolean;
+  /**
+   * Interval in seconds to automatically re-sync with the server.
+   *
+   * **Behavior:**
+   * - The hook always syncs on initial mount (page load) regardless of this setting
+   * - This interval controls additional periodic syncs while the app stays open
+   * - Useful for long-running sessions (dashboards, desktop apps) to keep `last_seen` updated
+   * - Requires `sync: true` to have any effect
+   * - Only runs while `isLicensed` is true
+   * - Minimum enforced: 300 seconds (5 minutes) to prevent API abuse
+   *
+   * @example
+   * ```tsx
+   * // Sync on page load, then every 10 minutes while app is open
+   * const { isLicensed } = useLicense({
+   *   sync: true,
+   *   syncInterval: 600 // 10 minutes
+   * });
+   * ```
+   */
+  syncInterval?: number;
 }
 
 /**
@@ -81,6 +105,7 @@ export interface UseLicenseResult {
  *
  * @param options - Hook options
  * @param options.sync - Use sync() instead of validate() for online apps
+ * @param options.syncInterval - Interval in seconds to re-sync (requires sync: true, min 300s)
  *
  * @example
  * ```tsx
@@ -106,9 +131,13 @@ export interface UseLicenseResult {
  *   return <div>Welcome! Your tier: {tier}</div>;
  * }
  *
- * // Online/subscription apps
+ * // Online/subscription apps with periodic sync
+ * // Syncs on page load, then every 10 minutes while app stays open
  * function SubscriptionApp() {
- *   const { isLicensed, synced, offline, tier } = useLicense({ sync: true });
+ *   const { isLicensed, synced, offline, tier } = useLicense({
+ *     sync: true,
+ *     syncInterval: 600, // Additional sync every 10 minutes
+ *   });
  *
  *   if (offline) {
  *     showToast('Offline mode - using cached license');
@@ -120,7 +149,7 @@ export interface UseLicenseResult {
  */
 export function useLicense(options: UseLicenseOptions = {}): UseLicenseResult {
   const paycheck = usePaycheck();
-  const { sync: useSync = false } = options;
+  const { sync: useSync = false, syncInterval } = options;
 
   const [license, setLicense] = useState<LicenseClaims | null>(null);
   const [loading, setLoading] = useState(true);
@@ -190,6 +219,21 @@ export function useLicense(options: UseLicenseOptions = {}): UseLicenseResult {
       window.removeEventListener('paycheck:license-change', handleLicenseChange);
     };
   }, [reload]);
+
+  // Periodic sync interval (for online apps that want regular check-ins)
+  useEffect(() => {
+    if (!useSync || !syncInterval || !isLicensed) return;
+
+    // Enforce minimum interval to prevent API abuse, convert seconds to ms
+    const effectiveIntervalMs =
+      Math.max(syncInterval, MIN_SYNC_INTERVAL_SECONDS) * 1000;
+
+    const interval = setInterval(() => {
+      reload();
+    }, effectiveIntervalMs);
+
+    return () => clearInterval(interval);
+  }, [useSync, syncInterval, isLicensed, reload]);
 
   // Derived state
   const tier = license?.tier ?? null;
